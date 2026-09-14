@@ -1,0 +1,6 @@
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.13
+yfinance==1.7.0
+pandas==3.0.5
+python-dotenv==1.2.3
+tabulate==0.10.0
