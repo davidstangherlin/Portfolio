@@ -362,9 +362,34 @@ Two synthetic companies were seeded directly (not via Yahoo):
 ### 10.5 Clean-Install Verification
 A fresh Python venv built solely from `requirements.txt` (no dev environment carry-over) successfully imported every module in the codebase, including both CLI entrypoints.
 
-### 10.6 What Has *Not* Been Validated
-- **Live Yahoo Finance ingestion has never successfully returned real data.** Attempted from a sandboxed environment whose outbound network policy explicitly blocks `guce.yahoo.com` and `query2.finance.yahoo.com` (HTTP 403 at the proxy/gateway level — confirmed via proxy diagnostic logs, not a code-level failure). The ingestion code degraded exactly as designed under this failure (created `Company` fallback rows, logged per-ticker errors, returned zero counts, did not crash) — but the actual Yahoo field-mapping logic in `get_annual_fundamentals()` (§7.1) has only been read-reviewed, not exercised against real API responses.
+### 10.6 Live Ingestion — First Successful Run (2026-10-01)
+
+Run from the user's own Windows machine (unrestricted network), not the sandboxed dev environment — see §10.7 for that earlier, blocked attempt.
+
+- `run_ingestion` pulled 508 daily price bars (≈2 years of trading days) and 4 annual financial reports per ticker, for all 5 tickers (BHP, CBA, CSL, WES, WOW), zero errors
+- `run_valuation` ran without crashing, but **`roe`, `debt_to_equity`, and `margin_of_safety_percent` came back `NULL` for every company** — only `grossed_up_dividend_yield` populated correctly
+- **Root cause (confirmed by direct inspection of live `yfinance` 1.7.0 output):** Yahoo's income statement / balance sheet / cash flow row labels are **PascalCase with no spaces** (`NetIncome`, `StockholdersEquity`, `TotalDebt`, `FreeCashFlow`) in this version. `get_annual_fundamentals()` was written against spaced, title-cased labels (`"Net Income"`, `"Stockholders Equity"`), which do not match and so every `.index` lookup silently returned `None` — except `"EBIT"`, which is spelled identically both ways and so worked by coincidence. This is exactly the risk flagged in §11, issue #4, below, materialising on the very first live run.
+- **Fixed same day** — all row-label strings in `get_annual_fundamentals()` updated to the confirmed-correct PascalCase form (commit `<see §15>`). Diagnostic method: a standalone script dumping `.index` and `.columns` for `get_income_stmt()`, `get_balance_sheet()`, `get_cash_flow()` against a live ticker — kept below for reuse if Yahoo changes field names again.
+
+```python
+import yfinance as yf
+t = yf.Ticker("BHP.AX")
+for label, df in [("INCOME STATEMENT", t.get_income_stmt(freq="yearly")),
+                   ("BALANCE SHEET", t.get_balance_sheet(freq="yearly")),
+                   ("CASH FLOW", t.get_cash_flow(freq="yearly"))]:
+    print(f"=== {label} INDEX ===\n{list(df.index) if df is not None else 'None/empty'}")
+    print(f"=== {label} COLUMNS ===\n{list(df.columns) if df is not None else 'None/empty'}\n")
+```
+
+- **Not yet re-confirmed post-fix** — the fix was made and pushed, but a fresh `run_valuation` pull showing non-`NULL` ROE/D/E/margin-of-safety values has not yet been pasted back. Treat as fixed-but-unverified until that re-run is confirmed (see §15 for status at time of reading).
+
+### 10.7 Earlier Blocked Attempt (Sandboxed Dev Environment, 2026-09-15)
+
+Before the user's own machine was used, live ingestion was attempted from a sandboxed dev environment whose outbound network policy explicitly blocks `guce.yahoo.com` and `query2.finance.yahoo.com` (HTTP 403 at the proxy/gateway level — confirmed via proxy diagnostic logs, not a code-level failure). The ingestion code degraded exactly as designed under that failure (created `Company` fallback rows, logged per-ticker errors, returned zero counts, did not crash). This is what first surfaced the general risk later confirmed in §10.6.
+
+### 10.8 Still Outstanding
 - No automated test suite exists yet (see §12, Recommendations).
+- Given the field-name break found in §10.6, the **other** Yahoo-sourced field — `get_price_history()`'s `sharesOutstanding` lookup from `.info` — has not been separately re-verified against live data, though price/volume/market_cap ingestion itself did return correctly (§10.6). `.info` is a different API surface (plain dict, not a statement DataFrame) and less likely to share this exact failure mode, but it hasn't been explicitly checked.
 
 ---
 
@@ -375,8 +400,8 @@ A fresh Python venv built solely from `requirements.txt` (no dev environment car
 | 1 | `current_ratio` always `NULL` | Screener can't filter on liquidity | Add `current_assets`/`current_liabilities` columns to `financial_reports` if this metric matters |
 | 2 | Franking % / tax rate default to 100% / 30% for every ingested company | Wrong grossed-up yield for LICs, foreign-domiciled ASX listings, or any partly-franked payer | Manually correct affected rows after ingestion; no automated source exists for this data |
 | 3 | Shares outstanding is derived, not stored | A stale/wrong `market_cap` from Yahoo silently skews Graham Number, P/B, FCF/share, and DCF-per-share together | Consider adding a `shares_outstanding` column sourced independently, if data quality issues appear |
-| 4 | `yfinance` field names are unversioned and change without notice | Ingestion can silently return fewer fields over time (degrades gracefully, but coverage may quietly shrink) | Periodically spot-check `get_annual_fundamentals()` output against a known company's actual annual report |
-| 5 | Yahoo Finance blocked from this sandboxed dev environment | Live ingestion has never been run against real data (see §10.6) | Must be run from an unrestricted network (user's own machine — this is the intended deployment path) |
+| 4 | `yfinance` field names are unversioned and change without notice | **Materialised on the first live run (2026-10-01):** every balance-sheet/income/cash-flow field except EBIT came back `NULL` due to a PascalCase-vs-spaced naming mismatch. Fixed same day — see §10.6. Residual risk: Yahoo can change these labels again at any time | Use the diagnostic script in §10.6 to re-check field names if ROE/D-E/margin-of-safety start coming back `NULL` again after previously working |
+| 5 | Yahoo Finance blocked from the sandboxed dev environment used for initial development | Live ingestion couldn't be exercised until moved to the user's own machine (see §10.7) | Resolved — ingestion now runs from the user's own machine, which has normal network access |
 | 6 | No automated test suite | Regressions in the valuation formulas would only surface by manual inspection | See §12 |
 | 7 | `.env` holds a plaintext DB password | Standard local-dev risk, already `.gitignore`d | Fine for local use; use a secrets manager if ever deployed beyond a single machine |
 
@@ -438,7 +463,7 @@ If handing this document plus the source to another model for review, the highes
 1. **`src/valuation/dividends.py`** — confirm the franking credit formula and the percentage-to-fraction conversion are correct against the current ATO methodology
 2. **`src/valuation/dcf.py`** — confirm the two-stage DCF mechanics (particularly the terminal value formula and the point at which it's discounted back) match standard practice
 3. **`src/valuation/engine.py`, `_estimate_shares_outstanding()`** — this single derived value cascades into four other metrics; worth an opinion on whether deriving it from `market_cap / price` is more or less reliable than the NPAT/EPS fallback
-4. **`src/ingestion/yahoo_client.py`, `get_annual_fundamentals()`** — the Yahoo field-name mapping has been read-reviewed but never run against live data (see §10.6); a second opinion on likely field-name pitfalls would be valuable before the first live run
+4. **`src/ingestion/yahoo_client.py`, `get_annual_fundamentals()`** — field-name mapping was fixed on 2026-10-01 after live data revealed a naming mismatch (see §10.6); a second opinion on whether the corrected PascalCase labels are complete/robust (and whether the fallback chains — e.g. `StockholdersEquity` vs `CommonStockEquity` — pick the right one in edge cases) would be valuable
 5. **Upsert/coalesce strategy in `fundamentals_ingestion.py`** — worth confirming the "never let a NULL fetch overwrite good data" design is the right call versus simply always taking the latest fetch
 
 ---
@@ -452,3 +477,5 @@ If handing this document plus the source to another model for review, the highes
 | 2026-09-14 | Repository consolidated onto `main` as the sole/default branch (previously only existed as a feature branch with no base to PR against) |
 | 2026-09-15 | Live ingestion attempted from a sandboxed dev environment; blocked by that environment's network policy (Yahoo Finance denied at the proxy). Pipeline re-validated end-to-end using seeded BHP/CBA data to confirm valuation engine and screener remain correct independent of the network issue |
 | 2026-09-15 | This As-Built document created |
+| 2026-10-01 | First successful live ingestion, run from the user's own Windows machine (PostgreSQL installed natively after Docker was blocked by lack of virtualisation support): 508 price bars + 4 annual reports per ticker across 5 tickers, zero errors |
+| 2026-10-01 | Live run exposed a Yahoo field-naming mismatch (`get_annual_fundamentals()` used spaced labels; live API returns PascalCase) causing ROE, D/E and margin of safety to compute as `NULL` for every company. Root-caused via a live diagnostic dump of actual field names, fixed in `src/ingestion/yahoo_client.py`, and pushed. Re-run to confirm the fix not yet completed — see §10.6 |

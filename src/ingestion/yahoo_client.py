@@ -154,17 +154,23 @@ class YahooClient:
                     return None
                 return _to_decimal(cash_flow.loc[row, period_end])
 
-            operating_cf = cf("Operating Cash Flow") or cf("Total Cash From Operating Activities")
-            capex = cf("Capital Expenditure")
-            free_cf = cf("Free Cash Flow")
+            # NOTE: yfinance 1.7.x returns PascalCase, no-space row labels
+            # (e.g. "NetIncome", "StockholdersEquity") - NOT the spaced,
+            # title-cased form ("Net Income", "Stockholders Equity") used
+            # in earlier yfinance releases and in this module's first cut.
+            # Confirmed directly against a live pull (2026-10-01); see
+            # docs/AS_BUILT.md §11 for the history of this mismatch.
+            operating_cf = cf("OperatingCashFlow") or cf("CashFlowFromContinuingOperatingActivities")
+            capex = cf("CapitalExpenditure")
+            free_cf = cf("FreeCashFlow")
             if free_cf is None and operating_cf is not None and capex is not None:
                 # Yahoo reports capex as a negative outflow already.
                 free_cf = operating_cf + capex
 
-            total_debt = bal("Total Debt")
+            total_debt = bal("TotalDebt")
             if total_debt is None:
-                long_term = bal("Long Term Debt") or Decimal("0")
-                short_term = bal("Current Debt") or Decimal("0")
+                long_term = bal("LongTermDebt") or Decimal("0")
+                short_term = bal("CurrentDebt") or Decimal("0")
                 total_debt = long_term + short_term if (long_term or short_term) else None
 
             snapshots.append(
@@ -172,19 +178,19 @@ class YahooClient:
                     fiscal_year=report_date.year,
                     period_type="FY",
                     report_date=report_date,
-                    revenue=inc("Total Revenue"),
+                    revenue=inc("TotalRevenue"),
                     ebit=inc("EBIT"),
-                    net_profit_after_tax=inc("Net Income"),
+                    net_profit_after_tax=inc("NetIncome"),
                     operating_cash_flow=operating_cf,
                     free_cash_flow=free_cf,
                     capital_expenditure=capex,
-                    eps=inc("Diluted EPS") or inc("Basic EPS"),
-                    total_assets=bal("Total Assets"),
-                    total_liabilities=bal("Total Liabilities Net Minority Interest"),
-                    total_equity=bal("Stockholders Equity") or bal("Common Stock Equity"),
+                    eps=inc("DilutedEPS") or inc("BasicEPS"),
+                    total_assets=bal("TotalAssets"),
+                    total_liabilities=bal("TotalLiabilitiesNetMinorityInterest"),
+                    total_equity=bal("StockholdersEquity") or bal("CommonStockEquity"),
                     total_debt=total_debt,
-                    cash_and_equivalents=bal("Cash And Cash Equivalents"),
-                    net_tangible_assets=bal("Tangible Book Value"),
+                    cash_and_equivalents=bal("CashAndCashEquivalents"),
+                    net_tangible_assets=bal("TangibleBookValue"),
                     dividends_per_share=None,  # sourced separately via get_dividends_per_share
                 )
             )
