@@ -381,7 +381,19 @@ for label, df in [("INCOME STATEMENT", t.get_income_stmt(freq="yearly")),
     print(f"=== {label} COLUMNS ===\n{list(df.columns) if df is not None else 'None/empty'}\n")
 ```
 
-- **Not yet re-confirmed post-fix** — the fix was made and pushed, but a fresh `run_valuation` pull showing non-`NULL` ROE/D/E/margin-of-safety values has not yet been pasted back. Treat as fixed-but-unverified until that re-run is confirmed (see §15 for status at time of reading).
+- **Fix confirmed the same day.** Re-running ingestion (to overwrite the old `NULL`-populated rows with correctly-mapped data) followed by `run_valuation --all` produced real, non-`NULL` figures for all five companies:
+
+  | Ticker | ROE | D/E | Grossed-Up Yield | Margin of Safety |
+  |---|---|---|---|---|
+  | BHP | 19.90% | 0.55 | 5.73% | −33.76% |
+  | CBA | 13.81% | 2.78 | 4.82% | `NULL` (see note below) |
+  | CSL | −17.43% | 0.74 | 3.25% | −143.79% |
+  | WES | 36.03% | 1.59 | 4.19% | −74.97% |
+  | WOW | 23.73% | 3.44 | 3.64% | −32.51% |
+
+  **Note on CBA's `NULL` margin of safety:** this is expected, not a bug. `engine.py` only attempts a DCF when `free_cash_flow > 0` for the latest `FY` report (§8.4). Banks routinely report negative or highly volatile "free cash flow" under the conventional operating-CF-minus-capex definition, because loan book movements dominate operating cash flow — a standard DCF model doesn't meaningfully apply to financial-sector companies. This is a known limitation of applying a single generic DCF across all sectors (see §11 for a candidate addition to the known-issues table), not a data or code defect.
+
+  **Note on the negative margins of safety generally:** every company's DCF-implied intrinsic value came out below its current price at default assumptions (8% growth, 9% discount rate). That's a legitimate output, not a bug — it reads as "these five ASX blue chips are not Graham-cheap at current prices and default DCF assumptions," which is an unsurprising result for large, well-covered mega-caps. `screen_asx.py`'s default thresholds correctly returned zero matches on this five-company sample as a result.
 
 ### 10.7 Earlier Blocked Attempt (Sandboxed Dev Environment, 2026-09-15)
 
@@ -404,6 +416,7 @@ Before the user's own machine was used, live ingestion was attempted from a sand
 | 5 | Yahoo Finance blocked from the sandboxed dev environment used for initial development | Live ingestion couldn't be exercised until moved to the user's own machine (see §10.7) | Resolved — ingestion now runs from the user's own machine, which has normal network access |
 | 6 | No automated test suite | Regressions in the valuation formulas would only surface by manual inspection | See §12 |
 | 7 | `.env` holds a plaintext DB password | Standard local-dev risk, already `.gitignore`d | Fine for local use; use a secrets manager if ever deployed beyond a single machine |
+| 8 | A single generic DCF model is applied to every sector, including banks | Confirmed in practice (§10.6): CBA's `free_cash_flow` is not meaningfully positive under the standard operating-CF-minus-capex definition, since loan book movements dominate it for a bank — DCF is correctly skipped for CBA rather than producing a misleading number, but this means financial-sector companies will generally never get a margin-of-safety figure at all | Acceptable as-is (skip-rather-than-fabricate is the right default); a sector-aware valuation path (e.g. P/B or dividend-discount model for financials) would be the proper fix if screening banks matters |
 
 ---
 
@@ -478,4 +491,5 @@ If handing this document plus the source to another model for review, the highes
 | 2026-09-15 | Live ingestion attempted from a sandboxed dev environment; blocked by that environment's network policy (Yahoo Finance denied at the proxy). Pipeline re-validated end-to-end using seeded BHP/CBA data to confirm valuation engine and screener remain correct independent of the network issue |
 | 2026-09-15 | This As-Built document created |
 | 2026-10-01 | First successful live ingestion, run from the user's own Windows machine (PostgreSQL installed natively after Docker was blocked by lack of virtualisation support): 508 price bars + 4 annual reports per ticker across 5 tickers, zero errors |
-| 2026-10-01 | Live run exposed a Yahoo field-naming mismatch (`get_annual_fundamentals()` used spaced labels; live API returns PascalCase) causing ROE, D/E and margin of safety to compute as `NULL` for every company. Root-caused via a live diagnostic dump of actual field names, fixed in `src/ingestion/yahoo_client.py`, and pushed. Re-run to confirm the fix not yet completed — see §10.6 |
+| 2026-10-01 | Live run exposed a Yahoo field-naming mismatch (`get_annual_fundamentals()` used spaced labels; live API returns PascalCase) causing ROE, D/E and margin of safety to compute as `NULL` for every company. Root-caused via a live diagnostic dump of actual field names, fixed in `src/ingestion/yahoo_client.py`, and pushed |
+| 2026-10-01 | Fix confirmed: re-ingested + re-valued all 5 tickers with real, non-`NULL` ROE/D-E/margin-of-safety figures. Pipeline is now fully operational end-to-end on live data. Screener correctly returned zero matches on this sample under default thresholds (none of the five mega-caps clear a 20% margin of safety at current prices) |
