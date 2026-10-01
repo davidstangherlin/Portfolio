@@ -11,6 +11,7 @@ anything known to pay partly-franked or unfranked dividends.
 from __future__ import annotations
 
 import logging
+import time
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -73,20 +74,35 @@ def upsert_financial_report(session: Session, company_id, snapshot) -> None:
     session.execute(stmt)
 
 
-def ingest_fundamentals(session: Session, asx_codes: list[str], max_years: int = 4) -> dict[str, int]:
+def ingest_fundamentals(
+    session: Session, asx_codes: list[str], max_years: int = 4, delay_seconds: float = 0.0
+) -> dict[str, int]:
     """Ingest up to `max_years` of annual financial reports for each ASX
     code, including per-share dividends for each fiscal year. Returns
-    {asx_code: number of fiscal-year reports upserted}."""
+    {asx_code: number of fiscal-year reports upserted}.
+
+    Each ticker is isolated in its own try/except (see
+    `price_ingestion.ingest_daily_prices` for why this matters at scale).
+    `delay_seconds` paces requests between tickers to reduce the chance of
+    Yahoo rate-limiting a large batch."""
     results: dict[str, int] = {}
-    for asx_code in asx_codes:
-        client = YahooClient(asx_code)
-        company = get_or_create_company(session, asx_code, client=client)
-        snapshots = client.get_annual_fundamentals(max_years=max_years)
-        for snapshot in snapshots:
-            if snapshot.dividends_per_share is None:
-                snapshot.dividends_per_share = client.get_dividends_per_share(snapshot.fiscal_year)
-            upsert_financial_report(session, company.company_id, snapshot)
-        session.commit()
-        logger.info("Ingested %d annual reports for %s", len(snapshots), asx_code)
-        results[asx_code] = len(snapshots)
+    total = len(asx_codes)
+    for i, asx_code in enumerate(asx_codes, start=1):
+        try:
+            client = YahooClient(asx_code)
+            company = get_or_create_company(session, asx_code, client=client)
+            snapshots = client.get_annual_fundamentals(max_years=max_years)
+            for snapshot in snapshots:
+                if snapshot.dividends_per_share is None:
+                    snapshot.dividends_per_share = client.get_dividends_per_share(snapshot.fiscal_year)
+                upsert_financial_report(session, company.company_id, snapshot)
+            session.commit()
+            logger.info("[%d/%d] Ingested %d annual reports for %s", i, total, len(snapshots), asx_code)
+            results[asx_code] = len(snapshots)
+        except Exception:
+            session.rollback()
+            logger.exception("[%d/%d] Fundamentals ingestion failed for %s - skipping", i, total, asx_code)
+            results[asx_code] = 0
+        if delay_seconds and i < total:
+            time.sleep(delay_seconds)
     return results

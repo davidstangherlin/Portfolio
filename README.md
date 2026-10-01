@@ -45,6 +45,10 @@ psql "$DATABASE_URL" -f db/schema.sql
 # 1. Pull prices and fundamentals from Yahoo Finance for a set of ASX codes
 python -m src.ingestion.run_ingestion --tickers BHP CGF WES CBA --period 1y
 
+# For a large watchlist, use a file instead (one or more codes per line,
+# '#' comments allowed) and pace requests to ease Yahoo rate limiting:
+python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
+
 # 2. Compute valuation metrics (ratios, grossed-up yield, Graham Number, DCF,
 #    margin of safety) from the latest ingested data
 python -m src.valuation.run_valuation --all
