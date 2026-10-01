@@ -56,14 +56,24 @@ python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
 #    DCF/DDM intrinsic value, margin of safety) from the latest ingested data
 python -m src.valuation.run_valuation --all
 
-# 3. Screen for value opportunities
+# 3. Screen for value opportunities - shows every company, not just the
+#    ones that pass (see below)
 python screen_asx.py
 python screen_asx.py --min-roe 15 --min-yield 5 --sector Financials
+python screen_asx.py --passing-only              # old filtered-to-matches-only view
 ```
 
-Default screen thresholds: Margin of Safety > 20%, ROE > 12%, Debt/Equity < 0.80,
-Grossed-Up Dividend Yield > 4.5% (all four required; pass `--any-of` to match on
-any single criterion instead).
+`screen_asx.py` lists **every** company with a `Y`/`N` indicator column per
+criterion (`mos_ok`, `roe_ok`, `de_ok`, `yield_ok`) plus an `overall` column,
+rather than filtering non-matching companies out of the result entirely - so a
+company close to clearing the bar (or missing one input metric) stays visible
+instead of silently disappearing. Default thresholds used for the indicators:
+Margin of Safety > 20%, ROE > 12%, Debt/Equity < 0.80, Grossed-Up Dividend
+Yield > 4.5%. `overall` requires all four by default; pass `--any-of` to
+require only one. Pass `--passing-only` to filter down to just the rows where
+`overall = Y` (the screener's pre-2026-10 behaviour). Rows are ordered by
+margin of safety (best first) and unlimited by default; pass `--limit N` to cap
+how many are shown.
 
 **Sector-aware intrinsic valuation:** Financial Services and Real Estate companies
 are priced with a Dividend Discount Model instead of the standard DCF (banks,
@@ -130,9 +140,11 @@ keeps working if the repo is moved.
   `net_profit_after_tax / eps` when market cap is unavailable.
 - **Debt/Equity is structurally high for Financial Services companies** (banks'
   leverage is their business model, not a red flag the way it is for an
-  industrial company) - the default `--max-debt-equity 0.80` screen threshold
-  will filter out nearly every bank/insurer regardless of how cheap it is on
-  other measures. This is a threshold-tuning issue, not a valuation bug: the
-  DDM-based margin of safety for these companies is computed correctly (see
-  Workflow above); it's the D/E leg of the combined `AND` screen that needs a
-  separate, much higher threshold (or `--any-of`) when screening financials.
+  industrial company) - the default `--max-debt-equity 0.80` indicator
+  threshold will read `N` for nearly every bank/insurer regardless of how
+  cheap it is on other measures, pulling `overall` to `N` under the default
+  all-four-required logic. This is a threshold-tuning issue, not a valuation
+  bug: the DDM-based margin of safety for these companies is computed
+  correctly (see Workflow above); it's the `de_ok` leg of `overall` that
+  needs a much higher `--max-debt-equity` (or `--any-of`) when screening
+  financials - the row itself is always shown either way.
