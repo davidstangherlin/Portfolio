@@ -226,16 +226,32 @@ def run_valuation(
     **dcf_kwargs,
 ) -> dict[str, dict]:
     """Compute and upsert valuation metrics for the given ASX codes, or all
-    active companies if none are given. Returns {asx_code: metrics}."""
+    active companies if none are given. Returns {asx_code: metrics}.
+
+    Each company is isolated in its own try/except and committed
+    individually (added 2026-10-02, after a single bad company's
+    numeric overflow aborted a ~500-company run and lost every other
+    company's work, since the whole batch previously shared one
+    commit() at the end - see docs/AS_BUILT.md known-issue #12). A
+    failure on one company is logged and the run continues with the
+    rest, matching the pattern already used in price_ingestion.py and
+    fundamentals_ingestion.py."""
     stmt = select(Company).where(Company.is_active.is_(True))
     if asx_codes:
         stmt = select(Company).where(Company.asx_code.in_(asx_codes))
 
+    companies = list(session.execute(stmt).scalars())
+    total = len(companies)
     results: dict[str, dict] = {}
-    for company in session.execute(stmt).scalars():
-        metrics = run_valuation_for_company(session, company, fcf_average_years=fcf_average_years, **dcf_kwargs)
-        if metrics is not None:
-            results[company.asx_code] = metrics
+    for i, company in enumerate(companies, start=1):
+        try:
+            metrics = run_valuation_for_company(session, company, fcf_average_years=fcf_average_years, **dcf_kwargs)
+            session.commit()
+            if metrics is not None:
+                results[company.asx_code] = metrics
+                logger.info("[%d/%d] Valued %s", i, total, company.asx_code)
+        except Exception:
+            session.rollback()
+            logger.exception("[%d/%d] Valuation failed for %s - skipping", i, total, company.asx_code)
 
-    session.commit()
     return results

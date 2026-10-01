@@ -70,8 +70,25 @@ def two_stage_dcf(
     )
 
 
+# valuation_metrics.margin_of_safety_percent is NUMERIC(6,2): max storable
+# magnitude is 9999.99. Kept well under that as a sanity threshold, not
+# just a column-overflow workaround - a result past this is a sign the
+# DCF itself broke down (almost always a near-zero intrinsic_value, e.g.
+# from a bad shares-outstanding estimate for a micro-cap - see
+# docs/AS_BUILT.md known-issue #3), not a meaningful investing signal.
+_MARGIN_OF_SAFETY_SANITY_LIMIT = Decimal("5000")
+
+
 def margin_of_safety_percent(intrinsic_value: Decimal | None, current_price: Decimal | None) -> Decimal | None:
-    """((Intrinsic Value - Current Price) / Intrinsic Value) * 100"""
+    """((Intrinsic Value - Current Price) / Intrinsic Value) * 100
+
+    Returns None (rather than a technically-correct but meaningless and
+    DB-overflowing figure) when intrinsic_value is so small relative to
+    current_price that the result would be an implausible extreme - a
+    sign the DCF broke down for this company, not a real result."""
     if not intrinsic_value or intrinsic_value <= 0 or current_price is None:
         return None
-    return ((intrinsic_value - current_price) / intrinsic_value) * 100
+    result = ((intrinsic_value - current_price) / intrinsic_value) * 100
+    if abs(result) > _MARGIN_OF_SAFETY_SANITY_LIMIT:
+        return None
+    return result
