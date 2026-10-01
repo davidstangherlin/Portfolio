@@ -539,3 +539,49 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | While implementing `payout_ratio`, found and fixed a real schema-migration bug before it reached the live database: `CREATE OR REPLACE VIEW` cannot insert a new column in the middle of an existing view's column list (only append at the end) - the first attempt (placing `payout_ratio` between `grossed_up_dividend_yield` and `dcf_intrinsic_value`) failed with `ERROR: cannot change name of view column` when tested against a simulated pre-existing database. Fixed by appending the column at the end of the view's `SELECT` instead (no effect on CLI output order, since `screen_asx.py` selects by name). Validated the full migration path end-to-end: an old-schema database with real data in it, upgraded via the new `db/schema.sql`, confirmed to both preserve the existing data and add the new column cleanly |
 | 2026-10-02 | User re-ran `run_valuation --all` across the full 501-company database (after the schema migration above) and hit two more individual-company crashes, each on a different field than any guard already covered: BRN's `roic` at 10,129.90% (`NUMERIC(6,2)` overflow) and WHI's `pb_ratio` at ~203 million plus `roe` at 134,600% (`NUMERIC(10,2)`/`NUMERIC(6,2)` overflow). The #13 crash-isolation fix worked exactly as designed - 485/501 companies still valued successfully despite these two failures - but each of the two still lost its entire row to one bad field. Root-caused as the same overflow failure mode recurring on new fields, not a one-off: fixed with a generic `_clamp_to_column_precision()` guard (known-issue #15) applied to all 14 `valuation_metrics` columns before every upsert, derived mechanically from `db/schema.sql`'s own column definitions. Validated by replaying both companies' exact failing payloads from their tracebacks against a live PostgreSQL instance: both now upsert successfully, with only the pathological field nulled and every other valid field preserved |
 | 2026-10-02 | User re-ran again: zero crashes, 487/501 valued (exactly the +2 recovery expected). But the console summary for WHI still printed `ROE=134600%` despite the database correctly holding `NULL` - caught directly from the user's own terminal output, not a self-generated test. Root cause: `run_valuation_for_company()` was returning its own pre-clamp `metrics` dict rather than the clamped one `upsert_valuation_metric()` computed and discarded internally - a real console-vs-database inconsistency, not a data bug. Fixed same day: `upsert_valuation_metric()` now returns the clamped dict, and callers use that, so logged/returned values are guaranteed to match what's actually stored. Validated end-to-end against a company engineered to overflow `roe`: both the returned dict and a direct database query now agree (`None` in both), where before the fix they disagreed |
+| 2026-10-02 | User confirmed the fix live: re-ran `run_valuation --all` + `screen_asx.py` and pasted the full output. Zero crashes, zero errors across all 501 companies; WHI's console line now correctly reads `ROE=None%`, matching the database. The 17-company screener result is unchanged (expected - BRN/WHI never cleared thresholds either way). Pipeline considered stable and hardened at full watchlist scale as of this date |
+
+---
+
+## 16. Prompts to Recreate This Project
+
+A condensed, ordered record of the prompts that actually built this project, kept here as a design-intent record, for rebuilding an equivalent system elsewhere, and as onboarding context for anyone (human or AI) picking this up. Not a literal transcript - operational debugging exchanges ("run this command", "paste that output") are omitted; what's kept are the prompts that drove a design decision or a piece of work. The current repository already contains every fix below - don't replay this list against this repo, only against a fresh one.
+
+1. **Schema.** Provided a draft PostgreSQL schema (companies, daily_prices, financial_reports, valuation_metrics, an `asx_value_screener` view) for an ASX value-investing database, targeting franking credits, dividend yields, debt/equity, and intrinsic valuation. → Fixed an invalid-syntax bug (`TIMESTAMP WITH TIMEZONE` → `TIMESTAMP WITH TIME ZONE`) found by actually running it, not just reading it.
+
+2. **Full pipeline build.** *"You are an expert Python engineer and Quantitative Value Investing Analyst specializing in ASX equities. Build a Python module using yfinance to ingest daily prices and financial report histories for ASX listed stocks (append .AX to ticker codes). Compute ASX Grossed-Up Dividend Yields incorporating franking percentages [formula given]. Compute Graham Number = SQRT(22.5 × EPS × Book Value Per Share). Compute a 2-stage DCF intrinsic valuation model with customizable growth rate and baseline 8-10% discount rate. Set up SQLAlchemy ORM models matching all schema tables. Construct a CLI screener (screen_asx.py) querying the database for Margin of Safety > 20%, ROE > 12%, Debt to Equity < 0.80, Grossed-Up Yield > 4.5%. Set up the initial project folder layout (src/models, src/ingestion, src/valuation) and write the base code implementations."* → Produced the entire `src/` tree, `requirements.txt`, `.env.example`, `README.md`.
+
+3. **As-built documentation.** *"Can you give me an as built document? I want to be able to use it to fault find, rebuild if required and have ChatGPT check code design."* → Produced `docs/AS_BUILT.md` with architecture, schema ERD, module design notes, a fault-finding table, a rebuild runbook, and notes aimed specifically at an external code-design review.
+
+4. **Live validation, iteratively.** Ran the pipeline for real (not just unit-tested) against a handful of tickers at a time, in this order: `BHP CBA CSL WES WOW` → `GMG LLC CHC SUN RRF`. Each real run surfaced a genuine bug or design gap (wrong Yahoo field-name casing, single-year DCF volatility, no way to flag a special dividend) that got root-caused against the actual failing data and fixed before moving on - never patched speculatively.
+
+5. **Scale.** *"Widen the watchlist to asx 300"* (and, practically, to a ~500-company All Ordinaries list the user sourced themselves). → Forced two real engineering fixes: bulk ticker input (`--tickers-file`, `--delay`) and per-company crash isolation in both ingestion and valuation, because a single bad company at that scale could otherwise lose the whole batch's work. Also forced two numeric-overflow fixes once genuinely pathological micro-cap data (10,000%+ ratios) started appearing, which never showed up at 5-9 ticker scale.
+
+6. **This section.** *"Update my as built guide, with prompts to recreate. Include suggested next prompts to start next time."*
+
+---
+
+## 17. Suggested Next Prompts
+
+Ready-to-use prompts for picking this project back up. Each assumes you're starting a fresh session with the code already on your machine (`git pull` first) and the database already populated from the ~500-company All Ordinaries run.
+
+**Resume / orient:**
+> "Pull the latest from the Portfolio repo, read docs/AS_BUILT.md, and give me a one-screen status summary - what's working, what's outstanding, and what you'd recommend doing next."
+
+**Deep-dive the strongest candidates (lowest data-quality doubt):**
+> "Of the 17 companies currently clearing the screen, RIO, FMG, JBH, QBE and SUN are the ones with the least data-quality doubt attached. For each, pull the last 4 years of financial_reports, sanity-check the raw EPS/NPAT/equity/FCF trend, and tell me which ones look like genuine value versus which ones are being flattered by this quarter's numbers."
+
+**Source and load the real ASX 300 (if you want the narrower, more liquid universe instead of the broader All Ords list):**
+> "I've downloaded the current ASX 300 constituent list from [S&P/ASX source] and saved it as asx300.txt. Run the full ingestion and valuation pipeline against it and show me the screener results compared to what the All Ords run found."
+
+**Automate it:**
+> "Set up a Windows Task Scheduler job that runs ingestion and valuation daily after market close, so screen_asx.py is always working off current data without me running commands by hand. Walk me through creating the scheduled task."
+
+**Sector-aware valuation (known-issue #8):**
+> "Known-issue #8 says the generic DCF doesn't suit banks, REITs and insurers. Design and implement a sector-aware valuation path - at minimum, a dividend-discount or P/B-based approach for Financial Services companies - so they don't just get silently skipped for margin of safety."
+
+**Harden further:**
+> "There's no automated test suite yet (known-issue #6). Write one covering the valuation formulas (dividends.py, graham.py, dcf.py) and the overflow/clamping logic in engine.py, using the real company figures already documented in AS_BUILT.md as test fixtures."
+
+**Sanity-check a specific result before acting on it:**
+> "Before I act on [TICKER]'s result, pull its raw financial_reports history and walk me through whether the numbers feeding its valuation look trustworthy, the way we did for SUN and TWR."
