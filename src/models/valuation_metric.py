@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,7 @@ class ValuationMetric(Base):
     dcf_intrinsic_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     graham_number: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     margin_of_safety_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    valuation_method: Mapped[str | None] = mapped_column(String(4))  # 'DCF' or 'DDM' - see db/schema.sql
 
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.current_timestamp()

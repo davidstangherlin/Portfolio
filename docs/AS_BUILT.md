@@ -13,7 +13,7 @@
 
 ## 1. Executive Summary
 
-This system is a local ASX (Australian Securities Exchange) value-investing research tool. It ingests daily prices and annual financial fundamentals for ASX-listed companies from Yahoo Finance, computes a standard set of value-investing metrics (grossed-up franked dividend yield, Graham Number, 2-stage DCF intrinsic value, margin of safety, and classic ratios), stores everything in PostgreSQL, and exposes a command-line screener that filters companies against configurable Graham/Buffett-style thresholds.
+This system is a local ASX (Australian Securities Exchange) value-investing research tool. It ingests daily prices and annual financial fundamentals for ASX-listed companies from Yahoo Finance, computes a standard set of value-investing metrics (grossed-up franked dividend yield, Graham Number, a 2-stage DCF or, for Financial Services/Real Estate companies, a Dividend Discount Model intrinsic value, margin of safety, and classic ratios), stores everything in PostgreSQL, and exposes a command-line screener that filters companies against configurable Graham/Buffett-style thresholds.
 
 **Status as at this document's date:** code complete and mechanically validated end-to-end against a live PostgreSQL instance using seeded data. Live Yahoo Finance ingestion has **not yet been run successfully from a real internet connection** — it was attempted from a sandboxed development environment whose network policy blocks Yahoo Finance outright (see §8, Known Issues). It should work unmodified from a normal internet connection; this has not yet been confirmed by the user.
 
@@ -35,7 +35,7 @@ flowchart LR
     end
     subgraph Valuation["src/valuation/"]
         ENG[engine.py]
-        CALC[dividends.py / graham.py / dcf.py]
+        CALC[dividends.py / graham.py / dcf.py / ddm.py]
     end
     subgraph CLI
         SCREEN[screen_asx.py]
@@ -74,8 +74,9 @@ Portfolio/
 │   └── valuation/                      Financial calculations + orchestration
 │       ├── dividends.py                Grossed-up (franked) dividend yield
 │       ├── graham.py                   Graham Number
-│       ├── dcf.py                      2-stage discounted cash flow
-│       ├── engine.py                   Pulls DB inputs together, computes, upserts
+│       ├── dcf.py                      2-stage discounted cash flow (most sectors)
+│       ├── ddm.py                      2-stage dividend discount model (Financial Services / Real Estate)
+│       ├── engine.py                   Pulls DB inputs together, picks DCF vs DDM by sector, upserts
 │       └── run_valuation.py            CLI entrypoint
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── requirements.txt                    Pinned dependency versions
@@ -181,6 +182,7 @@ erDiagram
         numeric dcf_intrinsic_value
         numeric graham_number
         numeric margin_of_safety_percent
+        varchar valuation_method "added 2026-10-02: 'DCF' or 'DDM', see 8.5/known-issue 8"
         timestamptz created_at
     }
 ```
@@ -301,8 +303,9 @@ Graham Number = sqrt(22.5 × EPS × BVPS)
 
 `book_value_per_share()` computes `BVPS = total_equity / shares_outstanding`. Returns `None` (not zero, not an exception) whenever EPS or BVPS is `≤ 0`, since Graham's method is explicitly undefined for loss-making or negative-equity companies.
 
-### 8.3 `dcf.py` — Two-Stage DCF
+### 8.3 `dcf.py` / `ddm.py` — Two-Stage DCF and Dividend Discount Model
 
+**`dcf.py` — Two-Stage DCF** (used for most sectors):
 - **Stage 1:** grows the latest `free_cash_flow` at `growth_rate` for `stage1_years` (default 5), discounting each year at `discount_rate`
 - **Stage 2:** Gordon Growth terminal value on the final stage-1 FCF, grown at `terminal_growth_rate` in perpetuity, discounted back `stage1_years` periods
 - **Equity value** = PV(stage 1) + PV(terminal) + cash − total debt
@@ -314,9 +317,26 @@ Defaults: `growth_rate = 8%`, `discount_rate = 9%` (task spec's 8–10% baseline
 
 **Sanity guard on `margin_of_safety_percent()`** (added 2026-10-02, known-issue #12): returns `None` rather than a wild, DB-overflowing percentage when `dcf_intrinsic_value` is implausibly small relative to price. Found in practice at 500-ticker scale — a micro-cap produced a −128,521.87% "margin of safety," which crashed the entire valuation run until this guard (and the per-company isolation below) were added.
 
+**`ddm.py` — Two-Stage Dividend Discount Model** (added 2026-10-02, known-issue #8; used only for Financial Services / Real Estate — see §8.4 for the sector routing logic):
+- Same two-stage mechanics as `dcf.py` (stage-1 explicit growth for `stage1_years`, then a Gordon Growth terminal value), substituted onto `dividends_per_share` instead of `free_cash_flow`:
+  `PV(stage1) = Σ D·(1+g)^t / (1+r)^t`, terminal value on the final stage-1 dividend, discounted back the same way.
+- **Intrinsic value per share** = PV(stage 1) + PV(terminal) — directly a per-share figure, with **no separate cash/debt netting and no `shares_outstanding` input**: dividends are already paid out of post-tax, post-financing earnings, so there's nothing left to add back or net off, and this path doesn't carry the shares-outstanding estimation risk flagged in known-issue #3.
+- Defaults: `growth_rate = 5%` (dividend growth is typically steadier/lower than FCF growth — a deliberate difference from `dcf.py`'s 8% default), `discount_rate = 9%`, `terminal_growth_rate = 2.5%`, `stage1_years = 5`. Reuses the same `--growth-rate`/`--discount-rate`/`--terminal-growth-rate`/`--stage1-years` CLI flags as the DCF path (see §14 for the deliberate simplification this represents — one global assumption set, not a second set of per-sector CLI flags).
+- **Why dividends instead of FCF for these sectors:** banks, insurers and REITs routinely report negative or highly volatile "free cash flow" under the standard operating-CF-minus-capex definition, because loan book movements, policy reserve movements and property revaluations dominate it rather than the kind of reinvestment capex the DCF model assumes (confirmed in practice — see §10.6's note on CBA). Dividends are the natural analogue: these are dividend-driven business models almost by definition, and typically pay out a high, relatively stable share of earnings.
+- Same multi-year averaging as the DCF's FCF base: `_average_dividend_per_share()` in `engine.py` uses the mean `dividends_per_share` across the same `fcf_average_years` window, for the same single-year-volatility reasons documented in §8.4 for the DCF (and consistent with the `payout_ratio` warning in §8.1 for a special-dividend year).
+- Returns `None` if the base dividend is `≤ 0` (a non-dividend-paying financial/REIT correctly gets no DDM intrinsic value rather than a fabricated one) — same "skip rather than fabricate" philosophy used everywhere else in this codebase.
+
 ### 8.4 `engine.py` — Orchestration
 
 For each company: pulls the latest `daily_prices` row and the last `fcf_average_years` (default 3) `financial_reports` rows (`period_type = 'FY'` only — half-year reports are stored but not currently used in valuation), computes every `valuation_metrics` column, and upserts via `INSERT ... ON CONFLICT (company_id, as_of_date) DO UPDATE`.
+
+**Sector-aware DCF-vs-DDM routing** (added 2026-10-02, known-issue #8, resolved): `compute_metrics()` checks `company.sector` against `_SECTOR_AWARE_SECTORS = {"Financial Services", "Real Estate"}` (spelled exactly as yfinance's `.info["sector"]` returns them for ASX companies) and picks the model accordingly — `ddm.two_stage_ddm()` for those two sectors, `dcf.two_stage_dcf()` for everything else. Both write into the same `dcf_intrinsic_value` column (no schema duplication), with a new `valuation_method` column (`'DCF'` / `'DDM'` / `NULL`) recording which one actually ran, so the screener and any downstream review can tell the two kinds of number apart rather than treating every `dcf_intrinsic_value` identically. `margin_of_safety_percent()` is computed identically either way — it only needs an intrinsic value and a price, not which model produced the intrinsic value.
+
+**`growth_rate` defaults per-model when not explicitly set on the CLI.** `compute_metrics()`'s `growth_rate` parameter defaults to `None`, not a fixed value: when `None`, it resolves to `ddm.DEFAULT_GROWTH_RATE` (5%) for sector-aware companies or `dcf.DEFAULT_GROWTH_RATE` (8%) otherwise, reflecting that sustained dividend growth is typically a more conservative assumption than FCF growth. Passing an explicit `--growth-rate` on `run_valuation.py` overrides this and applies uniformly to whichever model runs for a given company, same as before. `discount_rate`, `terminal_growth_rate` and `stage1_years` are shared across both models unconditionally (no per-sector default) — only the stage-1 growth assumption was judged to need a different starting point by sector; see §14, item 7 for the design trade-off this represents.
+
+**Why this was needed — the CBA finding (§10.6), generalised.** The first live run already showed CBA getting a `NULL` margin of safety because its `free_cash_flow` wasn't meaningfully positive under the standard DCF definition — correctly skipped rather than fabricated, but it meant **every** Financial Services and Real Estate company would silently never get a margin-of-safety figure, a real coverage gap for a value screener (banks, insurers and REITs are a meaningful slice of the ASX). The fix doesn't change the "don't fabricate" philosophy — it changes which input the model is built on for these sectors, since dividends (not FCF) are the value driver that actually behaves sensibly for them.
+
+**Validated with synthetic data** (not live, since this needs a specific sector/FCF combination that's awkward to guarantee from a live sample): seeded a synthetic bank (Financial Services sector, `free_cash_flow` negative in every one of 4 years — realistic for a bank's loan-book-dominated operating cash flow — but a real, growing 4-year dividend history) against a disposable PostgreSQL instance alongside a synthetic miner (ordinary sector, positive FCF, as a control). Confirmed: the bank correctly got `valuation_method = 'DDM'` with a real, non-`NULL` margin of safety (37.26% in the test data) where the old code would have left it `NULL`; the miner correctly got `valuation_method = 'DCF'`, completely unaffected by the change. Both appeared correctly in `screen_asx.py`'s output, with the new `valuation_method` column distinguishing them.
 
 **Per-company isolation and incremental commits** (added 2026-10-02, known-issue #13): `run_valuation()` now commits after each company rather than once at the end, and wraps each company in its own try/except. Before this fix, a single company's unhandled exception anywhere in the batch would lose every other company's already-computed work too, since nothing had been committed yet — this is exactly what happened on the first 500-ticker run, before the margin-of-safety guard above existed. Matches the ingestion layer's existing per-ticker isolation pattern (§7.3).
 
@@ -364,6 +384,8 @@ Additional flags: `--sector` (exact match filter), `--limit` (default 25), `--an
 Output rendered via `tabulate` in `simple` format with 2-decimal-place float formatting.
 
 **`payout_ratio` warning (added 2026-10-02):** a `payout_ratio` column is included in every result row, and any row with `payout_ratio > 150%` triggers a printed warning listing the affected tickers after the table — a visible flag, not a filter; the row still appears, the yield still shows, but the warning makes clear it likely reflects a one-off special dividend rather than sustainable income. See §8.1 for the TWR case that motivated this.
+
+**`valuation_method` column (added 2026-10-02, known-issue #8):** every row now also shows `valuation_method` (`DCF` or `DDM`), so it's visible at a glance which intrinsic-value model priced that company — see §8.3/§8.4 for why Financial Services and Real Estate companies are priced differently. Note the default `--max-debt-equity 0.80` threshold is structural for banks (leverage is their business model, not a risk flag the way it is for an industrial company) and will filter out nearly every Financial Services company regardless of how cheap it is on other measures; use a much higher `--max-debt-equity` or `--any-of` when screening financials specifically (also documented in README.md).
 
 ---
 
@@ -434,6 +456,21 @@ Before the user's own machine was used, live ingestion was attempted from a sand
 - No automated test suite exists yet (see §12, Recommendations).
 - Given the field-name break found in §10.6, the **other** Yahoo-sourced field — `get_price_history()`'s `sharesOutstanding` lookup from `.info` — has not been separately re-verified against live data, though price/volume/market_cap ingestion itself did return correctly (§10.6). `.info` is a different API surface (plain dict, not a statement DataFrame) and less likely to share this exact failure mode, but it hasn't been explicitly checked.
 
+### 10.9 Sector-Aware DDM — Synthetic Data (2026-10-02)
+
+Validated against a disposable PostgreSQL instance (not live Yahoo data — the specific combination needed, a real Financial Services company with a clean multi-year negative-FCF-but-growing-dividend history, is awkward to guarantee from whatever happens to be in the live database at test time, so synthetic data gives a controlled, repeatable check):
+
+- **Synthetic bank** (`BANK.AX`, sector `Financial Services`): `free_cash_flow` set **negative in all 4 years** (−$3.0bn to −$3.5bn, modelling loan-book growth dominating operating cash flow, as real banks report) but a real, steadily growing 4-year dividend history ($1.80 → $2.10/share). Old code path: `dcf_fcf > 0` check fails → `dcf_intrinsic_value` and `margin_of_safety_percent` both `NULL`, company invisible to the screener under any threshold. New code path: correctly routed to `ddm.two_stage_ddm()` on `sector == "Financial Services"`.
+- **Synthetic miner** (`MINE.AX`, sector `Basic Materials`, control): positive FCF across all 4 years, to confirm the existing DCF path is completely unaffected by this change. Correctly routed to `dcf.two_stage_dcf()`, `valuation_method = 'DCF'`, `dcf_intrinsic_value = 139.4462`, `margin_of_safety_percent = 71.32%` — identical in every run below, regardless of the `--growth-rate` flag's interaction with the DDM path.
+- **Per-model default growth rate, confirmed by running the same seeded database twice:**
+  - Run 1, no `--growth-rate` flag (should pick each model's own default: 8% DCF / 5% DDM): BANK → `valuation_method = 'DDM'`, `dcf_intrinsic_value = 35.1125`, `margin_of_safety_percent = 28.80%`.
+  - Run 2, explicit `--growth-rate 0.08` (should apply uniformly to both models, making BANK's DDM use the same 8% as MINE's DCF): BANK → `dcf_intrinsic_value = 39.8462`, `margin_of_safety_percent = 37.26%` — a higher intrinsic value than Run 1, exactly as expected from a higher assumed growth rate, and matching an earlier routing-only test run with growth-rate held at 8% for both paths.
+  - This confirms both halves of the design: left unset, the DDM correctly uses its own more conservative 5% default rather than silently inheriting the DCF's 8%; set explicitly, the override still applies uniformly to whichever model runs, unchanged from pre-DDM behaviour.
+- **Screener confirmation:** `screen_asx.py --any-of --min-margin-of-safety 30` correctly returned both companies, with `BANK` showing `valuation_method = DDM` and `MINE` showing `valuation_method = DCF` in the output — confirming the new column surfaces correctly end-to-end, not just in the database.
+- **Residual note surfaced by this test, not a defect:** `BANK`'s synthetic `debt_to_equity` (14.0, realistic for a bank's balance sheet) failed the screener's default `--max-debt-equity 0.80` threshold even with a real margin of safety computed — confirming this threshold is structurally unsuited to Financial Services companies regardless of how the DCF-vs-DDM question is resolved. Documented in README.md and §9 as a threshold-tuning note (use `--max-debt-equity` with a much higher value, or `--any-of`, when screening financials), not treated as a new known-issue since it's a screener-default question, not a valuation-correctness one.
+- Schema migration re-verified idempotent across two separate disposable databases: re-running `db/schema.sql` correctly reported `payout_ratio`/`valuation_method already exists, skipping` with no errors each time.
+- Test artifacts (seed scripts, both disposable databases) deleted after validation; nothing from this test is part of the committed repository.
+
 ---
 
 ## 11. Known Issues & Design Limitations
@@ -447,7 +484,7 @@ Before the user's own machine was used, live ingestion was attempted from a sand
 | 5 | Yahoo Finance blocked from the sandboxed dev environment used for initial development | Live ingestion couldn't be exercised until moved to the user's own machine (see §10.7) | Resolved — ingestion now runs from the user's own machine, which has normal network access |
 | 6 | No automated test suite | Regressions in the valuation formulas would only surface by manual inspection | See §12 |
 | 7 | `.env` holds a plaintext DB password | Standard local-dev risk, already `.gitignore`d | Fine for local use; use a secrets manager if ever deployed beyond a single machine |
-| 8 | A single generic DCF model is applied to every sector, including banks | Confirmed in practice (§10.6): CBA's `free_cash_flow` is not meaningfully positive under the standard operating-CF-minus-capex definition, since loan book movements dominate it for a bank — DCF is correctly skipped for CBA rather than producing a misleading number, but this means financial-sector companies will generally never get a margin-of-safety figure at all | Acceptable as-is (skip-rather-than-fabricate is the right default); a sector-aware valuation path (e.g. P/B or dividend-discount model for financials) would be the proper fix if screening banks matters |
+| 8 | ~~A single generic DCF model is applied to every sector, including banks~~ **RESOLVED 2026-10-02** | Confirmed in practice (§10.6): CBA's `free_cash_flow` is not meaningfully positive under the standard operating-CF-minus-capex definition, since loan book movements dominate it for a bank — DCF is correctly skipped for CBA rather than producing a misleading number, but this meant financial-sector (and REIT) companies would generally never get a margin-of-safety figure at all | Fixed: `engine.py` now routes Financial Services and Real Estate companies to a new two-stage Dividend Discount Model (`src/valuation/ddm.py`) instead of the FCF-based DCF, with a new `valuation_method` column recording which model priced each company. Validated with synthetic data (§10.9): a bank with negative FCF in all 4 years but a real dividend history now gets a usable margin-of-safety figure instead of `NULL`. Residual note: the screener's default `--max-debt-equity 0.80` is still structurally unsuited to financials (leverage is their business model) — a threshold-tuning question, documented in README.md/§9, not a valuation defect |
 | 9 | ~~DCF used only the single latest year's `free_cash_flow` as its base~~ **RESOLVED 2026-10-02** | Was highly sensitive to whichever year happened to be most recent — SUN's margin of safety swung +34% to −10% across reasonable growth/discount scenarios purely because of this (§8.4, §10.6) | Fixed: DCF base is now a `fcf_average_years`-year (default 3) simple mean, configurable via `--fcf-average-years` on `run_valuation.py` (set to 1 to restore old behaviour) |
 | 10 | ~~One bad ticker could abort an entire ingestion batch; no pacing for large batches~~ **RESOLVED 2026-10-02** | Fine at 5-9 tickers, but a real risk once scaling to hundreds (e.g. a full index) — one edge-case ticker losing the rest of the run | Fixed: each ticker is isolated in its own try/except in both ingestion modules (logs and continues); `--delay` added to `run_ingestion.py` to pace requests. See §7.3-§7.5 |
 | 11 | **No official, verified ASX 300 (or any index) constituent list is bundled with this project** | The codebase has no way to look up "what's currently in the ASX 300" — it only knows about whatever tickers you explicitly feed it via `--tickers`/`--tickers-file`. Hand-typing or AI-recalled ticker lists for an official index are both unreliable: index membership changes quarterly, and neither a human's memory nor a model's training data is a live feed | Source the current constituent list from an authoritative provider (ASX's own index data, or S&P Dow Jones Indices' published ASX 300 factsheet) and save it as a `--tickers-file`. Revisit each quarter if running this against the index on an ongoing basis — rebalances happen regularly |
@@ -503,7 +540,8 @@ psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, va
 | Ingestion returns `0` for every ticker but doesn't error | Same as above — check the logs, not just the return value; the code always degrades gracefully rather than crashing | See previous row |
 | `screen_asx.py` returns "No companies matched" unexpectedly | Either genuinely no companies clear the bar, or `run_valuation` hasn't been (re)run since the last ingestion | Run `python -m src.valuation.run_valuation --all` before screening; check `valuation_metrics.as_of_date` is recent |
 | Grossed-up yield looks absurd (very large or negative) | `franking_percentage`/`corporate_tax_rate` stored incorrectly (e.g. as a fraction `1.0` instead of `100.0`) | These columns must be whole-number percentages per the schema; check `dividends.py`'s `/100` conversion assumption still holds |
-| Margin of safety is always `None` for a company with real data | `free_cash_flow` is `None` or `≤ 0` for that company's latest `FY` report — DCF is intentionally not computed in that case | Check the source `financial_reports` row; this is by design, not a bug |
+| Margin of safety is always `None` for a company with real data | For most sectors: `free_cash_flow` is `None`/`≤ 0` across the averaging window. For Financial Services/Real Estate (§8.3/§8.4): `dividends_per_share` is `None`/`≤ 0` across the same window — these use the DDM, not the DCF, and won't have a `dcf_free_cash_flow`-driven result regardless of FCF | Check the source `financial_reports` rows and `valuation_metrics.valuation_method` (will be `NULL` if neither model ran); this is by design, not a bug |
+| Margin of safety is `None` specifically for a bank/insurer/REIT with real dividends | Check `companies.sector` matches `_SECTOR_AWARE_SECTORS` exactly (`"Financial Services"`, `"Real Estate"` — yfinance's exact spelling) | A sector spelled differently (e.g. a stale/partial Yahoo profile) falls through to the DCF path instead of the DDM path and will likely come back `NULL` on negative FCF |
 | `TIMESTAMP WITH TIMEZONE` syntax error if re-authoring the schema by hand | Invalid PostgreSQL syntax — correct form is `TIMESTAMP WITH TIME ZONE` | Already fixed in the committed `db/schema.sql`; don't reintroduce this typo |
 
 ---
@@ -518,6 +556,7 @@ If handing this document plus the source to another model for review, the highes
 4. **`src/ingestion/yahoo_client.py`, `get_annual_fundamentals()`** — field-name mapping was fixed on 2026-10-01 after live data revealed a naming mismatch (see §10.6); a second opinion on whether the corrected PascalCase labels are complete/robust (and whether the fallback chains — e.g. `StockholdersEquity` vs `CommonStockEquity` — pick the right one in edge cases) would be valuable
 5. **Upsert/coalesce strategy in `fundamentals_ingestion.py`** — worth confirming the "never let a NULL fetch overwrite good data" design is the right call versus simply always taking the latest fetch
 6. **`src/valuation/engine.py`, `_average_free_cash_flow()`** — a straightforward simple mean over 3 years (§8.4); worth a second opinion on whether a recency-weighted average or outlier-trimming would be more defensible than an unweighted mean, particularly for cyclical or recently-restructured companies (SUN's own FY2023 debt collapse — likely a bank-arm divestment — is exactly this kind of structural break a simple mean doesn't account for)
+7. **`src/valuation/ddm.py` and the sector routing in `engine.py`'s `compute_metrics()`** (added 2026-10-02, §8.3/§8.4) — two deliberate simplifications worth a second opinion: (a) `_SECTOR_AWARE_SECTORS` is an exact-string match against yfinance's two GICS-like sector labels (`"Financial Services"`, `"Real Estate"`) with no fuzzy matching or fallback if Yahoo's labelling is inconsistent for a given company; (b) the DDM reuses the same `--growth-rate`/`--discount-rate`/`--terminal-growth-rate`/`--stage1-years` CLI inputs as the DCF path rather than exposing a second set of dividend-specific assumptions, so a single `run_valuation --all` invocation applies one global growth-rate assumption to both FCF growth (DCF sectors) and dividend growth (Financial Services/Real Estate) — a reasonable simplification given the project's existing "one global assumption set" design, but worth checking whether a lower default growth rate specifically for sustained dividend growth (DDM's own default is 5% vs DCF's 8%, used only when the caller doesn't override) is adequate, or whether real-world bank/REIT dividend growth is better modelled with its own CLI-exposed default
 
 ---
 
@@ -544,6 +583,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | User re-ran again: zero crashes, 487/501 valued (exactly the +2 recovery expected). But the console summary for WHI still printed `ROE=134600%` despite the database correctly holding `NULL` - caught directly from the user's own terminal output, not a self-generated test. Root cause: `run_valuation_for_company()` was returning its own pre-clamp `metrics` dict rather than the clamped one `upsert_valuation_metric()` computed and discarded internally - a real console-vs-database inconsistency, not a data bug. Fixed same day: `upsert_valuation_metric()` now returns the clamped dict, and callers use that, so logged/returned values are guaranteed to match what's actually stored. Validated end-to-end against a company engineered to overflow `roe`: both the returned dict and a direct database query now agree (`None` in both), where before the fix they disagreed |
 | 2026-10-02 | User confirmed the fix live: re-ran `run_valuation --all` + `screen_asx.py` and pasted the full output. Zero crashes, zero errors across all 501 companies; WHI's console line now correctly reads `ROE=None%`, matching the database. The 17-company screener result is unchanged (expected - BRN/WHI never cleared thresholds either way). Pipeline considered stable and hardened at full watchlist scale as of this date |
 | 2026-10-02 | User requested Windows Task Scheduler automation so the pipeline runs daily without manual commands (known-issue #16). Added `scripts/daily_refresh.ps1`: runs ingestion → valuation → screener in sequence (deliberately not stop-on-error chained, so one failed step doesn't block the rest), logs everything to a timestamped file under `logs\`, and prunes logs older than 30 days. Validated end-to-end in a disposable environment before handing to the user: installed PowerShell Core, seeded a throwaway PostgreSQL database with one real company via the ORM, and ran the script via `pwsh` - confirmed the log file correctly captured all three phase headers, a simulated network failure during ingestion didn't halt the later steps, and valuation/screener output was computed and logged correctly from the already-seeded data. Documented in README.md (`Daily Automation` section, with exact Task Scheduler trigger/action settings) and here (§16) |
+| 2026-10-02 | User requested sector-aware valuation for financials/REITs (known-issue #8). Added `src/valuation/ddm.py`: a two-stage Dividend Discount Model with the same stage-1-growth-then-Gordon-Growth-terminal-value mechanics as `dcf.py`, substituted onto `dividends_per_share` instead of `free_cash_flow` (no shares-outstanding input needed - the DDM result is already per-share). `engine.py` now routes Financial Services and Real Estate companies (`_SECTOR_AWARE_SECTORS`, matching yfinance's exact sector spelling) to the DDM instead of the standard DCF, since these sectors' "free cash flow" is dominated by balance-sheet movements rather than reinvestment capex and isn't a meaningful DCF input - previously confirmed in practice with CBA (§10.6). Added a `valuation_method` column (schema + ORM + screener output) recording which model priced each company (`'DCF'`/`'DDM'`/`NULL`), using the same append-at-the-end-of-the-view lesson learned from known-issue #14's `payout_ratio` migration. `growth_rate` now defaults per-model (8% DCF / 5% DDM) when not explicitly set via `--growth-rate`, since dividend growth is typically a more conservative assumption than FCF growth - an explicit `--growth-rate` still applies uniformly to whichever model runs, as before. Validated with synthetic data on a disposable PostgreSQL instance (§10.9): a bank with negative FCF in all 4 years but a real, growing dividend history went from `margin_of_safety_percent = NULL` (old behaviour) to a real, usable 28.80%/37.26% figure (default/explicit-growth-rate runs respectively) depending on which growth assumption applied, confirming the per-model default resolves correctly; a control company (ordinary sector, positive FCF) was confirmed completely unaffected by the change. Also surfaced (not a defect): the screener's default `--max-debt-equity 0.80` is structurally unsuited to financials, documented as a threshold-tuning note in README.md/§9 rather than a new known-issue |
 
 ---
 
@@ -588,6 +628,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 7. **Automation.** *"Automate via Windows Task Scheduler."* → Produced `scripts/daily_refresh.ps1` (ingestion → valuation → screener, logged, non-stop-on-error), validated in a disposable test environment before being handed to the user, plus the exact Task Scheduler GUI setup steps (README.md) and this section's design/validation notes.
 
+8. **Sector-aware valuation.** *"Sector-aware valuation for financials/REITs (known-issue #8)."* → Produced `src/valuation/ddm.py` (two-stage Dividend Discount Model) and routing logic in `engine.py` directing Financial Services/Real Estate companies to it instead of the standard FCF-based DCF, plus a new `valuation_method` column so the screener shows which model priced each company. Validated with synthetic data (a bank with negative FCF in every year but a real dividend history) on a disposable database, confirming it now gets a real margin-of-safety figure instead of `NULL`, and that ordinary (DCF-path) companies are completely unaffected.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -608,8 +650,10 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Check the automation is actually running (after Task Scheduler has been live a few days):**
 > "Check the last few files in logs\ and tell me whether the daily refresh has been running successfully, whether the screener results have changed, and flag anything that looks wrong (repeated ingestion errors, a day that didn't run at all, etc.)."
 
-**Sector-aware valuation (known-issue #8):**
-> "Known-issue #8 says the generic DCF doesn't suit banks, REITs and insurers. Design and implement a sector-aware valuation path - at minimum, a dividend-discount or P/B-based approach for Financial Services companies - so they don't just get silently skipped for margin of safety."
+**Sector-aware valuation (known-issue #8):** ✅ Done 2026-10-02 - see `src/valuation/ddm.py`, §8.3/§8.4, §10.9, and the `valuation_method` column.
+
+**Re-run a wider ticker list now that financials/REITs get a real valuation:**
+> "Re-run ingestion and valuation across the full All Ordinaries watchlist now that Financial Services and Real Estate companies get a Dividend Discount Model instead of being silently skipped. Show me the screener results with --any-of or a higher --max-debt-equity for financials, and tell me which banks/insurers/REITs now clear a reasonable margin of safety that wouldn't have shown up before."
 
 **Harden further:**
 > "There's no automated test suite yet (known-issue #6). Write one covering the valuation formulas (dividends.py, graham.py, dcf.py) and the overflow/clamping logic in engine.py, using the real company figures already documented in AS_BUILT.md as test fixtures."

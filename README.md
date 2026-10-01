@@ -21,8 +21,9 @@ src/
   valuation/
     dividends.py            grossed-up (franked) dividend yield
     graham.py                Graham Number
-    dcf.py                    2-stage discounted cash flow
-    engine.py                 pulls DB inputs together, computes & upserts valuation_metrics
+    dcf.py                    2-stage discounted cash flow (most sectors)
+    ddm.py                    2-stage dividend discount model (Financial Services / Real Estate)
+    engine.py                 pulls DB inputs together, picks DCF vs DDM by sector, upserts valuation_metrics
     run_valuation.py          CLI entrypoint
 screen_asx.py               CLI value screener
 requirements.txt
@@ -51,8 +52,8 @@ python -m src.ingestion.run_ingestion --tickers BHP CGF WES CBA --period 1y
 # '#' comments allowed) and pace requests to ease Yahoo rate limiting:
 python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
 
-# 2. Compute valuation metrics (ratios, grossed-up yield, Graham Number, DCF,
-#    margin of safety) from the latest ingested data
+# 2. Compute valuation metrics (ratios, grossed-up yield, Graham Number,
+#    DCF/DDM intrinsic value, margin of safety) from the latest ingested data
 python -m src.valuation.run_valuation --all
 
 # 3. Screen for value opportunities
@@ -63,6 +64,16 @@ python screen_asx.py --min-roe 15 --min-yield 5 --sector Financials
 Default screen thresholds: Margin of Safety > 20%, ROE > 12%, Debt/Equity < 0.80,
 Grossed-Up Dividend Yield > 4.5% (all four required; pass `--any-of` to match on
 any single criterion instead).
+
+**Sector-aware intrinsic valuation:** Financial Services and Real Estate companies
+are priced with a Dividend Discount Model instead of the standard DCF (banks,
+insurers and REITs report "free cash flow" dominated by balance-sheet movements,
+not reinvestment capex, so a standard DCF doesn't apply to them - see Known Data
+Model Limitations below). Every screener row includes a `valuation_method` column
+(`DCF` or `DDM`) showing which model priced it. Note the default Debt/Equity < 0.80
+threshold is structural for banks (leverage is their business model) - use
+`--max-debt-equity` with a much higher value, or `--any-of`, when screening
+Financial Services companies specifically.
 
 ## Daily Automation (Windows Task Scheduler)
 
@@ -117,3 +128,11 @@ keeps working if the repo is moved.
 - **Shares outstanding** isn't a schema column. It's derived at valuation time
   from `daily_prices.market_cap / close_price`, falling back to
   `net_profit_after_tax / eps` when market cap is unavailable.
+- **Debt/Equity is structurally high for Financial Services companies** (banks'
+  leverage is their business model, not a red flag the way it is for an
+  industrial company) - the default `--max-debt-equity 0.80` screen threshold
+  will filter out nearly every bank/insurer regardless of how cheap it is on
+  other measures. This is a threshold-tuning issue, not a valuation bug: the
+  DDM-based margin of safety for these companies is computed correctly (see
+  Workflow above); it's the D/E leg of the combined `AND` screen that needs a
+  separate, much higher threshold (or `--any-of`) when screening financials.

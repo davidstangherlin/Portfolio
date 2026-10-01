@@ -87,18 +87,28 @@ CREATE TABLE IF NOT EXISTS valuation_metrics (
                                                   -- this column, don't take yield alone at face value.
 
     -- Intrinsic Valuations & Margin of Safety
-    dcf_intrinsic_value NUMERIC(12, 4),          -- Discounted Cash Flow valuation
+    dcf_intrinsic_value NUMERIC(12, 4),          -- Discounted Cash Flow (or Dividend Discount Model -
+                                                  -- see valuation_method) intrinsic valuation per share
     graham_number NUMERIC(12, 4),                -- Sqrt(22.5 * EPS * BVPS)
     margin_of_safety_percent NUMERIC(6, 2),      -- ((Intrinsic Value - Current Price) / Intrinsic Value) * 100
+    valuation_method VARCHAR(4),                 -- 'DCF' or 'DDM' - which intrinsic-value model priced
+                                                  -- dcf_intrinsic_value. Financial Services and Real Estate
+                                                  -- companies use a Dividend Discount Model instead of the
+                                                  -- standard FCF-based DCF, since "free cash flow" isn't a
+                                                  -- meaningful value driver for banks/insurers/REITs (their
+                                                  -- balance-sheet movements dominate it rather than
+                                                  -- reinvestment capex). NULL means neither model could be
+                                                  -- computed (e.g. no usable FCF or dividend history).
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, as_of_date)
 );
 
--- Safe to re-run against an existing database: adds payout_ratio if this
--- schema was applied before that column existed (CREATE TABLE IF NOT
+-- Safe to re-run against an existing database: adds payout_ratio/valuation_method
+-- if this schema was applied before those columns existed (CREATE TABLE IF NOT
 -- EXISTS above won't retrofit a column onto an already-created table).
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS payout_ratio NUMERIC(6, 2);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS valuation_method VARCHAR(4);
 
 -- 5. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
@@ -115,11 +125,12 @@ SELECT
     v.dcf_intrinsic_value,
     v.graham_number,
     v.margin_of_safety_percent,
-    v.payout_ratio  -- appended at the end, not inserted mid-list: CREATE OR REPLACE VIEW
-                     -- can only add columns at the end, never reorder/insert existing ones -
-                     -- confirmed the hard way (ERROR: cannot change name of view column) when
-                     -- this was first placed between grossed_up_dividend_yield and
-                     -- dcf_intrinsic_value and tested against a pre-existing database
+    v.payout_ratio,
+    v.valuation_method  -- both appended at the end, not inserted mid-list: CREATE OR REPLACE
+                         -- VIEW can only add columns at the end, never reorder/insert existing
+                         -- ones - confirmed the hard way (ERROR: cannot change name of view
+                         -- column) when payout_ratio was first placed mid-list and tested
+                         -- against a pre-existing database
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)

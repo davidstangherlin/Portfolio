@@ -39,6 +39,7 @@ COLUMNS = [
     "asx_code", "company_name", "sector", "current_price",
     "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
     "grossed_up_dividend_yield", "payout_ratio", "margin_of_safety_percent",
+    "valuation_method",
 ]
 
 # A payout ratio well over 100% means the latest dividend exceeded that

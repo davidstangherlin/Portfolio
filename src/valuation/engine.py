@@ -19,6 +19,13 @@ assumptions, because the entire projection was anchored to one year's
 figure. Every other metric (ROE, D/E, P/E, dividend yield, Graham
 Number, ...) still uses only the single latest `FY` report, matching
 standard point-in-time ratio practice - only the DCF base is averaged.
+
+Financial Services and Real Estate companies (`_SECTOR_AWARE_SECTORS`) use
+a Dividend Discount Model (`src/valuation/ddm.py`) instead of the FCF-based
+DCF for their intrinsic value, stored in the same `dcf_intrinsic_value`
+column with `valuation_method` recording which model actually ran ('DCF'
+or 'DDM', NULL if neither could be computed). See docs/AS_BUILT.md
+known-issue #8.
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from src.models import Company, DailyPrice, FinancialReport, ValuationMetric
 from src.valuation import dcf as dcf_module
+from src.valuation import ddm as ddm_module
 from src.valuation.dividends import dividend_yields
 from src.valuation.graham import book_value_per_share, graham_number
 
@@ -41,14 +49,23 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FCF_AVERAGE_YEARS = 3
 
+# Sectors where a standard FCF-based DCF isn't meaningful (known-issue #8):
+# these companies' "free cash flow" is dominated by balance-sheet movements
+# (loan books, policy reserves, property revaluations) rather than
+# reinvestment capex, so they're priced with a Dividend Discount Model
+# instead - see src/valuation/ddm.py. Spelled exactly as yfinance's
+# `.info["sector"]` returns them for ASX-listed companies.
+_SECTOR_AWARE_SECTORS = {"Financial Services", "Real Estate"}
+
 
 @dataclass
 class ValuationInputs:
     company: Company
     price: DailyPrice
-    report: FinancialReport  # latest FY report - drives every metric except the DCF base
+    report: FinancialReport  # latest FY report - drives every metric except the DCF/DDM base
     shares_outstanding: Decimal | None
     dcf_free_cash_flow: Decimal | None  # mean FCF across the last fcf_average_years FY reports
+    ddm_dividend_per_share: Decimal | None  # mean DPS across the same window, for sector-aware companies
 
 
 def _latest_price(session: Session, company_id) -> DailyPrice | None:
@@ -82,6 +99,19 @@ def _average_free_cash_flow(reports: list[FinancialReport]) -> Decimal | None:
     return sum(values) / Decimal(len(values))
 
 
+def _average_dividend_per_share(reports: list[FinancialReport]) -> Decimal | None:
+    """Same multi-year averaging as `_average_free_cash_flow`, but on
+    dividends_per_share - the DDM base for sector-aware companies (see
+    `_SECTOR_AWARE_SECTORS`). Using the same window as the DCF's FCF
+    average keeps the two paths consistent and equally resistant to a
+    single volatile year (e.g. a special dividend - see payout_ratio and
+    docs/AS_BUILT.md known-issue #14 for a case this matters)."""
+    values = [r.dividends_per_share for r in reports if r.dividends_per_share is not None]
+    if not values:
+        return None
+    return sum(values) / Decimal(len(values))
+
+
 def _estimate_shares_outstanding(price: DailyPrice, report: FinancialReport) -> Decimal | None:
     if price.market_cap and price.close_price:
         return price.market_cap / price.close_price
@@ -103,22 +133,24 @@ def gather_inputs(
         )
         return None
 
-    report = reports[0]  # latest - used for everything except the DCF base
+    report = reports[0]  # latest - used for everything except the DCF/DDM base
     shares_outstanding = _estimate_shares_outstanding(price, report)
     dcf_free_cash_flow = _average_free_cash_flow(reports)
+    ddm_dividend_per_share = _average_dividend_per_share(reports)
     return ValuationInputs(
         company=company,
         price=price,
         report=report,
         shares_outstanding=shares_outstanding,
         dcf_free_cash_flow=dcf_free_cash_flow,
+        ddm_dividend_per_share=ddm_dividend_per_share,
     )
 
 
 def compute_metrics(
     inputs: ValuationInputs,
     *,
-    growth_rate: Decimal = dcf_module.DEFAULT_GROWTH_RATE,
+    growth_rate: Decimal | None = None,
     discount_rate: Decimal = dcf_module.DEFAULT_DISCOUNT_RATE,
     terminal_growth_rate: Decimal = dcf_module.DEFAULT_TERMINAL_GROWTH_RATE,
     stage1_years: int = dcf_module.DEFAULT_STAGE1_YEARS,
@@ -126,6 +158,16 @@ def compute_metrics(
     price = inputs.price
     report = inputs.report
     shares = inputs.shares_outstanding
+    sector_aware = inputs.company.sector in _SECTOR_AWARE_SECTORS
+
+    # growth_rate is the one assumption that genuinely differs by model:
+    # dividend growth (DDM, Financial Services/Real Estate) is typically
+    # steadier/lower than FCF growth (DCF, everywhere else), so leaving it
+    # unset picks each model's own default rather than silently applying
+    # the DCF's 8% to dividend growth too. An explicit --growth-rate on the
+    # CLI still applies uniformly to whichever model runs, as before.
+    if growth_rate is None:
+        growth_rate = ddm_module.DEFAULT_GROWTH_RATE if sector_aware else dcf_module.DEFAULT_GROWTH_RATE
 
     bvps = book_value_per_share(report.total_equity, shares)
     graham = graham_number(report.eps, bvps)
@@ -172,20 +214,44 @@ def compute_metrics(
         if abs(payout_ratio) > Decimal("5000"):
             payout_ratio = None
 
+    # Sector-aware intrinsic valuation (known-issue #8): Financial Services
+    # and Real Estate companies are priced with a Dividend Discount Model
+    # instead of the standard FCF-based DCF, since their "free cash flow"
+    # is dominated by balance-sheet movements rather than reinvestment
+    # capex and so isn't a meaningful DCF input - previously this meant
+    # these companies almost never got a margin-of-safety figure at all.
+    # `valuation_method` records which model (if either) actually ran, so
+    # the screener and any downstream review can tell the two apart rather
+    # than treating every dcf_intrinsic_value as the same kind of number.
     dcf_intrinsic_value = None
-    dcf_fcf = inputs.dcf_free_cash_flow  # fcf_average_years-year mean, not just the latest FY
-    if dcf_fcf and dcf_fcf > 0 and shares:
-        dcf_result = dcf_module.two_stage_dcf(
-            base_fcf=dcf_fcf,
-            shares_outstanding=shares,
-            cash_and_equivalents=report.cash_and_equivalents or Decimal("0"),
-            total_debt=report.total_debt or Decimal("0"),
-            growth_rate=growth_rate,
-            stage1_years=stage1_years,
-            terminal_growth_rate=terminal_growth_rate,
-            discount_rate=discount_rate,
-        )
-        dcf_intrinsic_value = dcf_result.intrinsic_value_per_share
+    valuation_method = None
+    if sector_aware:
+        base_dividend = inputs.ddm_dividend_per_share  # fcf_average_years-year mean DPS
+        if base_dividend and base_dividend > 0:
+            ddm_result = ddm_module.two_stage_ddm(
+                base_dividend_per_share=base_dividend,
+                growth_rate=growth_rate,
+                stage1_years=stage1_years,
+                terminal_growth_rate=terminal_growth_rate,
+                discount_rate=discount_rate,
+            )
+            dcf_intrinsic_value = ddm_result.intrinsic_value_per_share
+            valuation_method = "DDM"
+    else:
+        dcf_fcf = inputs.dcf_free_cash_flow  # fcf_average_years-year mean, not just the latest FY
+        if dcf_fcf and dcf_fcf > 0 and shares:
+            dcf_result = dcf_module.two_stage_dcf(
+                base_fcf=dcf_fcf,
+                shares_outstanding=shares,
+                cash_and_equivalents=report.cash_and_equivalents or Decimal("0"),
+                total_debt=report.total_debt or Decimal("0"),
+                growth_rate=growth_rate,
+                stage1_years=stage1_years,
+                terminal_growth_rate=terminal_growth_rate,
+                discount_rate=discount_rate,
+            )
+            dcf_intrinsic_value = dcf_result.intrinsic_value_per_share
+            valuation_method = "DCF"
 
     margin_of_safety = dcf_module.margin_of_safety_percent(dcf_intrinsic_value, price.close_price)
 
@@ -205,6 +271,7 @@ def compute_metrics(
         "dcf_intrinsic_value": dcf_intrinsic_value,
         "graham_number": graham,
         "margin_of_safety_percent": margin_of_safety,
+        "valuation_method": valuation_method,
     }
 
 
