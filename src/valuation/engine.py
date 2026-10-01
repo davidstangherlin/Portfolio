@@ -208,7 +208,50 @@ def compute_metrics(
     }
 
 
+# (precision, scale) for every valuation_metrics NUMERIC column, mirroring
+# db/schema.sql exactly. Used as a final, purely mechanical safety net
+# immediately before upsert - added 2026-10-02 after BRN (roic = 10,129.90%,
+# overflowing NUMERIC(6,2)'s 9999.99 limit) and WHI (pb_ratio = ~203 million,
+# overflowing NUMERIC(10,2)'s ~100 million limit; roe = 134,600%, also over
+# NUMERIC(6,2)'s limit) both crashed individually despite the
+# margin_of_safety_percent and payout_ratio guards already in place.
+# Those two guards use a tighter, business-meaningful sanity threshold
+# (5000%) and stay as-is; this is a broader backstop covering every field,
+# since the same failure mode turned out not to be isolated to the two
+# fields hit first - it recurs on any ratio, given enough companies
+# (pre-revenue, distressed, or negative-equity companies in a large
+# universe routinely produce mathematically correct but absurd ratios).
+_COLUMN_PRECISION = {
+    "pe_ratio": (10, 2), "pb_ratio": (10, 2), "price_to_fcf": (10, 2),
+    "ev_to_ebit": (10, 2), "roe": (6, 2), "roic": (6, 2),
+    "debt_to_equity": (10, 2), "current_ratio": (6, 2),
+    "uncapped_dividend_yield": (6, 2), "grossed_up_dividend_yield": (6, 2),
+    "payout_ratio": (6, 2), "dcf_intrinsic_value": (12, 4),
+    "graham_number": (12, 4), "margin_of_safety_percent": (6, 2),
+}
+
+
+def _clamp_to_column_precision(metrics: dict) -> dict:
+    """Null out (not crash on) any value that would overflow its target
+    NUMERIC column, so one pathological field never costs an entire
+    company its valuation row."""
+    clamped = dict(metrics)
+    for key, (precision, scale) in _COLUMN_PRECISION.items():
+        value = clamped.get(key)
+        if value is None:
+            continue
+        limit = Decimal(10) ** (precision - scale)
+        if abs(value) >= limit:
+            logger.warning(
+                "%s=%s would overflow NUMERIC(%d,%d) - storing NULL instead of crashing the upsert",
+                key, value, precision, scale,
+            )
+            clamped[key] = None
+    return clamped
+
+
 def upsert_valuation_metric(session: Session, company_id, metrics: dict) -> None:
+    metrics = _clamp_to_column_precision(metrics)
     stmt = insert(ValuationMetric).values(company_id=company_id, **metrics)
     update_cols = {k: getattr(stmt.excluded, k) for k in metrics}
     stmt = stmt.on_conflict_do_update(
