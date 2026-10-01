@@ -26,12 +26,22 @@ DCF for their intrinsic value, stored in the same `dcf_intrinsic_value`
 column with `valuation_method` recording which model actually ran ('DCF'
 or 'DDM', NULL if neither could be computed). See docs/AS_BUILT.md
 known-issue #8.
+
+Two trend fields support a "momentum into value" view and a value-trap
+warning, both in docs/AS_BUILT.md §8.6: `margin_of_safety_trend` compares
+today's margin_of_safety_percent against the most recent valuation_metrics
+row at least `trend_days` old for the same company (NULL until that much
+daily history exists - see scripts/daily_refresh.ps1); `fundamentals_trend`
+classifies ROE/revenue direction across the same multi-year
+`financial_reports` window used for the DCF/DDM average, independent of
+price (NULL if fewer than 2 distinct FY reports are available).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -48,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_FCF_AVERAGE_YEARS = 3
+DEFAULT_TREND_DAYS = 30
 
 # Sectors where a standard FCF-based DCF isn't meaningful (known-issue #8):
 # these companies' "free cash flow" is dominated by balance-sheet movements
@@ -63,9 +74,11 @@ class ValuationInputs:
     company: Company
     price: DailyPrice
     report: FinancialReport  # latest FY report - drives every metric except the DCF/DDM base
+    reports: list[FinancialReport]  # the same fcf_average_years-year window, newest first - also used for fundamentals_trend
     shares_outstanding: Decimal | None
     dcf_free_cash_flow: Decimal | None  # mean FCF across the last fcf_average_years FY reports
     ddm_dividend_per_share: Decimal | None  # mean DPS across the same window, for sector-aware companies
+    prior_margin_of_safety_percent: Decimal | None  # from the valuation_metrics row >= trend_days old, for margin_of_safety_trend
 
 
 def _latest_price(session: Session, company_id) -> DailyPrice | None:
@@ -99,6 +112,56 @@ def _average_free_cash_flow(reports: list[FinancialReport]) -> Decimal | None:
     return sum(values) / Decimal(len(values))
 
 
+_ROE_TREND_THRESHOLD = Decimal("2")  # percentage points
+_REVENUE_TREND_THRESHOLD = Decimal("0.05")  # 5%
+
+
+def _roe(report: FinancialReport) -> Decimal | None:
+    if report.net_profit_after_tax is not None and report.total_equity:
+        return report.net_profit_after_tax / report.total_equity * 100
+    return None
+
+
+def _fundamentals_trend(reports: list[FinancialReport]) -> str | None:
+    """Classifies ROE/revenue direction across the latest vs oldest report
+    in the fetched fcf_average_years window (`reports` is newest-first -
+    see `_last_n_annual_reports`), independent of price. A simple,
+    explainable heuristic - not a substitute for reading the actual
+    numbers - intended to flag a potential value trap when combined with a
+    passing margin_of_safety: cheap because the business is deteriorating,
+    not because the market has mispriced it (see docs/AS_BUILT.md §8.6).
+    Returns None if fewer than 2 distinct FY reports are available, or if
+    neither ROE nor revenue is computable for both endpoints - there's
+    nothing to compare."""
+    if len(reports) < 2:
+        return None
+    latest, oldest = reports[0], reports[-1]
+
+    roe_trend = None
+    roe_latest, roe_oldest = _roe(latest), _roe(oldest)
+    if roe_latest is not None and roe_oldest is not None:
+        roe_trend = roe_latest - roe_oldest
+
+    revenue_trend = None
+    if latest.revenue is not None and oldest.revenue:
+        revenue_trend = (latest.revenue - oldest.revenue) / oldest.revenue
+
+    if roe_trend is None and revenue_trend is None:
+        return None
+
+    if (roe_trend is not None and roe_trend < -_ROE_TREND_THRESHOLD) or (
+        revenue_trend is not None and revenue_trend < -_REVENUE_TREND_THRESHOLD
+    ):
+        return "DECLINING"
+
+    if (roe_trend is not None and roe_trend > _ROE_TREND_THRESHOLD) or (
+        revenue_trend is not None and revenue_trend > _REVENUE_TREND_THRESHOLD
+    ):
+        return "IMPROVING"
+
+    return "STABLE"
+
+
 def _average_dividend_per_share(reports: list[FinancialReport]) -> Decimal | None:
     """Same multi-year averaging as `_average_free_cash_flow`, but on
     dividends_per_share - the DDM base for sector-aware companies (see
@@ -120,8 +183,30 @@ def _estimate_shares_outstanding(price: DailyPrice, report: FinancialReport) -> 
     return None
 
 
+def _prior_margin_of_safety(
+    session: Session, company_id, as_of_date, trend_days: int
+) -> Decimal | None:
+    """The margin_of_safety_percent from the most recent valuation_metrics
+    row at least `trend_days` old, used as the baseline for
+    margin_of_safety_trend. Returns None if no row that old exists yet -
+    expected during the cold-start period before daily automation
+    (scripts/daily_refresh.ps1) has been running for `trend_days` days,
+    not a bug."""
+    cutoff = as_of_date - timedelta(days=trend_days)
+    stmt = (
+        select(ValuationMetric.margin_of_safety_percent)
+        .where(ValuationMetric.company_id == company_id, ValuationMetric.as_of_date <= cutoff)
+        .order_by(ValuationMetric.as_of_date.desc())
+        .limit(1)
+    )
+    return session.execute(stmt).scalar_one_or_none()
+
+
 def gather_inputs(
-    session: Session, company: Company, fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS
+    session: Session,
+    company: Company,
+    fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS,
+    trend_days: int = DEFAULT_TREND_DAYS,
 ) -> ValuationInputs | None:
     price = _latest_price(session, company.company_id)
     reports = _last_n_annual_reports(session, company.company_id, fcf_average_years)
@@ -137,13 +222,18 @@ def gather_inputs(
     shares_outstanding = _estimate_shares_outstanding(price, report)
     dcf_free_cash_flow = _average_free_cash_flow(reports)
     ddm_dividend_per_share = _average_dividend_per_share(reports)
+    prior_margin_of_safety_percent = _prior_margin_of_safety(
+        session, company.company_id, price.price_date, trend_days
+    )
     return ValuationInputs(
         company=company,
         price=price,
         report=report,
+        reports=reports,
         shares_outstanding=shares_outstanding,
         dcf_free_cash_flow=dcf_free_cash_flow,
         ddm_dividend_per_share=ddm_dividend_per_share,
+        prior_margin_of_safety_percent=prior_margin_of_safety_percent,
     )
 
 
@@ -255,6 +345,18 @@ def compute_metrics(
 
     margin_of_safety = dcf_module.margin_of_safety_percent(dcf_intrinsic_value, price.close_price)
 
+    # "Momentum into value" trend indicators (see module docstring and
+    # docs/AS_BUILT.md §8.6). margin_of_safety_trend needs a prior
+    # valuation_metrics snapshot (cold-start gap, not a bug, until daily
+    # automation has accumulated trend_days of history); fundamentals_trend
+    # only needs the financial_reports already fetched for the DCF/DDM
+    # average, so it populates immediately.
+    margin_of_safety_trend = None
+    if margin_of_safety is not None and inputs.prior_margin_of_safety_percent is not None:
+        margin_of_safety_trend = margin_of_safety - inputs.prior_margin_of_safety_percent
+
+    fundamentals_trend = _fundamentals_trend(inputs.reports)
+
     return {
         "as_of_date": price.price_date,
         "pe_ratio": pe_ratio,
@@ -272,6 +374,8 @@ def compute_metrics(
         "graham_number": graham,
         "margin_of_safety_percent": margin_of_safety,
         "valuation_method": valuation_method,
+        "margin_of_safety_trend": margin_of_safety_trend,
+        "fundamentals_trend": fundamentals_trend,
     }
 
 
@@ -295,6 +399,7 @@ _COLUMN_PRECISION = {
     "uncapped_dividend_yield": (6, 2), "grossed_up_dividend_yield": (6, 2),
     "payout_ratio": (6, 2), "dcf_intrinsic_value": (12, 4),
     "graham_number": (12, 4), "margin_of_safety_percent": (6, 2),
+    "margin_of_safety_trend": (6, 2),
 }
 
 
@@ -338,9 +443,10 @@ def run_valuation_for_company(
     company: Company,
     *,
     fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS,
+    trend_days: int = DEFAULT_TREND_DAYS,
     **dcf_kwargs,
 ) -> dict | None:
-    inputs = gather_inputs(session, company, fcf_average_years=fcf_average_years)
+    inputs = gather_inputs(session, company, fcf_average_years=fcf_average_years, trend_days=trend_days)
     if inputs is None:
         return None
     metrics = compute_metrics(inputs, **dcf_kwargs)
@@ -352,6 +458,7 @@ def run_valuation(
     asx_codes: list[str] | None = None,
     *,
     fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS,
+    trend_days: int = DEFAULT_TREND_DAYS,
     **dcf_kwargs,
 ) -> dict[str, dict]:
     """Compute and upsert valuation metrics for the given ASX codes, or all
@@ -374,7 +481,9 @@ def run_valuation(
     results: dict[str, dict] = {}
     for i, company in enumerate(companies, start=1):
         try:
-            metrics = run_valuation_for_company(session, company, fcf_average_years=fcf_average_years, **dcf_kwargs)
+            metrics = run_valuation_for_company(
+                session, company, fcf_average_years=fcf_average_years, trend_days=trend_days, **dcf_kwargs
+            )
             session.commit()
             if metrics is not None:
                 results[company.asx_code] = metrics

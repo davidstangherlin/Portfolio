@@ -24,7 +24,7 @@ from decimal import Decimal
 from src.config import get_session
 from src.valuation import dcf as dcf_module
 from src.valuation import ddm as ddm_module
-from src.valuation.engine import DEFAULT_FCF_AVERAGE_YEARS, run_valuation
+from src.valuation.engine import DEFAULT_FCF_AVERAGE_YEARS, DEFAULT_TREND_DAYS, run_valuation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,6 +51,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--fcf-average-years", type=int, default=DEFAULT_FCF_AVERAGE_YEARS,
                          help="years of free cash flow to average as the DCF base, smooths single-year "
                               f"volatility (default: {DEFAULT_FCF_AVERAGE_YEARS}; use 1 for old single-year behaviour)")
+    parser.add_argument("--trend-days", type=int, default=DEFAULT_TREND_DAYS,
+                         help="lookback window in days for margin_of_safety_trend ('momentum into value' - "
+                              f"see docs/AS_BUILT.md §8.6) (default: {DEFAULT_TREND_DAYS}; needs that many "
+                              "days of accumulated daily valuation history before it populates - run via "
+                              "scripts/daily_refresh.ps1)")
 
     return parser.parse_args(argv)
 
@@ -64,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             session,
             asx_codes=tickers,
             fcf_average_years=args.fcf_average_years,
+            trend_days=args.trend_days,
             growth_rate=args.growth_rate,
             discount_rate=args.discount_rate,
             terminal_growth_rate=args.terminal_growth_rate,
@@ -72,12 +78,14 @@ def main(argv: list[str] | None = None) -> int:
 
     for asx_code, metrics in results.items():
         logger.info(
-            "%s: MoS=%s%% ROE=%s%% D/E=%s GrossYield=%s%%",
+            "%s: MoS=%s%% (trend=%s) ROE=%s%% D/E=%s GrossYield=%s%% Fundamentals=%s",
             asx_code,
             metrics["margin_of_safety_percent"],
+            metrics["margin_of_safety_trend"],
             metrics["roe"],
             metrics["debt_to_equity"],
             metrics["grossed_up_dividend_yield"],
+            metrics["fundamentals_trend"],
         )
     logger.info("Valued %d companies", len(results))
     return 0

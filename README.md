@@ -53,7 +53,8 @@ python -m src.ingestion.run_ingestion --tickers BHP CGF WES CBA --period 1y
 python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
 
 # 2. Compute valuation metrics (ratios, grossed-up yield, Graham Number,
-#    DCF/DDM intrinsic value, margin of safety) from the latest ingested data
+#    DCF/DDM intrinsic value, margin of safety, trend indicators) from the
+#    latest ingested data
 python -m src.valuation.run_valuation --all
 
 # 3. Screen for value opportunities - shows every company, not just the
@@ -84,6 +85,33 @@ Model Limitations below). Every screener row includes a `valuation_method` colum
 threshold is structural for banks (leverage is their business model) - use
 `--max-debt-equity` with a much higher value, or `--any-of`, when screening
 Financial Services companies specifically.
+
+**"Momentum into value" and a value-trap warning:** two more indicators, both
+informational (excluded from `overall` - they answer a different question
+than the core four-criterion screen):
+
+- **`momentum_ok`** - `Y` when `margin_of_safety_trend` (the change in margin
+  of safety vs `--trend-days` ago, default 30) has improved by more than
+  `--min-mos-trend` (default 5 percentage points). This is the "catch it
+  before others" ranking: pass `--rank-by momentum` to sort by
+  `margin_of_safety_trend` instead of absolute margin of safety, surfacing
+  companies getting cheaper *fastest* rather than ones that have simply been
+  cheap for a while.
+- **`trap_risk`** - `Y` when a company passes `mos_ok` (looks cheap) but its
+  `fundamentals_trend` is `DECLINING` (ROE and/or revenue trending down across
+  the financial-report years used for the DCF/DDM average). A visible flag
+  for a potential value trap: cheap because the business is deteriorating,
+  not because the market has mispriced it. Flagged tickers are also called
+  out in a printed warning line, the same way `payout_ratio` is.
+
+`margin_of_safety_trend` needs real history to populate: it compares today's
+margin of safety against the most recent `valuation_metrics` snapshot at
+least `--trend-days` old for that company, so it (and `momentum_ok`) will be
+blank for every company until daily automation (see below) has been running
+for that long - the screener prints a note when this is the case, so a blank
+column reads as "not enough history yet," not a bug. `fundamentals_trend`
+has no such wait: it only needs 2+ years of already-ingested annual reports,
+so it populates on the very next `run_valuation` run.
 
 ## Daily Automation (Windows Task Scheduler)
 
@@ -148,3 +176,17 @@ keeps working if the repo is moved.
   correctly (see Workflow above); it's the `de_ok` leg of `overall` that
   needs a much higher `--max-debt-equity` (or `--any-of`) when screening
   financials - the row itself is always shown either way.
+- **`margin_of_safety_trend`/`momentum_ok` are blank for a genuine cold-start
+  period.** They compare today's margin of safety against a `valuation_metrics`
+  snapshot at least `--trend-days` old (default 30), so there's nothing to
+  compare against until daily automation has accumulated that much history -
+  this isn't a bug, and the screener prints a note confirming it. `fundamentals_trend`/
+  `trap_risk` don't have this constraint (they use already-ingested annual
+  report history, not daily snapshots) and populate immediately once a
+  company has 2+ years of `financial_reports`.
+- **`fundamentals_trend` is a simple heuristic** (latest vs oldest FY report's
+  ROE and revenue direction, see `src/valuation/engine.py`'s `_fundamentals_trend()`),
+  not a sophisticated trend model - it won't catch a decline that started
+  mid-window and partially recovered, and a company with only 2 FY reports
+  gets a trend based on just those two points. Treat `trap_risk` as a prompt
+  to look closer, not a verdict.

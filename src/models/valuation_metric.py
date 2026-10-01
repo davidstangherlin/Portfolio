@@ -42,6 +42,10 @@ class ValuationMetric(Base):
     margin_of_safety_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     valuation_method: Mapped[str | None] = mapped_column(String(4))  # 'DCF' or 'DDM' - see db/schema.sql
 
+    # Trend indicators ("momentum into value" / value-trap warning) - see db/schema.sql
+    margin_of_safety_trend: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    fundamentals_trend: Mapped[str | None] = mapped_column(String(10))  # 'IMPROVING' / 'STABLE' / 'DECLINING'
+
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.current_timestamp()
     )

@@ -100,15 +100,36 @@ CREATE TABLE IF NOT EXISTS valuation_metrics (
                                                   -- reinvestment capex). NULL means neither model could be
                                                   -- computed (e.g. no usable FCF or dividend history).
 
+    -- Trend indicators ("momentum into value" / value-trap warning)
+    margin_of_safety_trend NUMERIC(6, 2),        -- change in margin_of_safety_percent vs ~trend_days days
+                                                  -- ago (percentage points; see run_valuation.py
+                                                  -- --trend-days, default 30). Rising = getting cheaper
+                                                  -- relative to intrinsic value since that snapshot - the
+                                                  -- "catch it before others" signal. NULL until a
+                                                  -- valuation_metrics row at least that old exists for the
+                                                  -- company, i.e. until daily automation (scripts/
+                                                  -- daily_refresh.ps1) has been running that long - this is
+                                                  -- an expected cold-start gap, not a bug.
+    fundamentals_trend VARCHAR(10),               -- 'IMPROVING' / 'STABLE' / 'DECLINING' - ROE and revenue
+                                                  -- direction across the financial_reports window used for
+                                                  -- the DCF/DDM average (see fcf_average_years), independent
+                                                  -- of price. A company with margin_of_safety_percent
+                                                  -- passing but fundamentals_trend = 'DECLINING' is a
+                                                  -- candidate value trap: cheap because the business is
+                                                  -- deteriorating, not because the market has mispriced it.
+                                                  -- NULL if fewer than 2 distinct FY reports are available.
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, as_of_date)
 );
 
--- Safe to re-run against an existing database: adds payout_ratio/valuation_method
--- if this schema was applied before those columns existed (CREATE TABLE IF NOT
--- EXISTS above won't retrofit a column onto an already-created table).
+-- Safe to re-run against an existing database: adds any column this schema
+-- was applied before existed (CREATE TABLE IF NOT EXISTS above won't
+-- retrofit a column onto an already-created table).
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS payout_ratio NUMERIC(6, 2);
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS valuation_method VARCHAR(4);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS margin_of_safety_trend NUMERIC(6, 2);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS fundamentals_trend VARCHAR(10);
 
 -- 5. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
@@ -126,11 +147,13 @@ SELECT
     v.graham_number,
     v.margin_of_safety_percent,
     v.payout_ratio,
-    v.valuation_method  -- both appended at the end, not inserted mid-list: CREATE OR REPLACE
-                         -- VIEW can only add columns at the end, never reorder/insert existing
-                         -- ones - confirmed the hard way (ERROR: cannot change name of view
-                         -- column) when payout_ratio was first placed mid-list and tested
-                         -- against a pre-existing database
+    v.valuation_method,
+    v.margin_of_safety_trend,
+    v.fundamentals_trend  -- all four appended at the end, not inserted mid-list: CREATE OR
+                           -- REPLACE VIEW can only add columns at the end, never reorder/insert
+                           -- existing ones - confirmed the hard way (ERROR: cannot change name
+                           -- of view column) when payout_ratio was first placed mid-list and
+                           -- tested against a pre-existing database
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)
