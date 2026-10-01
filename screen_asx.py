@@ -38,8 +38,14 @@ DEFAULT_MIN_GROSSED_UP_YIELD = Decimal("4.5")
 COLUMNS = [
     "asx_code", "company_name", "sector", "current_price",
     "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
-    "grossed_up_dividend_yield", "margin_of_safety_percent",
+    "grossed_up_dividend_yield", "payout_ratio", "margin_of_safety_percent",
 ]
+
+# A payout ratio well over 100% means the latest dividend exceeded that
+# year's earnings - usually a special/one-off distribution rather than a
+# sustainable, repeatable payout. The yield is still shown (not hidden or
+# nulled), but flagged here so it isn't mistaken for ordinary income.
+PAYOUT_RATIO_WARNING_THRESHOLD = Decimal("150")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -107,6 +113,14 @@ def main(argv: list[str] | None = None) -> int:
 
     print(tabulate(rows, headers="keys", floatfmt=".2f", tablefmt="simple"))
     print(f"\n{len(rows)} companies matched.")
+
+    flagged = [r["asx_code"] for r in rows if r["payout_ratio"] is not None and r["payout_ratio"] > PAYOUT_RATIO_WARNING_THRESHOLD]
+    if flagged:
+        print(
+            f"\n⚠ Payout ratio > {PAYOUT_RATIO_WARNING_THRESHOLD}% for: {', '.join(flagged)} — "
+            "the dividend yield shown likely reflects a one-off/special dividend rather than "
+            "sustainable income. Verify against the company's actual dividend history before relying on it."
+        )
     return 0
 
 

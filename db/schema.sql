@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS valuation_metrics (
     -- Dividend & Gross Yield (ASX Specific)
     uncapped_dividend_yield NUMERIC(6, 2),
     grossed_up_dividend_yield NUMERIC(6, 2),     -- Yield including Franking Credits
+    payout_ratio NUMERIC(6, 2),                  -- (dividends_per_share / EPS) * 100. A value well over 100%
+                                                  -- flags a likely special/one-off dividend rather than a
+                                                  -- sustainable, repeatable payout - read high yields alongside
+                                                  -- this column, don't take yield alone at face value.
 
     -- Intrinsic Valuations & Margin of Safety
     dcf_intrinsic_value NUMERIC(12, 4),          -- Discounted Cash Flow valuation
@@ -90,6 +94,11 @@ CREATE TABLE IF NOT EXISTS valuation_metrics (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, as_of_date)
 );
+
+-- Safe to re-run against an existing database: adds payout_ratio if this
+-- schema was applied before that column existed (CREATE TABLE IF NOT
+-- EXISTS above won't retrofit a column onto an already-created table).
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS payout_ratio NUMERIC(6, 2);
 
 -- 5. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
@@ -105,7 +114,12 @@ SELECT
     v.grossed_up_dividend_yield,
     v.dcf_intrinsic_value,
     v.graham_number,
-    v.margin_of_safety_percent
+    v.margin_of_safety_percent,
+    v.payout_ratio  -- appended at the end, not inserted mid-list: CREATE OR REPLACE VIEW
+                     -- can only add columns at the end, never reorder/insert existing ones -
+                     -- confirmed the hard way (ERROR: cannot change name of view column) when
+                     -- this was first placed between grossed_up_dividend_yield and
+                     -- dcf_intrinsic_value and tested against a pre-existing database
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)

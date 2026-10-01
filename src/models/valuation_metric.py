@@ -34,6 +34,7 @@ class ValuationMetric(Base):
     # Dividend & gross yield (ASX specific)
     uncapped_dividend_yield: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     grossed_up_dividend_yield: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    payout_ratio: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))  # (DPS/EPS)*100; >~150% flags a likely special dividend
 
     # Intrinsic valuations & margin of safety
     dcf_intrinsic_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))

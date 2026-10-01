@@ -158,6 +158,20 @@ def compute_metrics(
         report.dividends_per_share, price.close_price, report.franking_percentage, report.corporate_tax_rate
     )
 
+    # payout_ratio flags a likely special/one-off dividend being read as a
+    # sustainable yield: added 2026-10-02 after TWR surfaced at 500-ticker
+    # scale with a 106.85% "yield" driven by a single year's dividend at
+    # 519% of EPS - not a repeatable income signal. Same NUMERIC(6,2)
+    # overflow concern as margin_of_safety_percent (§valuation_metrics
+    # schema), so the same sanity cap applies: an extreme result (near-zero
+    # or negative EPS against a real dividend) returns None rather than a
+    # number that would crash the upsert.
+    payout_ratio = None
+    if report.dividends_per_share and report.eps and report.eps > 0:
+        payout_ratio = (report.dividends_per_share / report.eps) * 100
+        if abs(payout_ratio) > Decimal("5000"):
+            payout_ratio = None
+
     dcf_intrinsic_value = None
     dcf_fcf = inputs.dcf_free_cash_flow  # fcf_average_years-year mean, not just the latest FY
     if dcf_fcf and dcf_fcf > 0 and shares:
@@ -187,6 +201,7 @@ def compute_metrics(
         "current_ratio": None,  # not derivable: schema has no current assets/liabilities split
         "uncapped_dividend_yield": yields.uncapped_dividend_yield,
         "grossed_up_dividend_yield": yields.grossed_up_dividend_yield,
+        "payout_ratio": payout_ratio,
         "dcf_intrinsic_value": dcf_intrinsic_value,
         "graham_number": graham,
         "margin_of_safety_percent": margin_of_safety,
