@@ -27,6 +27,8 @@ src/
 screen_asx.py               CLI value screener
 requirements.txt
 .env.example
+scripts/
+  daily_refresh.ps1          Windows Task Scheduler automation (see below)
 ```
 
 ## Setup
@@ -61,6 +63,47 @@ python screen_asx.py --min-roe 15 --min-yield 5 --sector Financials
 Default screen thresholds: Margin of Safety > 20%, ROE > 12%, Debt/Equity < 0.80,
 Grossed-Up Dividend Yield > 4.5% (all four required; pass `--any-of` to match on
 any single criterion instead).
+
+## Daily Automation (Windows Task Scheduler)
+
+`scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
+ingestion → valuation → screener, logging everything to a timestamped file
+under `logs\` (pruned automatically after 30 days). Each step runs even if
+a previous one hit problems, so a transient Yahoo Finance network error
+during ingestion doesn't block valuation/screener from running against
+whatever data is already in the database.
+
+**Prerequisites** (already set up on a machine you've run the project on
+manually): `.venv` created and `requirements.txt` installed, `.env`
+configured, and a watchlist file (e.g. `allords.txt`) present at the repo
+root. The script resolves the repo root from its own location, so it
+keeps working if the repo is moved.
+
+**One-time setup:**
+
+1. `git pull` to get `scripts/daily_refresh.ps1` onto your machine.
+2. Confirm your watchlist file (`allords.txt` by default — edit the
+   `$WatchlistFile` line in the script if you use a different name/file)
+   exists at the repo root.
+3. Open **Task Scheduler** → **Create Task** (not *Basic Task*, so you get
+   the full options below):
+   - **General**: name it e.g. `ASX Value Screener - Daily Refresh`; select
+     "Run whether user is logged on or not" if you want it to run even when
+     locked out.
+   - **Triggers** → **New**: Daily, start time after ASX close with a
+     buffer for Yahoo Finance data to settle — **6:00 PM** local time is a
+     reasonable default.
+   - **Actions** → **New**:
+     - Program/script: `powershell.exe`
+     - Add arguments: `-NoProfile -ExecutionPolicy Bypass -File "C:\Users\mrdav\Portfolio\scripts\daily_refresh.ps1"`
+   - **Conditions**: untick "Start the task only if the computer is on AC
+     power" if this runs on a laptop that may be on battery.
+   - **Settings**: tick "Run task as soon as possible after a scheduled
+     start is missed" so a missed run (machine off at 6pm) catches up next
+     time it's on.
+4. Run the task once manually (right-click → Run) to confirm it works, then
+   check `logs\refresh_<timestamp>.log` for the three phase headers and no
+   unexpected errors.
 
 ## Known Data Model Limitations
 

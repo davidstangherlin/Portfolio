@@ -2,3 +2,10 @@
 __pycache__/
 *.pyc
 .env
+logs/
+
+# Personal watchlist files (--tickers-file inputs, e.g. allords.txt, asx300.txt) -
+# these are your own data, not project code, so they're deliberately not committed.
+*ords.txt
+asx*.txt
+watchlist*.txt

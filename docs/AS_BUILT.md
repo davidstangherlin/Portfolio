@@ -80,8 +80,10 @@ Portfolio/
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── requirements.txt                    Pinned dependency versions
 ├── .env.example                        Template for local DB credentials
-├── .gitignore                          Excludes .venv/, __pycache__/, .env
+├── .gitignore                          Excludes .venv/, __pycache__/, .env, logs/, watchlist files
 ├── README.md                           Setup + workflow quick-start
+├── scripts/
+│   └── daily_refresh.ps1               Windows Task Scheduler automation (§16)
 └── docs/
     └── AS_BUILT.md                     This document
 ```
@@ -453,6 +455,7 @@ Before the user's own machine was used, live ingestion was attempted from a sand
 | 13 | ~~`run_valuation()` committed only once, after processing every company~~ **RESOLVED 2026-10-02** | **Far more costly than issue #12 on its own:** when the overflow crash hit mid-batch on a ~500-company run, *every other company already successfully valued in that same run was lost* too, since nothing had been committed yet. One bad company cost the entire batch's work, not just its own | Fixed: each company is now isolated in its own try/except and committed individually, matching the pattern already used in `price_ingestion.py`/`fundamentals_ingestion.py` (§7.3). A failure on one company is logged and the run continues; prior successes are safe. Validated by simulating a crash on company 2-of-4 and confirming companies 1, 3, and 4 all had committed `valuation_metrics` rows despite it |
 | 14 | ~~Grossed-up dividend yield had no way to flag a one-off special dividend vs sustainable income~~ **RESOLVED 2026-10-02** | TWR showed a 106.85% grossed-up yield driven by a single `FY`'s dividend at 519% of that year's EPS (prior 3 years: 12-82%, all normal) — a special dividend/capital return almost certainly, but nothing in the output said so | Fixed: new `payout_ratio` column (schema, model, `engine.py`) stored alongside the yield, surfaced in `screen_asx.py` with a `>150%` printed warning naming affected tickers. User's explicit choice: flag visibly, don't null out or silently hide. See §8.1, §9 |
 | 15 | ~~Numeric overflow could crash any ratio, not just margin_of_safety_percent~~ **RESOLVED 2026-10-02** | On the first 500-ticker run with the #12/#13 fixes already in place, two *more* companies crashed on two *different* fields: BRN's `roic` (10,129.90%) and WHI's `pb_ratio` (~203 million) and `roe` (134,600%) all overflowed their columns. Crash isolation (#13) correctly contained the damage to just those two companies, but each still lost its entire valuation row to one bad field | Fixed: `upsert_valuation_metric()` now runs every field through a generic `_clamp_to_column_precision()` check derived directly from `db/schema.sql`'s column definitions, nulling (and logging) anything that would overflow rather than crashing - applied to all 14 `valuation_metrics` columns, not just the two found first. Validated by replaying both companies' exact failing payloads: both now upsert successfully with only the pathological field nulled. See §8.4 |
+| 16 | The pipeline had to be run by hand (three separate commands) every time fresh data was wanted | Easy to let data go stale; no way to "just check it daily" without remembering the exact command sequence | Resolved 2026-10-02: `scripts/daily_refresh.ps1` runs ingestion → valuation → screener in one unattended pass, wired into Windows Task Scheduler. See §16 |
 
 ---
 
@@ -540,10 +543,34 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | User re-ran `run_valuation --all` across the full 501-company database (after the schema migration above) and hit two more individual-company crashes, each on a different field than any guard already covered: BRN's `roic` at 10,129.90% (`NUMERIC(6,2)` overflow) and WHI's `pb_ratio` at ~203 million plus `roe` at 134,600% (`NUMERIC(10,2)`/`NUMERIC(6,2)` overflow). The #13 crash-isolation fix worked exactly as designed - 485/501 companies still valued successfully despite these two failures - but each of the two still lost its entire row to one bad field. Root-caused as the same overflow failure mode recurring on new fields, not a one-off: fixed with a generic `_clamp_to_column_precision()` guard (known-issue #15) applied to all 14 `valuation_metrics` columns before every upsert, derived mechanically from `db/schema.sql`'s own column definitions. Validated by replaying both companies' exact failing payloads from their tracebacks against a live PostgreSQL instance: both now upsert successfully, with only the pathological field nulled and every other valid field preserved |
 | 2026-10-02 | User re-ran again: zero crashes, 487/501 valued (exactly the +2 recovery expected). But the console summary for WHI still printed `ROE=134600%` despite the database correctly holding `NULL` - caught directly from the user's own terminal output, not a self-generated test. Root cause: `run_valuation_for_company()` was returning its own pre-clamp `metrics` dict rather than the clamped one `upsert_valuation_metric()` computed and discarded internally - a real console-vs-database inconsistency, not a data bug. Fixed same day: `upsert_valuation_metric()` now returns the clamped dict, and callers use that, so logged/returned values are guaranteed to match what's actually stored. Validated end-to-end against a company engineered to overflow `roe`: both the returned dict and a direct database query now agree (`None` in both), where before the fix they disagreed |
 | 2026-10-02 | User confirmed the fix live: re-ran `run_valuation --all` + `screen_asx.py` and pasted the full output. Zero crashes, zero errors across all 501 companies; WHI's console line now correctly reads `ROE=None%`, matching the database. The 17-company screener result is unchanged (expected - BRN/WHI never cleared thresholds either way). Pipeline considered stable and hardened at full watchlist scale as of this date |
+| 2026-10-02 | User requested Windows Task Scheduler automation so the pipeline runs daily without manual commands (known-issue #16). Added `scripts/daily_refresh.ps1`: runs ingestion → valuation → screener in sequence (deliberately not stop-on-error chained, so one failed step doesn't block the rest), logs everything to a timestamped file under `logs\`, and prunes logs older than 30 days. Validated end-to-end in a disposable environment before handing to the user: installed PowerShell Core, seeded a throwaway PostgreSQL database with one real company via the ORM, and ran the script via `pwsh` - confirmed the log file correctly captured all three phase headers, a simulated network failure during ingestion didn't halt the later steps, and valuation/screener output was computed and logged correctly from the already-seeded data. Documented in README.md (`Daily Automation` section, with exact Task Scheduler trigger/action settings) and here (§16) |
 
 ---
 
-## 16. Prompts to Recreate This Project
+## 16. Automation (`scripts/daily_refresh.ps1`)
+
+**Purpose:** removes the need to manually run three separate commands (ingestion, valuation, screener) to keep the database current. Designed to be triggered daily and unattended by Windows Task Scheduler, after ASX market close.
+
+**Design decisions:**
+- **No stop-on-error chaining** (`;` between steps, not `&&` or `-and`): a transient Yahoo Finance network blip during ingestion should not prevent valuation/screener from still running against whatever data is already in the database from the previous day. Each step's own per-ticker/per-company error isolation (§7.3-§7.5, §8.4, known-issues #10/#13) already handles failures within a step; this script's job is only to make sure a whole-step failure doesn't cascade into skipping the rest of the pipeline.
+- **Single timestamped log file per run** (`logs\refresh_<yyyy-MM-dd_HHmmss>.log`), capturing stdout and stderr from all three steps (`2>&1` redirect piped through `Add-Content`), so an unattended run can be checked after the fact without having to watch it live.
+- **30-day log retention**, pruned at the end of every run (`Get-ChildItem` + `Where LastWriteTime` + `Remove-Item`), so the `logs\` folder doesn't grow unbounded on a machine that's left running this indefinitely.
+- **Self-locating repo root** (`Split-Path -Parent $PSScriptRoot`): the script resolves every other path (venv activation, watchlist file, log directory) relative to its own location rather than a hardcoded path, so it keeps working if the repo is cloned or moved elsewhere.
+- **Watchlist file is a single variable** (`$WatchlistFile`) at the top of the script, so switching from `allords.txt` to a narrower list (e.g. a sourced ASX 300 file, known-issue #11) is a one-line edit.
+
+**Validation performed (2026-10-02, disposable test environment, not the user's machine):**
+- Installed PowerShell Core (`pwsh`) to get a real PowerShell interpreter to test against.
+- Created a disposable PostgreSQL database and seeded one real company (BHP) via the ORM, so the valuation/screener steps had real data to operate on.
+- Ran a Linux-path variant of the script (the only difference from the real script: `.venv/bin/Activate.ps1` instead of `.venv\Scripts\Activate.ps1` - confirmed via `diff`) through `pwsh -NoProfile -File`.
+- First attempt failed due to a test-setup artifact (the test copy was run from the wrong directory, so `$PSScriptRoot` resolved incorrectly) - not a script defect; fixed by placing the test copy inside `scripts/` as the real script would be, and re-ran.
+- Second run succeeded end-to-end: the log file correctly showed all three phase headers with timestamps, correctly captured the (expected, sandbox-only) Yahoo network failure during ingestion without halting the script, and correctly computed and logged valuation + screener output from the seeded data.
+- All test artifacts (test script copy, test `.env`, test watchlist file, `logs/` directory, disposable database) were deleted after validation; nothing from this test run is part of the committed repository.
+
+**Task Scheduler wiring:** see the "Daily Automation" section of `README.md` for the exact one-time GUI setup (trigger time, action command line, recommended settings).
+
+---
+
+## 17. Prompts to Recreate This Project
 
 A condensed, ordered record of the prompts that actually built this project, kept here as a design-intent record, for rebuilding an equivalent system elsewhere, and as onboarding context for anyone (human or AI) picking this up. Not a literal transcript - operational debugging exchanges ("run this command", "paste that output") are omitted; what's kept are the prompts that drove a design decision or a piece of work. The current repository already contains every fix below - don't replay this list against this repo, only against a fresh one.
 
@@ -559,9 +586,11 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 6. **This section.** *"Update my as built guide, with prompts to recreate. Include suggested next prompts to start next time."*
 
+7. **Automation.** *"Automate via Windows Task Scheduler."* → Produced `scripts/daily_refresh.ps1` (ingestion → valuation → screener, logged, non-stop-on-error), validated in a disposable test environment before being handed to the user, plus the exact Task Scheduler GUI setup steps (README.md) and this section's design/validation notes.
+
 ---
 
-## 17. Suggested Next Prompts
+## 18. Suggested Next Prompts
 
 Ready-to-use prompts for picking this project back up. Each assumes you're starting a fresh session with the code already on your machine (`git pull` first) and the database already populated from the ~500-company All Ordinaries run.
 
@@ -574,8 +603,10 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Source and load the real ASX 300 (if you want the narrower, more liquid universe instead of the broader All Ords list):**
 > "I've downloaded the current ASX 300 constituent list from [S&P/ASX source] and saved it as asx300.txt. Run the full ingestion and valuation pipeline against it and show me the screener results compared to what the All Ords run found."
 
-**Automate it:**
-> "Set up a Windows Task Scheduler job that runs ingestion and valuation daily after market close, so screen_asx.py is always working off current data without me running commands by hand. Walk me through creating the scheduled task."
+**Automate it:** ✅ Done 2026-10-02 - see `scripts/daily_refresh.ps1`, §16, and README.md's "Daily Automation" section.
+
+**Check the automation is actually running (after Task Scheduler has been live a few days):**
+> "Check the last few files in logs\ and tell me whether the daily refresh has been running successfully, whether the screener results have changed, and flag anything that looks wrong (repeated ingestion errors, a day that didn't run at all, etc.)."
 
 **Sector-aware valuation (known-issue #8):**
 > "Known-issue #8 says the generic DCF doesn't suit banks, REITs and insurers. Design and implement a sector-aware valuation path - at minimum, a dividend-discount or P/B-based approach for Financial Services companies - so they don't just get silently skipped for margin of safety."
