@@ -8,6 +8,17 @@ market cap isn't available. `current_ratio` is intentionally left `None`:
 the schema stores `total_assets`/`total_liabilities` but not the
 current (short-term) split, so a true current ratio cannot be derived
 without adding those columns.
+
+The DCF's free cash flow base is a `fcf_average_years`-year simple mean
+(default 3) across the most recent `FY` reports, not just the single
+latest year. This was a deliberate fix (2026-10-02, see docs/AS_BUILT.md
+§8.4) after live data showed how unstable a single-year FCF base makes
+the DCF: a company with a 3x swing in FCF across 4 years saw its margin
+of safety swing from +34% to -10% depending only on growth/discount
+assumptions, because the entire projection was anchored to one year's
+figure. Every other metric (ROE, D/E, P/E, dividend yield, Graham
+Number, ...) still uses only the single latest `FY` report, matching
+standard point-in-time ratio practice - only the DCF base is averaged.
 """
 
 from __future__ import annotations
@@ -28,12 +39,16 @@ from src.valuation.graham import book_value_per_share, graham_number
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_FCF_AVERAGE_YEARS = 3
+
+
 @dataclass
 class ValuationInputs:
     company: Company
     price: DailyPrice
-    report: FinancialReport
+    report: FinancialReport  # latest FY report - drives every metric except the DCF base
     shares_outstanding: Decimal | None
+    dcf_free_cash_flow: Decimal | None  # mean FCF across the last fcf_average_years FY reports
 
 
 def _latest_price(session: Session, company_id) -> DailyPrice | None:
@@ -46,14 +61,25 @@ def _latest_price(session: Session, company_id) -> DailyPrice | None:
     return session.execute(stmt).scalar_one_or_none()
 
 
-def _latest_annual_report(session: Session, company_id) -> FinancialReport | None:
+def _last_n_annual_reports(session: Session, company_id, n: int) -> list[FinancialReport]:
+    """Up to `n` most recent `FY` reports, newest first."""
     stmt = (
         select(FinancialReport)
         .where(FinancialReport.company_id == company_id, FinancialReport.period_type == "FY")
         .order_by(FinancialReport.fiscal_year.desc())
-        .limit(1)
+        .limit(max(n, 1))
     )
-    return session.execute(stmt).scalar_one_or_none()
+    return list(session.execute(stmt).scalars())
+
+
+def _average_free_cash_flow(reports: list[FinancialReport]) -> Decimal | None:
+    """Simple mean of free_cash_flow across whatever reports have a value
+    (gracefully handles fewer than the requested number of years, or gaps).
+    Returns None only if none of the reports have a usable figure."""
+    values = [r.free_cash_flow for r in reports if r.free_cash_flow is not None]
+    if not values:
+        return None
+    return sum(values) / Decimal(len(values))
 
 
 def _estimate_shares_outstanding(price: DailyPrice, report: FinancialReport) -> Decimal | None:
@@ -64,19 +90,29 @@ def _estimate_shares_outstanding(price: DailyPrice, report: FinancialReport) -> 
     return None
 
 
-def gather_inputs(session: Session, company: Company) -> ValuationInputs | None:
+def gather_inputs(
+    session: Session, company: Company, fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS
+) -> ValuationInputs | None:
     price = _latest_price(session, company.company_id)
-    report = _latest_annual_report(session, company.company_id)
-    if price is None or report is None:
+    reports = _last_n_annual_reports(session, company.company_id, fcf_average_years)
+    if price is None or not reports:
         logger.warning(
             "Skipping %s: missing %s", company.asx_code,
-            "price and financial data" if price is None and report is None
+            "price and financial data" if price is None and not reports
             else "price data" if price is None else "financial report data",
         )
         return None
 
+    report = reports[0]  # latest - used for everything except the DCF base
     shares_outstanding = _estimate_shares_outstanding(price, report)
-    return ValuationInputs(company=company, price=price, report=report, shares_outstanding=shares_outstanding)
+    dcf_free_cash_flow = _average_free_cash_flow(reports)
+    return ValuationInputs(
+        company=company,
+        price=price,
+        report=report,
+        shares_outstanding=shares_outstanding,
+        dcf_free_cash_flow=dcf_free_cash_flow,
+    )
 
 
 def compute_metrics(
@@ -123,9 +159,10 @@ def compute_metrics(
     )
 
     dcf_intrinsic_value = None
-    if report.free_cash_flow and report.free_cash_flow > 0 and shares:
+    dcf_fcf = inputs.dcf_free_cash_flow  # fcf_average_years-year mean, not just the latest FY
+    if dcf_fcf and dcf_fcf > 0 and shares:
         dcf_result = dcf_module.two_stage_dcf(
-            base_fcf=report.free_cash_flow,
+            base_fcf=dcf_fcf,
             shares_outstanding=shares,
             cash_and_equivalents=report.cash_and_equivalents or Decimal("0"),
             total_debt=report.total_debt or Decimal("0"),
@@ -169,9 +206,11 @@ def upsert_valuation_metric(session: Session, company_id, metrics: dict) -> None
 def run_valuation_for_company(
     session: Session,
     company: Company,
+    *,
+    fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS,
     **dcf_kwargs,
 ) -> dict | None:
-    inputs = gather_inputs(session, company)
+    inputs = gather_inputs(session, company, fcf_average_years=fcf_average_years)
     if inputs is None:
         return None
     metrics = compute_metrics(inputs, **dcf_kwargs)
@@ -179,7 +218,13 @@ def run_valuation_for_company(
     return metrics
 
 
-def run_valuation(session: Session, asx_codes: list[str] | None = None, **dcf_kwargs) -> dict[str, dict]:
+def run_valuation(
+    session: Session,
+    asx_codes: list[str] | None = None,
+    *,
+    fcf_average_years: int = DEFAULT_FCF_AVERAGE_YEARS,
+    **dcf_kwargs,
+) -> dict[str, dict]:
     """Compute and upsert valuation metrics for the given ASX codes, or all
     active companies if none are given. Returns {asx_code: metrics}."""
     stmt = select(Company).where(Company.is_active.is_(True))
@@ -188,7 +233,7 @@ def run_valuation(session: Session, asx_codes: list[str] | None = None, **dcf_kw
 
     results: dict[str, dict] = {}
     for company in session.execute(stmt).scalars():
-        metrics = run_valuation_for_company(session, company, **dcf_kwargs)
+        metrics = run_valuation_for_company(session, company, fcf_average_years=fcf_average_years, **dcf_kwargs)
         if metrics is not None:
             results[company.asx_code] = metrics
 

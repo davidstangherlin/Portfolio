@@ -299,9 +299,15 @@ Defaults: `growth_rate = 8%`, `discount_rate = 9%` (task spec's 8–10% baseline
 
 ### 8.4 `engine.py` — Orchestration
 
-For each company: pulls the latest `daily_prices` row and latest `financial_reports` row (`period_type = 'FY'` only — half-year reports are stored but not currently used in valuation), computes every `valuation_metrics` column, and upserts via `INSERT ... ON CONFLICT (company_id, as_of_date) DO UPDATE`.
+For each company: pulls the latest `daily_prices` row and the last `fcf_average_years` (default 3) `financial_reports` rows (`period_type = 'FY'` only — half-year reports are stored but not currently used in valuation), computes every `valuation_metrics` column, and upserts via `INSERT ... ON CONFLICT (company_id, as_of_date) DO UPDATE`.
 
 **Shares outstanding** is not a schema column. It is derived as `market_cap / close_price` from the latest price row, falling back to `net_profit_after_tax / eps` if market cap is unavailable. This value feeds BVPS (→ Graham Number), FCF-per-share (→ price-to-FCF), and the DCF's per-share conversion — **it is the single most consequential derived value in the entire valuation layer**, worth prioritising in any design review.
+
+**DCF free cash flow base is a multi-year average, not just the latest year** (added 2026-10-02, after the SUN finding below). `gather_inputs()` fetches the last `fcf_average_years` `FY` reports (default 3) and `compute_metrics()` uses the simple mean of their `free_cash_flow` values as the DCF's starting point — gracefully averaging over however many years actually have a value (1, 2, or 3+), and returning `None` only if none do. **Every other metric** (ROE, D/E, P/E, P/B, EV/EBIT, dividend yield, Graham Number) still uses only the single latest `FY` report — this is a point-in-time ratio snapshot in every case *except* the DCF, which specifically needed smoothing.
+
+**Why this exists — the SUN case study.** Live-testing against Suncorp Group (SUN) surfaced the problem directly: its reported `free_cash_flow` across FY2023–FY2026 was $742M / $2,497M / $2,550M / $1,585M — a 3.4x swing across 4 years. With the original single-year-only DCF base (the latest year, $1,585M), the computed margin of safety swung from **+34.45% to −9.84%** depending only on which growth/discount-rate scenario was tested (8%/9% vs 3%/11%) — the entire conclusion was an artefact of which year happened to be "latest," not a robust read on value. Averaging over 3 years (→ a $2,210.67M base) produces a materially more defensible number. This is logged as resolved against known-issue #4's residual risk (§11) and is the direct fix for what's now issue #9.
+
+`--fcf-average-years 1` on the CLI reproduces the old single-year behaviour exactly, for anyone who wants to compare or who has a specific reason to weight only the most recent year.
 
 **`current_ratio` is hardcoded to `None`** — the schema has no current-assets/current-liabilities split (only `total_assets`/`total_liabilities`), so a genuine current ratio cannot be derived. This is a deliberate "don't fabricate a number" decision, not a bug.
 
@@ -310,7 +316,7 @@ A company with no price row or no `FY` financial report is skipped entirely (log
 ### 8.5 `run_valuation.py` — CLI
 
 ```
-python -m src.valuation.run_valuation (--all | --tickers BHP CBA) [--growth-rate D] [--discount-rate D] [--terminal-growth-rate D] [--stage1-years N]
+python -m src.valuation.run_valuation (--all | --tickers BHP CBA) [--growth-rate D] [--discount-rate D] [--terminal-growth-rate D] [--stage1-years N] [--fcf-average-years N]
 ```
 
 ---
@@ -417,6 +423,7 @@ Before the user's own machine was used, live ingestion was attempted from a sand
 | 6 | No automated test suite | Regressions in the valuation formulas would only surface by manual inspection | See §12 |
 | 7 | `.env` holds a plaintext DB password | Standard local-dev risk, already `.gitignore`d | Fine for local use; use a secrets manager if ever deployed beyond a single machine |
 | 8 | A single generic DCF model is applied to every sector, including banks | Confirmed in practice (§10.6): CBA's `free_cash_flow` is not meaningfully positive under the standard operating-CF-minus-capex definition, since loan book movements dominate it for a bank — DCF is correctly skipped for CBA rather than producing a misleading number, but this means financial-sector companies will generally never get a margin-of-safety figure at all | Acceptable as-is (skip-rather-than-fabricate is the right default); a sector-aware valuation path (e.g. P/B or dividend-discount model for financials) would be the proper fix if screening banks matters |
+| 9 | ~~DCF used only the single latest year's `free_cash_flow` as its base~~ **RESOLVED 2026-10-02** | Was highly sensitive to whichever year happened to be most recent — SUN's margin of safety swung +34% to −10% across reasonable growth/discount scenarios purely because of this (§8.4, §10.6) | Fixed: DCF base is now a `fcf_average_years`-year (default 3) simple mean, configurable via `--fcf-average-years` on `run_valuation.py` (set to 1 to restore old behaviour) |
 
 ---
 
@@ -478,6 +485,7 @@ If handing this document plus the source to another model for review, the highes
 3. **`src/valuation/engine.py`, `_estimate_shares_outstanding()`** — this single derived value cascades into four other metrics; worth an opinion on whether deriving it from `market_cap / price` is more or less reliable than the NPAT/EPS fallback
 4. **`src/ingestion/yahoo_client.py`, `get_annual_fundamentals()`** — field-name mapping was fixed on 2026-10-01 after live data revealed a naming mismatch (see §10.6); a second opinion on whether the corrected PascalCase labels are complete/robust (and whether the fallback chains — e.g. `StockholdersEquity` vs `CommonStockEquity` — pick the right one in edge cases) would be valuable
 5. **Upsert/coalesce strategy in `fundamentals_ingestion.py`** — worth confirming the "never let a NULL fetch overwrite good data" design is the right call versus simply always taking the latest fetch
+6. **`src/valuation/engine.py`, `_average_free_cash_flow()`** — a straightforward simple mean over 3 years (§8.4); worth a second opinion on whether a recency-weighted average or outlier-trimming would be more defensible than an unweighted mean, particularly for cyclical or recently-restructured companies (SUN's own FY2023 debt collapse — likely a bank-arm divestment — is exactly this kind of structural break a simple mean doesn't account for)
 
 ---
 
@@ -493,3 +501,6 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-01 | First successful live ingestion, run from the user's own Windows machine (PostgreSQL installed natively after Docker was blocked by lack of virtualisation support): 508 price bars + 4 annual reports per ticker across 5 tickers, zero errors |
 | 2026-10-01 | Live run exposed a Yahoo field-naming mismatch (`get_annual_fundamentals()` used spaced labels; live API returns PascalCase) causing ROE, D/E and margin of safety to compute as `NULL` for every company. Root-caused via a live diagnostic dump of actual field names, fixed in `src/ingestion/yahoo_client.py`, and pushed |
 | 2026-10-01 | Fix confirmed: re-ingested + re-valued all 5 tickers with real, non-`NULL` ROE/D-E/margin-of-safety figures. Pipeline is now fully operational end-to-end on live data. Screener correctly returned zero matches on this sample under default thresholds (none of the five mega-caps clear a 20% margin of safety at current prices) |
+| 2026-10-01 | Expanded live-tested ticker list to GMG, LLC, CHC, SUN, RRF. RRF failed to resolve on Yahoo (invalid/delisted code, unresolved). SUN cleared the screen on relaxed ROE (`--min-roe 9`): MoS 34.45%, yield 6.10%, D/E 0.26 |
+| 2026-10-02 | Stress-tested SUN's DCF across growth/discount scenarios: margin of safety swung from +34.45% (8%/9%) to +12.50% (5%/10%) to −9.84% (3%/11%) — traced to a single-year FCF base (SUN's `free_cash_flow` varied 3.4x across FY2023–FY2026). Also noted SUN's `total_debt` collapsed ~90% between FY2023 and FY2024, consistent with (unverified) a bank-arm divestment — a likely structural break, not a data error |
+| 2026-10-02 | Fixed the root design issue (known-issue #9): `engine.py`'s DCF now averages `free_cash_flow` over the last `fcf_average_years` (default 3) `FY` reports instead of using only the latest year. Configurable via `--fcf-average-years` on `run_valuation.py` (`1` restores old behaviour). Validated by replaying SUN's real 4-year FCF figures against a disposable PostgreSQL instance: confirmed the 3-year average computes exactly as expected ($2,210.67M, matching a manual calculation) and that intrinsic value scales monotonically and correctly across 1-year/3-year/4-year windows |
