@@ -250,7 +250,11 @@ def _clamp_to_column_precision(metrics: dict) -> dict:
     return clamped
 
 
-def upsert_valuation_metric(session: Session, company_id, metrics: dict) -> None:
+def upsert_valuation_metric(session: Session, company_id, metrics: dict) -> dict:
+    """Upserts the row and returns the metrics actually written (i.e.
+    post-clamp) - callers that log or return these values should use the
+    return value, not their own pre-clamp dict, so console output and the
+    database never disagree about what was stored."""
     metrics = _clamp_to_column_precision(metrics)
     stmt = insert(ValuationMetric).values(company_id=company_id, **metrics)
     update_cols = {k: getattr(stmt.excluded, k) for k in metrics}
@@ -259,6 +263,7 @@ def upsert_valuation_metric(session: Session, company_id, metrics: dict) -> None
         set_=update_cols,
     )
     session.execute(stmt)
+    return metrics
 
 
 def run_valuation_for_company(
@@ -272,8 +277,7 @@ def run_valuation_for_company(
     if inputs is None:
         return None
     metrics = compute_metrics(inputs, **dcf_kwargs)
-    upsert_valuation_metric(session, company.company_id, metrics)
-    return metrics
+    return upsert_valuation_metric(session, company.company_id, metrics)
 
 
 def run_valuation(
