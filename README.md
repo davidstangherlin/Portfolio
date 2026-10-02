@@ -4,6 +4,9 @@ A local application for screening ASX-listed equities on classic Graham/Buffett
 value criteria: margin of safety, ROE, debt/equity, and franking-adjusted
 dividend yield.
 
+See `docs/OVERVIEW.md` for a plain-English explanation of what this does, why
+it's useful, and who it's for. See `docs/AS_BUILT.md` for full technical design.
+
 ## Project Layout
 
 ```
