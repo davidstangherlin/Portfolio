@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 logs/
+.pytest_cache/
 
 # Personal watchlist files (--tickers-file inputs, e.g. allords.txt, asx300.txt) -
 # these are your own data, not project code, so they're deliberately not committed.

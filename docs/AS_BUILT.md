@@ -80,16 +80,28 @@ Portfolio/
 │       └── run_valuation.py            CLI entrypoint
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── requirements.txt                    Pinned dependency versions
+├── requirements-dev.txt                requirements.txt + pytest (§10.12)
+├── pytest.ini                          Test discovery config (testpaths, pythonpath, integration marker)
 ├── .env.example                        Template for local DB credentials
 ├── .gitignore                          Excludes .venv/, __pycache__/, .env, logs/, watchlist files
 ├── README.md                           Setup + workflow quick-start
 ├── scripts/
 │   └── daily_refresh.ps1               Windows Task Scheduler automation (§16)
+├── tests/                              pytest suite (§10.12, known-issue #6)
+│   ├── conftest.py                     DB-reachability check, test-DB creation/schema apply, truncate-between-tests fixture
+│   ├── unit/                           No database - pure functions + compute_metrics()
+│   │   ├── _builders.py                In-memory Company/DailyPrice/FinancialReport/ValuationInputs factories
+│   │   ├── test_dividends.py, test_graham.py, test_dcf.py, test_ddm.py
+│   │   └── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
+│   └── integration/                    Needs a real local PostgreSQL instance
+│       ├── test_schema.py              Idempotent apply, view column coverage
+│       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation
+│       └── test_screener.py            build_query()/annotate_row() against the real view
 └── docs/
     └── AS_BUILT.md                     This document
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 79-test suite added 2026-10-02 (§10.12).
 
 ---
 
@@ -483,7 +495,7 @@ for label, df in [("INCOME STATEMENT", t.get_income_stmt(freq="yearly")),
 Before the user's own machine was used, live ingestion was attempted from a sandboxed dev environment whose outbound network policy explicitly blocks `guce.yahoo.com` and `query2.finance.yahoo.com` (HTTP 403 at the proxy/gateway level — confirmed via proxy diagnostic logs, not a code-level failure). The ingestion code degraded exactly as designed under that failure (created `Company` fallback rows, logged per-ticker errors, returned zero counts, did not crash). This is what first surfaced the general risk later confirmed in §10.6.
 
 ### 10.8 Still Outstanding
-- No automated test suite exists yet (see §12, Recommendations).
+- ~~No automated test suite exists yet~~ **Resolved 2026-10-02 - see §10.12.**
 - Given the field-name break found in §10.6, the **other** Yahoo-sourced field — `get_price_history()`'s `sharesOutstanding` lookup from `.info` — has not been separately re-verified against live data, though price/volume/market_cap ingestion itself did return correctly (§10.6). `.info` is a different API surface (plain dict, not a statement DataFrame) and less likely to share this exact failure mode, but it hasn't been explicitly checked.
 
 ### 10.9 Sector-Aware DDM — Synthetic Data (2026-10-02)
@@ -527,6 +539,28 @@ Validated against a disposable PostgreSQL instance with three synthetic companie
 - `trap_risk` warning line confirmed printed for `TRAP` only, in the same style as the existing `payout_ratio` warning.
 - Test artifacts (seed script, disposable database) deleted after validation; nothing from this test is part of the committed repository.
 
+### 10.12 Automated Test Suite (`tests/`) — Added 2026-10-02
+
+**Known-issue #6, resolved.** Every fix in §10.1-§10.11 was validated by hand against a disposable PostgreSQL instance - real, not mocked, and genuinely effective at catching the bugs this project has actually hit (numeric overflow, view column ordering, upsert/commit semantics), but manual and not repeatable without re-reading this document and re-typing each scenario. `tests/` formalises the highest-value scenarios already documented above into a `pytest` suite that runs in under a second and can be re-run on every change going forward.
+
+**Two tiers, by design:**
+
+- **`tests/unit/`** - pure functions and `compute_metrics()`, no database at all. `compute_metrics()` takes a `ValuationInputs` dataclass and plain (unpersisted) ORM objects - SQLAlchemy models can be constructed and have their attributes read without ever touching a session - so the DCF-vs-DDM sector routing, per-model growth-rate defaults, `payout_ratio`/`margin_of_safety_percent` sanity caps, `_clamp_to_column_precision()`, and `_fundamentals_trend()` are all covered here, instantly and without any setup. 64 tests.
+- **`tests/integration/`** - the parts that genuinely need a real database: `gather_inputs()`'s queries (including the `margin_of_safety_trend` cross-row lookup), `upsert_valuation_metric()`'s overflow clamp actually round-tripping through PostgreSQL, `run_valuation()`'s per-company crash isolation (validated with a real forced exception via `monkeypatch`, not just a skip case), and `screen_asx.py`'s `build_query()`/`annotate_row()` against the real `asx_value_screener` view. 15 tests, requiring a local PostgreSQL instance (`tests/conftest.py` creates the `asx_test` database and applies `db/schema.sql` automatically on first run - set `TEST_DATABASE_URL` to point elsewhere, e.g. a CI database).
+
+**Regression-pinned against real historical figures**, per this project's own suggested-next-step: SUN's documented 3-year FCF average ($2,210.67M, known-issue #9), TWR's documented payout ratio (518.70%, from $1.1930 DPS / $0.2300 EPS, known-issue #14), and BRN/WHI's exact overflow values (`roic` 10,129.90%, `pb_ratio` ~203M, `roe` 134,600%, known-issue #15) are used as literal test fixtures, not synthetic approximations - if any of these formulas regress, the test that catches it cites the exact real-world case that originally found the bug.
+
+**Graceful skip, not a hard dependency.** `tests/conftest.py`'s database-reachability check is deliberately *not* an `autouse` fixture - only `db_session` (and anything that requests it) depends on it, so `tests/unit/` runs and passes identically whether or not Postgres is even installed. `tests/integration/` skips with a clear reason (`pytest.skip(...)`, not a failure) if no database is reachable, so `pytest` is safe to run on a fresh clone before `db/schema.sql` has ever been applied. This was found and fixed during development: an earlier version made the database check `autouse=True` at session scope, which skipped *every* test in the suite - including pure unit tests that never request a database - the moment Postgres was stopped, since every test implicitly depended on the autouse fixture. Caught by literally stopping Postgres and re-running the suite, exactly the kind of check a test suite about testing needs to survive itself.
+
+**Running them:**
+```bash
+pip install -r requirements-dev.txt
+pytest                              # runs both tiers; integration tests skip if no DB is reachable
+pytest tests/unit                   # unit tests only, no database needed at all
+pytest -m integration               # integration tests only
+TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test database
+```
+
 ---
 
 ## 11. Known Issues & Design Limitations
@@ -538,7 +572,7 @@ Validated against a disposable PostgreSQL instance with three synthetic companie
 | 3 | Shares outstanding is derived, not stored | A stale/wrong `market_cap` from Yahoo silently skews Graham Number, P/B, FCF/share, and DCF-per-share together | Consider adding a `shares_outstanding` column sourced independently, if data quality issues appear |
 | 4 | `yfinance` field names are unversioned and change without notice | **Materialised on the first live run (2026-10-01):** every balance-sheet/income/cash-flow field except EBIT came back `NULL` due to a PascalCase-vs-spaced naming mismatch. Fixed same day — see §10.6. Residual risk: Yahoo can change these labels again at any time | Use the diagnostic script in §10.6 to re-check field names if ROE/D-E/margin-of-safety start coming back `NULL` again after previously working |
 | 5 | Yahoo Finance blocked from the sandboxed dev environment used for initial development | Live ingestion couldn't be exercised until moved to the user's own machine (see §10.7) | Resolved — ingestion now runs from the user's own machine, which has normal network access |
-| 6 | No automated test suite | Regressions in the valuation formulas would only surface by manual inspection | See §12 |
+| 6 | ~~No automated test suite~~ **RESOLVED 2026-10-02** | Regressions in the valuation formulas would only surface by manual inspection | Fixed: `tests/` adds a 79-test `pytest` suite (64 unit, 15 integration), regression-pinned against real historical figures (SUN's FCF average, TWR's payout ratio, BRN/WHI's overflow values) from this very table. See §10.12 |
 | 7 | `.env` holds a plaintext DB password | Standard local-dev risk, already `.gitignore`d | Fine for local use; use a secrets manager if ever deployed beyond a single machine |
 | 8 | ~~A single generic DCF model is applied to every sector, including banks~~ **RESOLVED 2026-10-02** | Confirmed in practice (§10.6): CBA's `free_cash_flow` is not meaningfully positive under the standard operating-CF-minus-capex definition, since loan book movements dominate it for a bank — DCF is correctly skipped for CBA rather than producing a misleading number, but this meant financial-sector (and REIT) companies would generally never get a margin-of-safety figure at all | Fixed: `engine.py` now routes Financial Services and Real Estate companies to a new two-stage Dividend Discount Model (`src/valuation/ddm.py`) instead of the FCF-based DCF, with a new `valuation_method` column recording which model priced each company. Validated with synthetic data (§10.9): a bank with negative FCF in all 4 years but a real dividend history now gets a usable margin-of-safety figure instead of `NULL`. Residual note: the screener's default `--max-debt-equity 0.80` is still structurally unsuited to financials (leverage is their business model) — a threshold-tuning question, documented in README.md/§9, not a valuation defect |
 | 9 | ~~DCF used only the single latest year's `free_cash_flow` as its base~~ **RESOLVED 2026-10-02** | Was highly sensitive to whichever year happened to be most recent — SUN's margin of safety swung +34% to −10% across reasonable growth/discount scenarios purely because of this (§8.4, §10.6) | Fixed: DCF base is now a `fcf_average_years`-year (default 3) simple mean, configurable via `--fcf-average-years` on `run_valuation.py` (set to 1 to restore old behaviour) |
@@ -578,6 +612,11 @@ cp .env.example .env
 python -m src.ingestion.run_ingestion --tickers BHP CBA CSL WES WOW --period 2y
 python -m src.valuation.run_valuation --all
 python screen_asx.py
+
+# 6. (Optional) Run the test suite (§10.12) - uses its own asx_test database,
+#    created automatically, never the one configured above
+pip install -r requirements-dev.txt
+pytest
 ```
 
 **Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply):
@@ -601,6 +640,8 @@ psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, va
 | Margin of safety is always `None` for a company with real data | For most sectors: `free_cash_flow` is `None`/`≤ 0` across the averaging window. For Financial Services/Real Estate (§8.3/§8.4): `dividends_per_share` is `None`/`≤ 0` across the same window — these use the DDM, not the DCF, and won't have a `dcf_free_cash_flow`-driven result regardless of FCF | Check the source `financial_reports` rows and `valuation_metrics.valuation_method` (will be `NULL` if neither model ran); this is by design, not a bug |
 | Margin of safety is `None` specifically for a bank/insurer/REIT with real dividends | Check `companies.sector` matches `_SECTOR_AWARE_SECTORS` exactly (`"Financial Services"`, `"Real Estate"` — yfinance's exact spelling) | A sector spelled differently (e.g. a stale/partial Yahoo profile) falls through to the DCF path instead of the DDM path and will likely come back `NULL` on negative FCF |
 | `TIMESTAMP WITH TIMEZONE` syntax error if re-authoring the schema by hand | Invalid PostgreSQL syntax — correct form is `TIMESTAMP WITH TIME ZONE` | Already fixed in the committed `db/schema.sql`; don't reintroduce this typo |
+| `pytest` reports every test in `tests/integration/` skipped | Local PostgreSQL isn't running, or `TEST_DATABASE_URL` points somewhere unreachable | Start Postgres (`service postgresql start` / Windows service), or set `TEST_DATABASE_URL`; `tests/unit/` should still show as passed, not skipped, regardless |
+| `pytest` reports *every* test skipped, including `tests/unit/` | A regression of the exact bug found during §10.12's own development: the database-reachability fixture became `autouse=True` again, so unit tests started depending on it despite never touching the DB | Confirm `_test_database` in `tests/conftest.py` is not `autouse` - only `db_session` should request it |
 
 ---
 
@@ -645,6 +686,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | User requested sector-aware valuation for financials/REITs (known-issue #8). Added `src/valuation/ddm.py`: a two-stage Dividend Discount Model with the same stage-1-growth-then-Gordon-Growth-terminal-value mechanics as `dcf.py`, substituted onto `dividends_per_share` instead of `free_cash_flow` (no shares-outstanding input needed - the DDM result is already per-share). `engine.py` now routes Financial Services and Real Estate companies (`_SECTOR_AWARE_SECTORS`, matching yfinance's exact sector spelling) to the DDM instead of the standard DCF, since these sectors' "free cash flow" is dominated by balance-sheet movements rather than reinvestment capex and isn't a meaningful DCF input - previously confirmed in practice with CBA (§10.6). Added a `valuation_method` column (schema + ORM + screener output) recording which model priced each company (`'DCF'`/`'DDM'`/`NULL`), using the same append-at-the-end-of-the-view lesson learned from known-issue #14's `payout_ratio` migration. `growth_rate` now defaults per-model (8% DCF / 5% DDM) when not explicitly set via `--growth-rate`, since dividend growth is typically a more conservative assumption than FCF growth - an explicit `--growth-rate` still applies uniformly to whichever model runs, as before. Validated with synthetic data on a disposable PostgreSQL instance (§10.9): a bank with negative FCF in all 4 years but a real, growing dividend history went from `margin_of_safety_percent = NULL` (old behaviour) to a real, usable 28.80%/37.26% figure (default/explicit-growth-rate runs respectively) depending on which growth assumption applied, confirming the per-model default resolves correctly; a control company (ordinary sector, positive FCF) was confirmed completely unaffected by the change. Also surfaced (not a defect): the screener's default `--max-debt-equity 0.80` is structurally unsuited to financials, documented as a threshold-tuning note in README.md/§9 rather than a new known-issue |
 | 2026-10-02 | User asked for `screen_asx.py` to stop filtering non-matching companies out of the output and instead show every company with a visible pass/fail indicator per criterion. Rewrote the screener (§9): the four classic criteria (margin of safety, ROE, debt/equity, grossed-up yield) moved from a SQL `WHERE` clause to Python-side `annotate_row()`, adding one `Y`/`N` column per criterion (`mos_ok`/`roe_ok`/`de_ok`/`yield_ok`) plus a combined `overall` column (`AND` of all four by default, `OR` under `--any-of`, same logic as before - just an indicator now, not a filter). `--sector` remains a true SQL filter. Added `--passing-only` to restore the old filtered-to-matches-only view as an opt-in. Changed `--limit`'s default from 25 to unlimited, since showing everyone was the point of the change. Validated with three synthetic companies on a disposable PostgreSQL instance (§10.10): a clean pass, a clean fail, and a company with data missing on some but not all criteria - confirmed the partial-data company got a precise per-criterion readout (`Y` on the one metric it had and passed, `N` on the two it had no data for) rather than being blanket-excluded, and that `--any-of`, `--passing-only`, `--sector` and `--limit` all still behave correctly under the new design |
 | 2026-10-02 | User asked whether another ranking could help catch a promising share before others do, and for a field to help identify a potential value trap (known-issue #17). Added two independent `valuation_metrics` columns: `margin_of_safety_trend` (price-driven - the change in margin of safety vs the most recent snapshot at least `trend_days` days old, default 30, new `--trend-days` flag on `run_valuation.py`) and `fundamentals_trend` (business-driven - `'IMPROVING'`/`'STABLE'`/`'DECLINING'` from ROE/revenue direction across the same multi-year `financial_reports` window used for the DCF/DDM average, known-issue #18). `screen_asx.py` gained two informational indicators deliberately excluded from `overall`: `momentum_ok` (margin_of_safety_trend above `--min-mos-trend`, default 5pp) and `trap_risk` (a composite: `mos_ok` cheap **and** `fundamentals_trend` declining - a candidate value trap), plus `--rank-by momentum` to sort by the trend instead of absolute margin of safety for a "catch it before others" view, and a `trap_risk` warning line matching the existing `payout_ratio` warning's style. `margin_of_safety_trend` is `NULL` for every company until `trend_days` of daily automation history has accumulated - a genuine cold-start gap the user explicitly anticipated ("a field that can populate in time"); the screener prints a note explaining this rather than leaving a blank column to look broken. `fundamentals_trend` has no such wait, since it only needs already-ingested annual report history. Validated with three synthetic companies on a disposable database (§10.11): a cheap-but-declining company correctly flagged `trap_risk = Y` despite also having positive price momentum (confirming the two signals are independent), a cheap-and-improving company correctly flagged `trap_risk = N`, and a brand-new company with no prior snapshot and only 1 FY report correctly showed blank trend fields rather than erroring |
+| 2026-10-02 | User asked to address known-issue #6 (no automated test suite). Added `tests/` - a 79-test `pytest` suite, two tiers: `tests/unit/` (64 tests, pure functions + `compute_metrics()`, no database - `compute_metrics()` takes plain, unpersisted ORM objects) and `tests/integration/` (15 tests, a real local PostgreSQL instance via `tests/conftest.py`, which creates an `asx_test` database and applies `db/schema.sql` automatically). Several tests regression-pin real historical figures already documented in this table: SUN's 3-year FCF average ($2,210.67M, known-issue #9), TWR's payout ratio (518.70%, known-issue #14), and BRN/WHI's exact overflow values (known-issue #15) - per this project's own suggested-next-step to use them as test fixtures. `run_valuation()`'s per-company crash isolation (known-issue #13) is validated with a real forced exception via `monkeypatch`, not just a skip case. Found and fixed a real bug in the test suite itself during development: the database-reachability fixture was initially `autouse=True` at session scope, which skipped *every* test - including pure unit tests that never touch a database - the moment Postgres was stopped; caught by literally stopping Postgres and re-running the suite, fixed by making only `db_session` depend on it. See §10.12 |
 
 ---
 
@@ -695,6 +737,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 10. **Trend indicators - momentum into value and a value-trap flag.** *"Is there another ranking to alert users to items worth looking at based on a trend? Something to help catch the next best share before others catch on?"*, followed by *"momentum into value sounds good. will be good to have a field that can populate in time to identify a potential value trap."* → Added `margin_of_safety_trend` (price-driven, needs accumulated daily history - a cold-start the user explicitly anticipated) and `fundamentals_trend` (business-driven, from existing annual reports, populates immediately), with `screen_asx.py` gaining `momentum_ok`/`trap_risk` indicators and a `--rank-by momentum` ranking. Validated with three synthetic companies (declining-fundamentals trap, improving-fundamentals momentum play, brand-new cold-start company) on a disposable database.
 
+11. **Automated test suite (known-issue #6).** *"Address known-issue #6 (no automated test suite)."* → Added `tests/` - a 79-test `pytest` suite split into `tests/unit/` (pure functions, no database) and `tests/integration/` (real local PostgreSQL via `tests/conftest.py`), regression-pinned against SUN's/TWR's/BRN's/WHI's real documented figures. Found and fixed a real bug in the suite itself during development (an `autouse` fixture skipping every test, not just the DB-dependent ones) by literally stopping Postgres and re-running it.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -730,8 +774,10 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Check whether momentum/trend data has started populating:**
 > "Run python screen_asx.py and tell me whether margin_of_safety_trend is populated yet (it needs ~30 days of daily automation history) - if it is, show me the top 5 by --rank-by momentum and flag anything with trap_risk = Y so I know to look closer before acting on it."
 
-**Harden further:**
-> "There's no automated test suite yet (known-issue #6). Write one covering the valuation formulas (dividends.py, graham.py, dcf.py) and the overflow/clamping logic in engine.py, using the real company figures already documented in AS_BUILT.md as test fixtures."
+**Harden further (known-issue #6):** ✅ Done 2026-10-02 - see `tests/`, §10.12. Run `pip install -r requirements-dev.txt && pytest`. 64 unit tests need no database at all; 15 integration tests use a disposable `asx_test` database created automatically.
+
+**Extend test coverage to the ingestion layer:**
+> "tests/ currently covers the valuation layer only (dividends, graham, dcf, ddm, engine) and the screener. src/ingestion/ (yahoo_client.py, price_ingestion.py, fundamentals_ingestion.py, run_ingestion.py) has no test coverage yet - particularly the per-ticker crash isolation and the --tickers-file parsing/dedup logic. Add tests for those, using a mocked/stubbed yfinance response rather than hitting the real API."
 
 **Sanity-check a specific result before acting on it:**
 > "Before I act on [TICKER]'s result, pull its raw financial_reports history and walk me through whether the numbers feeding its valuation look trustworthy, the way we did for SUN and TWR."

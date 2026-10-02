@@ -27,9 +27,15 @@ src/
     run_valuation.py          CLI entrypoint
 screen_asx.py               CLI value screener
 requirements.txt
+requirements-dev.txt        requirements.txt + pytest (see Testing below)
+pytest.ini
 .env.example
 scripts/
   daily_refresh.ps1          Windows Task Scheduler automation (see below)
+tests/
+  conftest.py                 test-database setup (see Testing below)
+  unit/                       no database needed - pure functions + compute_metrics()
+  integration/                needs a local PostgreSQL instance
 ```
 
 ## Setup
@@ -112,6 +118,35 @@ for that long - the screener prints a note when this is the case, so a blank
 column reads as "not enough history yet," not a bug. `fundamentals_trend`
 has no such wait: it only needs 2+ years of already-ingested annual reports,
 so it populates on the very next `run_valuation` run.
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest                  # runs both tiers below
+pytest tests/unit       # pure functions + compute_metrics() - no database needed at all
+pytest -m integration   # needs a local PostgreSQL instance (see below)
+```
+
+Two tiers:
+
+- **`tests/unit/`** - pure functions (`dividends.py`, `graham.py`, `dcf.py`, `ddm.py`) and
+  `engine.py`'s `compute_metrics()`, built entirely on plain, unpersisted ORM objects -
+  no database connection at all, so these run in well under a second.
+- **`tests/integration/`** - the parts that genuinely need a real database:
+  `gather_inputs()`'s queries, the overflow-clamp actually round-tripping through
+  PostgreSQL, `run_valuation()`'s per-company crash isolation, and the screener's
+  SQL against the real view. `tests/conftest.py` creates an `asx_test` database and
+  applies `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to
+  point at a different instance) - it never touches whatever database your `.env`
+  points at.
+
+If no PostgreSQL instance is reachable, `tests/integration/` skips with a clear
+reason rather than failing - `tests/unit/` is completely unaffected either way.
+
+Several tests pin real historical figures from this project's own bug history
+(SUN's FCF averaging, TWR's payout ratio, BRN/WHI's numeric overflow values -
+see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximations.
 
 ## Daily Automation (Windows Task Scheduler)
 
