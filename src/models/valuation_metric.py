@@ -46,6 +46,14 @@ class ValuationMetric(Base):
     margin_of_safety_trend: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     fundamentals_trend: Mapped[str | None] = mapped_column(String(10))  # 'IMPROVING' / 'STABLE' / 'DECLINING'
 
+    # Decision markers - see src/valuation/markers.py
+    cash_conversion: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    earnings_quality: Mapped[str | None] = mapped_column(String(10))
+    price_vs_200d: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    range_position_52w: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    dividend_trend: Mapped[str | None] = mapped_column(String(10))
+    data_confidence: Mapped[str | None] = mapped_column(String(6))
+
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.current_timestamp()
     )

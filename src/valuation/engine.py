@@ -40,7 +40,7 @@ price (NULL if fewer than 2 distinct FY reports are available).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
 
@@ -51,6 +51,7 @@ from sqlalchemy.orm import Session
 from src.models import Company, DailyPrice, FinancialReport, ValuationMetric
 from src.valuation import dcf as dcf_module
 from src.valuation import ddm as ddm_module
+from src.valuation import markers
 from src.valuation.dividends import dividend_yields
 from src.valuation.graham import book_value_per_share, graham_number
 
@@ -79,6 +80,8 @@ class ValuationInputs:
     dcf_free_cash_flow: Decimal | None  # mean FCF across the last fcf_average_years FY reports
     ddm_dividend_per_share: Decimal | None  # mean DPS across the same window, for sector-aware companies
     prior_margin_of_safety_percent: Decimal | None  # from the valuation_metrics row >= trend_days old, for margin_of_safety_trend
+    history_reports: list[FinancialReport] = field(default_factory=list)  # up to DIVIDEND_HISTORY_YEARS FY reports, newest first
+    recent_closes: list[Decimal] = field(default_factory=list)  # last 365 days of closes, newest first
 
 
 def _latest_price(session: Session, company_id) -> DailyPrice | None:
@@ -202,6 +205,21 @@ def _prior_margin_of_safety(
     return session.execute(stmt).scalar_one_or_none()
 
 
+def _recent_closes(session: Session, company_id, as_of_date, days: int = 365) -> list[Decimal]:
+    """Closing prices for the `days` calendar days up to and including
+    `as_of_date`, newest first - the input to the price-position markers."""
+    stmt = (
+        select(DailyPrice.close_price)
+        .where(
+            DailyPrice.company_id == company_id,
+            DailyPrice.price_date > as_of_date - timedelta(days=days),
+            DailyPrice.price_date <= as_of_date,
+        )
+        .order_by(DailyPrice.price_date.desc())
+    )
+    return list(session.execute(stmt).scalars())
+
+
 def gather_inputs(
     session: Session,
     company: Company,
@@ -209,7 +227,12 @@ def gather_inputs(
     trend_days: int = DEFAULT_TREND_DAYS,
 ) -> ValuationInputs | None:
     price = _latest_price(session, company.company_id)
-    reports = _last_n_annual_reports(session, company.company_id, fcf_average_years)
+    # One query serves both windows: the fcf_average_years slice for the
+    # DCF/DDM base and fundamentals_trend, the longer history for dividend_trend.
+    history_reports = _last_n_annual_reports(
+        session, company.company_id, max(fcf_average_years, markers.DIVIDEND_HISTORY_YEARS)
+    )
+    reports = history_reports[:max(fcf_average_years, 1)]
     if price is None or not reports:
         logger.warning(
             "Skipping %s: missing %s", company.asx_code,
@@ -234,6 +257,8 @@ def gather_inputs(
         dcf_free_cash_flow=dcf_free_cash_flow,
         ddm_dividend_per_share=ddm_dividend_per_share,
         prior_margin_of_safety_percent=prior_margin_of_safety_percent,
+        history_reports=history_reports,
+        recent_closes=_recent_closes(session, company.company_id, price.price_date),
     )
 
 
@@ -357,6 +382,13 @@ def compute_metrics(
 
     fundamentals_trend = _fundamentals_trend(inputs.reports)
 
+    # Decision markers (src/valuation/markers.py). Cash conversion is
+    # skipped for sector-aware companies: a bank's operating cash flow is
+    # dominated by loan book movements and a REIT's profit by property
+    # revaluations, so OCF/NPAT says nothing about earnings quality there.
+    cash_conversion = None if sector_aware else markers.cash_conversion_percent(inputs.reports)
+    history = inputs.history_reports or inputs.reports
+
     return {
         "as_of_date": price.price_date,
         "pe_ratio": pe_ratio,
@@ -376,6 +408,12 @@ def compute_metrics(
         "valuation_method": valuation_method,
         "margin_of_safety_trend": margin_of_safety_trend,
         "fundamentals_trend": fundamentals_trend,
+        "cash_conversion": cash_conversion,
+        "earnings_quality": markers.earnings_quality(cash_conversion),
+        "price_vs_200d": markers.price_vs_moving_average(inputs.recent_closes),
+        "range_position_52w": markers.range_position(inputs.recent_closes),
+        "dividend_trend": markers.dividend_trend(history),
+        "data_confidence": markers.data_confidence(price, report, len(history), len(inputs.recent_closes)),
     }
 
 
@@ -400,6 +438,7 @@ _COLUMN_PRECISION = {
     "payout_ratio": (6, 2), "dcf_intrinsic_value": (12, 4),
     "graham_number": (12, 4), "margin_of_safety_percent": (6, 2),
     "margin_of_safety_trend": (6, 2),
+    "cash_conversion": (10, 2), "price_vs_200d": (10, 2), "range_position_52w": (6, 2),
 }
 
 

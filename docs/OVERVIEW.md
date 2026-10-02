@@ -13,7 +13,10 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 3. **Calculates the supporting ratios** - ROE, debt/equity, P/E, P/B, franking-adjusted dividend yield, Graham Number, margin of safety.
 4. **Tracks trend, not just snapshot** - whether a company's margin of safety is improving over time (price-driven momentum) and whether its underlying fundamentals (ROE, revenue) are improving or declining, independent of price.
 5. **Screens and flags** - shows every company against the four classic value criteria, with visible pass/fail indicators rather than silently hiding anything, plus two explicit risk flags: a payout-ratio warning (likely one-off dividend) and a value-trap warning (looks cheap, but the business is deteriorating).
-6. **Runs unattended** - a scheduled job refreshes the whole dataset daily, so the research is always current without manual effort.
+6. **Checks the quality behind the numbers** - whether profit is turning into cash, whether the price is stabilising or still falling, whether the dividend has been held or cut, and how complete the underlying data is.
+7. **Suggests a next step, with the reasoning** - BUY, INVESTIGATE, WATCH or AVOID for shares you don't own; HOLD, REVIEW or SELL for ones you do, each with a plain-English reason naming the tests and flags behind it.
+8. **Keeps your CGT records** - every parcel you buy or sell, with brokerage, dates and the 12-month discount tracked, a financial-year capital gains summary, and a prompt when waiting a few weeks before selling would halve the tax.
+9. **Runs unattended** - a scheduled job refreshes the whole dataset daily, so the research is always current without manual effort.
 
 ## Why It's Helpful to Investing
 
@@ -24,6 +27,10 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 **It applies the right model to the right sector.** A generic DCF breaks down for banks, insurers and REITs, whose cash flow behaves differently to an industrial company's. Rather than silently producing a misleading number (or no number at all), the tool switches to a dividend discount model for these sectors, so financials get a genuine valuation instead of being skipped.
 
 **It surfaces trend, which most retail screening tools don't.** A static screen tells you what's cheap right now. This tool also tracks whether something has *just become* cheap, or whether it's been sitting there for months (often a sign the market has already correctly priced in a problem). That's the difference between catching an opportunity early and buying into a story everyone else gave up on.
+
+**It builds judgement, not just a list.** Every suggested action comes with the reason behind it, so over time you learn which signals matter and why: the difference between cheap and good value, between a strong yield and a reliable one, between a bargain and a falling knife.
+
+**It connects research to your actual portfolio.** Knowing what you hold lets it tell you when an owned company has started to deteriorate, and when the timing of a sale matters for tax.
 
 **It's transparent about its own limitations.** Every formula, every threshold, and every known weakness is documented. Where data is missing or a calculation would produce a nonsensical result, the tool shows nothing rather than fabricating a number. That discipline matters more in a financial tool than almost anywhere else.
 

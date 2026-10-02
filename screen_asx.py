@@ -32,6 +32,13 @@ pass/fail):
 Pass --rank-by momentum to sort by margin_of_safety_trend instead of the
 default (absolute margin of safety).
 
+Decision markers (earnings_quality, price_signal, dividend_trend,
+data_confidence - see src/valuation/markers.py) and a suggested `action`
+for every company (src/screening/actions.py) sit alongside. Shares you hold
+(portfolio.py) get HOLD / REVIEW / SELL; everything else BUY / INVESTIGATE /
+WATCH / AVOID / IGNORE. --actions prints a grouped report with the reason
+behind each action instead of the full table.
+
 Run `python -m src.ingestion.run_ingestion` and
 `python -m src.valuation.run_valuation` first to populate the database.
 
@@ -42,18 +49,24 @@ Usage:
     python screen_asx.py --passing-only --any-of      # ...passing any one of the four
     python screen_asx.py --rank-by momentum           # "catch it before others" ranking
     python screen_asx.py --limit 10                   # cap rows shown (default: no limit)
+    python screen_asx.py --actions                    # grouped action report with reasons
+    python screen_asx.py --actions --held             # just the shares you hold
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import text
 from tabulate import tabulate
 
 from src.config import get_session
+from src.portfolio.holdings import PositionSummary, position_summaries
+from src.screening.actions import ACTION_ORDER, suggest_action
+from src.valuation import markers
 from src.valuation.engine import DEFAULT_TREND_DAYS
 
 DEFAULT_MIN_MARGIN_OF_SAFETY = Decimal("20")
@@ -67,7 +80,23 @@ COLUMNS = [
     "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
     "grossed_up_dividend_yield", "payout_ratio", "margin_of_safety_percent",
     "valuation_method", "margin_of_safety_trend", "fundamentals_trend",
+    "cash_conversion", "earnings_quality", "price_vs_200d", "range_position_52w",
+    "dividend_trend", "data_confidence",
 ]
+
+# The full table: raw marker inputs (cash_conversion, price_vs_200d,
+# range_position_52w) are summarised by their labels here and stay in the
+# database for anyone who wants the numbers.
+DISPLAY_COLUMNS = [
+    "asx_code", "company_name", "sector", "current_price",
+    "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
+    "grossed_up_dividend_yield", "payout_ratio", "margin_of_safety_percent",
+    "valuation_method", "margin_of_safety_trend", "fundamentals_trend",
+    "earnings_quality", "price_signal", "dividend_trend", "data_confidence",
+    "mos_ok", "roe_ok", "de_ok", "yield_ok", "overall", "momentum_ok", "trap_risk",
+    "held", "action",
+]
+COMPANY_NAME_WIDTH = 32
 
 # Each entry: (indicator column name, source column, comparison). Computed
 # in Python against every row (not a SQL WHERE filter - see module
@@ -113,6 +142,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                               "cheapness). 'momentum' ranks by margin_of_safety_trend instead - companies "
                               "getting cheaper fastest, a 'catch it before others' view")
     parser.add_argument("--limit", type=int, default=None, help="max rows to display (default: no limit - show every company)")
+    parser.add_argument("--actions", action="store_true",
+                         help="print a report grouped by suggested action, with the reason for each, instead of the full table")
+    parser.add_argument("--held", action="store_true", help="only companies you hold (see portfolio.py)")
     return parser.parse_args(argv)
 
 
@@ -140,14 +172,17 @@ def build_query(args: argparse.Namespace) -> tuple[str, dict]:
     return query, params
 
 
-def annotate_row(row: dict, args: argparse.Namespace) -> dict:
+def annotate_row(
+    row: dict, args: argparse.Namespace, position: PositionSummary | None = None, today: date | None = None
+) -> dict:
     """Adds one Y/N indicator column per criterion plus an 'overall' column
     (AND of all four, or OR if --any-of), without removing or hiding the
     row itself - see module docstring for why this replaced filtering.
     Also adds momentum_ok (margin_of_safety_trend-based) and trap_risk
     (mos_ok cheap but fundamentals_trend declining) - both informational,
     deliberately excluded from 'overall' since they answer a different
-    question than the core four-criterion value screen."""
+    question than the core four-criterion value screen - then the
+    price_signal label, units held, and the suggested action and reason."""
     thresholds = {
         "mos_ok": args.min_margin_of_safety,
         "roe_ok": args.min_roe,
@@ -170,32 +205,79 @@ def annotate_row(row: dict, args: argparse.Namespace) -> dict:
     annotated["overall"] = "Y" if overall else "N"
     annotated["momentum_ok"] = "Y" if momentum_ok else "N"
     annotated["trap_risk"] = "Y" if trap_risk else "N"
+    annotated["price_signal"] = markers.price_signal(row["price_vs_200d"], row["range_position_52w"])
+    annotated["held"] = position.units if position else None
+    annotated["action"], annotated["action_reason"] = suggest_action(annotated, position, today)
     return annotated
+
+
+def _short_name(name: str | None) -> str | None:
+    if name and len(name) > COMPANY_NAME_WIDTH:
+        return name[:COMPANY_NAME_WIDTH - 3] + "..."
+    return name
+
+
+def print_action_report(rows: list[dict], positions: dict[str, PositionSummary], show_unscreened_holdings: bool) -> None:
+    for action in ACTION_ORDER:
+        group = [r for r in rows if r["action"] == action]
+        if not group or action == "IGNORE":
+            continue
+        held_group = action in ("SELL", "REVIEW", "HOLD")
+        table = []
+        for r in group:
+            line = {"asx_code": r["asx_code"], "company": _short_name(r["company_name"]),
+                    "price": r["current_price"], "mos_%": r["margin_of_safety_percent"]}
+            if held_group:
+                line["held"] = r["held"]
+            line["reason"] = r["action_reason"]
+            table.append(line)
+        print(f"\n{action} ({len(group)})")
+        print(tabulate(table, headers="keys", floatfmt=".2f", tablefmt="simple",
+                       maxcolwidths=[None] * (len(table[0]) - 1) + [70]))
+
+    counts = {a: sum(1 for r in rows if r["action"] == a) for a in ACTION_ORDER}
+    print("\n" + ", ".join(f"{a} {n}" for a, n in counts.items() if n) + " (IGNORE = no value signal, not listed)")
+
+    if show_unscreened_holdings:
+        unscreened = sorted(set(positions) - {r["asx_code"] for r in rows})
+        if unscreened:
+            print(f"\nHeld but not screened (add to your watchlist file so they get valued): {', '.join(unscreened)}")
+    print("\nSuggested actions are rule-based research prompts, not financial advice.")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     query, params = build_query(args)
+    today = date.today()
 
     with get_session() as session:
         rows = session.execute(text(query), params).mappings().all()
+        positions = position_summaries(session, today)
 
-    annotated_rows = [annotate_row(row, args) for row in rows]
+    annotated_rows = [annotate_row(row, args, positions.get(row["asx_code"]), today) for row in rows]
     if args.passing_only:
         annotated_rows = [r for r in annotated_rows if r["overall"] == "Y"]
+    if args.held:
+        annotated_rows = [r for r in annotated_rows if r["held"] is not None]
 
     if not annotated_rows:
-        print("No companies found - check --sector/--passing-only, or that run_valuation has been run.")
+        print("No companies found - check --sector/--passing-only/--held, or that run_valuation has been run.")
         return 0
 
-    print(tabulate(annotated_rows, headers="keys", floatfmt=".2f", tablefmt="simple"))
+    if args.actions:
+        print_action_report(annotated_rows, positions, show_unscreened_holdings=not (args.sector or args.limit))
+        return 0
+
+    table = [{col: r[col] for col in DISPLAY_COLUMNS} | {"company_name": _short_name(r["company_name"])}
+             for r in annotated_rows]
+    print(tabulate(table, headers="keys", floatfmt=".2f", tablefmt="simple"))
     passing = sum(1 for r in annotated_rows if r["overall"] == "Y")
     print(f"\n{len(annotated_rows)} companies shown, {passing} passing ({'any' if args.any_of else 'all'} of the four criteria).")
 
     flagged = [r["asx_code"] for r in annotated_rows if r["payout_ratio"] is not None and r["payout_ratio"] > PAYOUT_RATIO_WARNING_THRESHOLD]
     if flagged:
         print(
-            f"\n⚠ Payout ratio > {PAYOUT_RATIO_WARNING_THRESHOLD}% for: {', '.join(flagged)} — "
+            f"\n⚠ Payout ratio > {PAYOUT_RATIO_WARNING_THRESHOLD}% for: {', '.join(flagged)} - "
             "the dividend yield shown likely reflects a one-off/special dividend rather than "
             "sustainable income. Verify against the company's actual dividend history before relying on it."
         )
@@ -203,10 +285,12 @@ def main(argv: list[str] | None = None) -> int:
     trapped = [r["asx_code"] for r in annotated_rows if r["trap_risk"] == "Y"]
     if trapped:
         print(
-            f"\n⚠ Potential value trap for: {', '.join(trapped)} — margin of safety looks attractive, "
+            f"\n⚠ Potential value trap for: {', '.join(trapped)} - margin of safety looks attractive, "
             "but ROE/revenue have been trending down across the recent financial-report history. "
             "Worth checking why it's cheap before assuming the market has simply mispriced it."
         )
+
+    print("\nRun with --actions for the suggested action and reason for each company.")
 
     if not any(r["margin_of_safety_trend"] is not None for r in annotated_rows):
         print(

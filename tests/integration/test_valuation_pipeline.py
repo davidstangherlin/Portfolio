@@ -172,6 +172,45 @@ def test_run_valuation_isolates_crash_and_commits_the_rest(db_session, monkeypat
     assert bad_row is None
 
 
+def test_markers_computed_from_real_price_history_and_five_years_of_reports(db_session):
+    company = _seed_company(db_session, "MRKR")  # FY2024-26, OCF 140M vs NPAT 120M
+    for year, dps in ((2022, Decimal("0.40")), (2023, Decimal("0.50"))):
+        db_session.add(FinancialReport(
+            company_id=company.company_id, fiscal_year=year, period_type="FY", report_date=date(year, 6, 30),
+            net_profit_after_tax=Decimal("120000000"), operating_cash_flow=Decimal("140000000"),
+            dividends_per_share=dps,
+        ))
+    # 250 trading days of history ending yesterday, steadily rising from $8 to ~$9.99,
+    # so today's $10.00 close sits at the top of its range and above its 200-day average.
+    for i in range(1, 251):
+        db_session.add(DailyPrice(company_id=company.company_id, price_date=TODAY - timedelta(days=i),
+                                  close_price=Decimal("10.00") - Decimal("0.008") * i))
+    db_session.commit()
+
+    metrics = run_valuation_for_company(db_session, company)
+    db_session.commit()
+
+    assert metrics["cash_conversion"] == pytest.approx(Decimal("116.67"), abs=Decimal("0.01"))
+    assert metrics["earnings_quality"] == "STRONG"
+    assert metrics["price_vs_200d"] > 0
+    assert metrics["range_position_52w"] == Decimal("100")
+    assert metrics["dividend_trend"] == "GROWING"  # 0.40, 0.50, then 0.60 x3: uses all five years
+    assert metrics["data_confidence"] == "HIGH"
+
+    stored = db_session.execute(
+        select(ValuationMetric).where(ValuationMetric.company_id == company.company_id)
+    ).scalar_one()
+    assert stored.earnings_quality == "STRONG"
+    assert stored.dividend_trend == "GROWING"
+
+
+def test_cash_conversion_skipped_for_banks(db_session):
+    bank = _seed_company(db_session, "BANK2", sector="Financial Services", fcf=Decimal("-3500000000"))
+    metrics = run_valuation_for_company(db_session, bank)
+    assert metrics["cash_conversion"] is None
+    assert metrics["earnings_quality"] is None
+
+
 def test_run_valuation_skips_company_with_no_data_without_crashing(db_session):
     company = Company(ticker="EMPTY.AX", company_name="Empty Ltd", sector="Basic Materials",
                        industry="Test", asx_code="EMPTY", is_active=True)

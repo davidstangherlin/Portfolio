@@ -119,6 +119,20 @@ CREATE TABLE IF NOT EXISTS valuation_metrics (
                                                   -- deteriorating, not because the market has mispriced it.
                                                   -- NULL if fewer than 2 distinct FY reports are available.
 
+    -- Decision markers (src/valuation/markers.py, docs/AS_BUILT.md §8.7)
+    cash_conversion NUMERIC(10, 2),              -- operating cash flow / NPAT across the fcf_average_years
+                                                  -- window, as a %. Profit that doesn't turn into cash is a
+                                                  -- red flag P/E and ROE can't show. NULL for loss-makers and
+                                                  -- for Financial Services/Real Estate (OCF isn't meaningful
+                                                  -- there, same reason the DCF isn't).
+    earnings_quality VARCHAR(10),                -- 'STRONG' (>=100%) / 'ADEQUATE' (>=80%) / 'WEAK' from cash_conversion
+    price_vs_200d NUMERIC(10, 2),                -- % above (+) or below (-) the 200-trading-day average close.
+                                                  -- NULL with fewer than 200 daily prices stored.
+    range_position_52w NUMERIC(6, 2),            -- where today's close sits in its 52-week low-high range,
+                                                  -- 0 (at the low) to 100 (at the high)
+    dividend_trend VARCHAR(10),                  -- 'GROWING' / 'STEADY' / 'CUT' / 'NONE' across up to 5 FY reports
+    data_confidence VARCHAR(6),                  -- 'HIGH' / 'MEDIUM' / 'LOW': share of key inputs actually present
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, as_of_date)
 );
@@ -130,8 +144,44 @@ ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS payout_ratio NUMERIC(6, 2
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS valuation_method VARCHAR(4);
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS margin_of_safety_trend NUMERIC(6, 2);
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS fundamentals_trend VARCHAR(10);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS cash_conversion NUMERIC(10, 2);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS earnings_quality VARCHAR(10);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS price_vs_200d NUMERIC(10, 2);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS range_position_52w NUMERIC(6, 2);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS dividend_trend VARCHAR(10);
+ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS data_confidence VARCHAR(6);
 
--- 5. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
+-- 5. PERSONAL HOLDINGS (CGT record keeping - see portfolio.py, docs/AS_BUILT.md §19)
+-- One row per parcel: every buy, DRP allocation or transfer-in is its own
+-- parcel with its own acquisition date, because Australian CGT (including
+-- the 12-month discount test) is assessed per parcel. Selling part of a
+-- parcel splits it: the sold portion becomes its own row (split_from_id
+-- points back to the original) and the original row keeps the units still
+-- held, with brokerage apportioned by units so the cost base is preserved.
+-- Keyed on asx_code rather than a companies FK so you can record any
+-- holding, whether or not it's on the screening watchlist.
+CREATE TABLE IF NOT EXISTS holdings (
+    holding_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    asx_code VARCHAR(6) NOT NULL,
+    units NUMERIC(14, 4) NOT NULL CHECK (units > 0),
+    acquisition_method VARCHAR(10) NOT NULL DEFAULT 'PURCHASE'
+        CHECK (acquisition_method IN ('PURCHASE', 'DRP', 'BONUS', 'TRANSFER', 'OTHER')),
+    buy_date DATE NOT NULL,
+    buy_price NUMERIC(12, 4) NOT NULL CHECK (buy_price >= 0),  -- per share
+    buy_brokerage NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (buy_brokerage >= 0),  -- part of the CGT cost base
+    sell_date DATE,
+    sell_price NUMERIC(12, 4) CHECK (sell_price >= 0),  -- per share
+    sell_brokerage NUMERIC(10, 2) CHECK (sell_brokerage >= 0),  -- reduces capital proceeds
+    broker VARCHAR(50),                           -- which broker/account holds the parcel
+    notes TEXT,
+    split_from_id UUID REFERENCES holdings(holding_id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK ((sell_date IS NULL) = (sell_price IS NULL)),
+    CHECK (sell_date IS NULL OR sell_date >= buy_date)
+);
+
+-- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
 SELECT
     c.asx_code,
@@ -149,11 +199,17 @@ SELECT
     v.payout_ratio,
     v.valuation_method,
     v.margin_of_safety_trend,
-    v.fundamentals_trend  -- all four appended at the end, not inserted mid-list: CREATE OR
-                           -- REPLACE VIEW can only add columns at the end, never reorder/insert
-                           -- existing ones - confirmed the hard way (ERROR: cannot change name
-                           -- of view column) when payout_ratio was first placed mid-list and
-                           -- tested against a pre-existing database
+    v.fundamentals_trend,
+    v.cash_conversion,
+    v.earnings_quality,
+    v.price_vs_200d,
+    v.range_position_52w,
+    v.dividend_trend,
+    v.data_confidence  -- every column from payout_ratio on is appended at the end, never
+                        -- inserted mid-list: CREATE OR REPLACE VIEW can only add columns at the
+                        -- end - confirmed the hard way (ERROR: cannot change name of view
+                        -- column) when payout_ratio was first placed mid-list and tested
+                        -- against a pre-existing database
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)
@@ -165,3 +221,4 @@ WHERE c.is_active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_companies_asx ON companies(asx_code);
 CREATE INDEX IF NOT EXISTS idx_daily_prices_date ON daily_prices(company_id, price_date DESC);
 CREATE INDEX IF NOT EXISTS idx_financials_year ON financial_reports(company_id, fiscal_year DESC);
+CREATE INDEX IF NOT EXISTS idx_holdings_asx ON holdings(asx_code);

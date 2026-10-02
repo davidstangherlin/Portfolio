@@ -10,6 +10,7 @@ from src.models.base import Base
 from src.models.company import Company
 from src.models.daily_price import DailyPrice
 from src.models.financial_report import FinancialReport
+from src.models.holding import Holding
 from src.models.valuation_metric import ValuationMetric
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "Company",
     "DailyPrice",
     "FinancialReport",
+    "Holding",
     "ValuationMetric",
 ]

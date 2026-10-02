@@ -13,7 +13,7 @@
 
 ## 1. Executive Summary
 
-This system is a local ASX (Australian Securities Exchange) value-investing research tool. It ingests daily prices and annual financial fundamentals for ASX-listed companies from Yahoo Finance, computes a standard set of value-investing metrics (grossed-up franked dividend yield, Graham Number, a 2-stage DCF or, for Financial Services/Real Estate companies, a Dividend Discount Model intrinsic value, margin of safety, and classic ratios), stores everything in PostgreSQL, and exposes a command-line screener that lists every company annotated with Y/N pass/fail indicators against configurable Graham/Buffett-style thresholds (optionally filterable down to just the companies passing, via `--passing-only`).
+This system is a local ASX (Australian Securities Exchange) value-investing research tool. It ingests daily prices and annual financial fundamentals for ASX-listed companies from Yahoo Finance, computes a standard set of value-investing metrics (grossed-up franked dividend yield, Graham Number, a 2-stage DCF or, for Financial Services/Real Estate companies, a Dividend Discount Model intrinsic value, margin of safety, and classic ratios), stores everything in PostgreSQL, and exposes a command-line screener that lists every company annotated with Y/N pass/fail indicators against configurable Graham/Buffett-style thresholds (optionally filterable down to just the companies passing, via `--passing-only`), four decision markers (§8.7) and a suggested action with its reason (§9.1). A parcel-level holdings table with Australian CGT record keeping (§19) lets held companies get HOLD / REVIEW / SELL.
 
 **Status as at this document's date:** code complete and mechanically validated end-to-end against a live PostgreSQL instance using seeded data. Live Yahoo Finance ingestion has **not yet been run successfully from a real internet connection** — it was attempted from a sandboxed development environment whose network policy blocks Yahoo Finance outright (see §8, Known Issues). It should work unmodified from a normal internet connection; this has not yet been confirmed by the user.
 
@@ -64,6 +64,7 @@ Portfolio/
 │   │   ├── company.py                  Company model + relationships
 │   │   ├── daily_price.py              DailyPrice model
 │   │   ├── financial_report.py         FinancialReport model
+│   │   ├── holding.py                  Holding model - one share parcel (§19)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
 │   │   ├── yahoo_client.py             yfinance wrapper, all external I/O isolated here
@@ -71,14 +72,21 @@ Portfolio/
 │   │   ├── price_ingestion.py          Upserts daily_prices
 │   │   ├── fundamentals_ingestion.py   Upserts financial_reports
 │   │   └── run_ingestion.py            CLI entrypoint
-│   └── valuation/                      Financial calculations + orchestration
-│       ├── dividends.py                Grossed-up (franked) dividend yield
-│       ├── graham.py                   Graham Number
-│       ├── dcf.py                      2-stage discounted cash flow (most sectors)
-│       ├── ddm.py                      2-stage dividend discount model (Financial Services / Real Estate)
-│       ├── engine.py                   Pulls DB inputs together, picks DCF vs DDM by sector, upserts
-│       └── run_valuation.py            CLI entrypoint
+│   ├── valuation/                      Financial calculations + orchestration
+│   │   ├── dividends.py                Grossed-up (franked) dividend yield
+│   │   ├── graham.py                   Graham Number
+│   │   ├── dcf.py                      2-stage discounted cash flow (most sectors)
+│   │   ├── ddm.py                      2-stage dividend discount model (Financial Services / Real Estate)
+│   │   ├── markers.py                  Earnings quality, price position, dividend reliability, data confidence (§8.7)
+│   │   ├── engine.py                   Pulls DB inputs together, picks DCF vs DDM by sector, upserts
+│   │   └── run_valuation.py            CLI entrypoint
+│   ├── portfolio/                      Your holdings (§19)
+│   │   ├── cgt.py                      Australian CGT arithmetic: cost base, 12-month discount, FY summary
+│   │   └── holdings.py                 Parcel add/sell (with splitting)/delete, position summaries
+│   └── screening/
+│       └── actions.py                  Suggested action + reason per company (§9.1)
 ├── screen_asx.py                       Root-level CLI: the value screener
+├── portfolio.py                        Root-level CLI: record parcels, list positions, CGT report (§19)
 ├── requirements.txt                    Pinned dependency versions
 ├── requirements-dev.txt                requirements.txt + pytest (§10.12)
 ├── pytest.ini                          Test discovery config (testpaths, pythonpath, integration marker)
@@ -92,16 +100,18 @@ Portfolio/
 │   ├── unit/                           No database - pure functions + compute_metrics()
 │   │   ├── _builders.py                In-memory Company/DailyPrice/FinancialReport/ValuationInputs factories
 │   │   ├── test_dividends.py, test_graham.py, test_dcf.py, test_ddm.py
-│   │   └── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
+│   │   ├── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
+│   │   ├── test_markers.py, test_cgt.py, test_actions.py
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
-│       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation
-│       └── test_screener.py            build_query()/annotate_row() against the real view
+│       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
+│       ├── test_screener.py            build_query()/annotate_row() against the real view, held vs not-held actions
+│       └── test_portfolio.py           Parcel splitting, brokerage apportionment, sell order, guards
 └── docs/
     └── AS_BUILT.md                     This document
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 79-test suite added 2026-10-02 (§10.12).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 156-test suite (§10.12, §10.13).
 
 ---
 
@@ -197,7 +207,28 @@ erDiagram
         varchar valuation_method "added 2026-10-02: 'DCF' or 'DDM', see 8.5/known-issue 8"
         numeric margin_of_safety_trend "added 2026-10-02: see 8.6/known-issue 17"
         varchar fundamentals_trend "added 2026-10-02: IMPROVING/STABLE/DECLINING, see 8.6"
+        numeric cash_conversion "decision marker, see 8.7"
+        varchar earnings_quality "STRONG/ADEQUATE/WEAK"
+        numeric price_vs_200d "decision marker, see 8.7"
+        numeric range_position_52w "0-100"
+        varchar dividend_trend "GROWING/STEADY/CUT/NONE"
+        varchar data_confidence "HIGH/MEDIUM/LOW"
         timestamptz created_at
+    }
+    holdings {
+        uuid holding_id PK
+        varchar asx_code "joined to companies.asx_code, no FK - see 19"
+        numeric units
+        varchar acquisition_method "PURCHASE/DRP/BONUS/TRANSFER/OTHER"
+        date buy_date
+        numeric buy_price
+        numeric buy_brokerage
+        date sell_date "NULL while held"
+        numeric sell_price
+        numeric sell_brokerage
+        varchar broker
+        text notes
+        uuid split_from_id FK "self-reference for partial sales"
     }
 ```
 
@@ -390,6 +421,21 @@ User request: *"is there another ranking to alert users to items worth looking a
 
 Both columns are appended at the **end** of the `valuation_metrics` table and the `asx_value_screener` view's `SELECT` list (§4.4's `CREATE OR REPLACE VIEW` append-only lesson applies here too), with idempotent `ALTER TABLE ADD COLUMN IF NOT EXISTS` for pre-existing databases. `margin_of_safety_trend` is covered by the existing generic `_clamp_to_column_precision()` overflow guard (§8.4, known-issue #15) exactly like every other `NUMERIC` column - no separate sanity cap was needed.
 
+### 8.7 Decision Markers (`markers.py`, added 2026-10-02)
+
+User request: *"are there any other markers or decision points we should add to help level me up as an investor?"* Four were chosen, each answering a question the four classic value criteria can't, and all built from data the pipeline already collects. Computed in `compute_metrics()`, stored in `valuation_metrics` (appended to the table and view per §4.4's append-only lesson), and deliberately simple rules - prompts to look closer, not verdicts.
+
+| Marker | Question | Rule | Why it matters |
+|---|---|---|---|
+| `earnings_quality` (from `cash_conversion`) | Is reported profit turning into cash? | Operating cash flow / NPAT, summed over the `fcf_average_years` window: `STRONG` >= 100%, `ADEQUATE` >= 80%, `WEAK` below. `NULL` for loss-makers and for Financial Services/Real Estate | Accounting profit can be flattered by accruals and revaluations; persistent shortfalls between profit and cash are one of the most reliable early warnings, and P/E and ROE can't see them |
+| `price_signal` (from `price_vs_200d`, `range_position_52w`) | Is the price stabilising or still falling? | `NEW LOWS` = below the 200-trading-day average **and** in the bottom 10% of the 52-week range; `DOWNTREND` = below the average; `UPTREND` = above. Needs 200 stored daily prices | Separates "cheap and basing" from "cheap and still falling" - buying the falling knife is the classic value-investing mistake. The label is derived in the screener from the two stored numbers |
+| `dividend_trend` | Is the dividend dependable? | Over up to 5 FY reports: `CUT` if any year-on-year drop exceeds 10%, `GROWING` if the latest is >5% above the oldest with no cuts, `STEADY` otherwise, `NONE` for non-payers | A yield is only worth what its reliability is worth. A year after a special dividend correctly reads as a cut in cash terms; `payout_ratio` flags the special year itself |
+| `data_confidence` | How much of this analysis rests on missing data? | 11 checks (price, market cap, EPS, NPAT, revenue, equity, debt, OCF, FCF, 3+ FY reports, 200+ daily prices): `HIGH` >= 90%, `MEDIUM` >= 70%, `LOW` below. Dividends aren't counted - a non-payer isn't missing data | Tells you when a signal is built on thin ground before you act on it |
+
+**Design notes.** `gather_inputs()` now fetches up to `max(fcf_average_years, 5)` FY reports in one query and slices the first `fcf_average_years` for the DCF/DDM base and `fundamentals_trend` (unchanged behaviour), keeping the longer history for `dividend_trend`. A second query fetches the last 365 calendar days of closes for the price markers. Both new `ValuationInputs` fields default to empty lists, so the existing unit-test builders needed no change. `cash_conversion`, `price_vs_200d` and `range_position_52w` are covered by `_clamp_to_column_precision()` like every other numeric column.
+
+**Price history prerequisite.** `scripts/daily_refresh.ps1` ingests the default `--period 1mo` of prices each day, so a database built that way holds too little history for the 200-day average until it has run for ~10 months. A one-off backfill fixes this immediately: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 1y --delay 0.5` (upserts, so it's safe to re-run). Until then `price_signal` is blank and `data_confidence` tops out at 10 of 11 checks, which is still `HIGH`.
+
 ---
 
 ## 9. Screener (`screen_asx.py`)
@@ -428,6 +474,36 @@ Output rendered via `tabulate` in `simple` format with 2-decimal-place float for
 `--rank-by momentum` changes the `ORDER BY` from `margin_of_safety_percent` to `margin_of_safety_trend` (both `DESC NULLS LAST`), surfacing companies getting cheaper *fastest* rather than companies that are simply cheap in absolute terms right now - the "catch it before others" ranking the user asked for. `trap_risk`-flagged tickers get a printed warning line after the table, the same pattern as the existing `payout_ratio` warning. When every row's `margin_of_safety_trend` is `NULL` (the cold-start case, §8.6), a note is printed explaining why rather than leaving it to look broken.
 
 **What this replaced:** before 2026-10-02, the four criteria were a SQL `WHERE` clause (`AND`/`OR` joined per `--any-of`), so a non-matching company simply never appeared in the output at all, and the default `--limit` was 25 (reasonable when the result was already filtered to matches). §10.3's Company A/B validation and its "correctly failed the default screen, and correctly appeared only under `--any-of`" language describe that earlier filtering behaviour; the underlying NULL-handling and pass/fail logic it validated carried over unchanged into `annotate_row()`, just expressed as an indicator column instead of a row filter.
+
+### 9.1 Suggested Actions (`src/screening/actions.py`, added 2026-10-02)
+
+User request: *"add a field with variables advise on possible actions? for example watch, investigate, buy, sell, hold"*. Every row gets an `action` and an `action_reason`. The reason is the point: it names the specific tests and markers behind the call, so the output teaches the reasoning instead of issuing a bare verdict. `suggest_action()` is a pure function of the annotated row plus an optional `PositionSummary` (§19), so the rules are unit-tested directly (`tests/unit/test_actions.py`).
+
+**Red flags** (any one can downgrade a call): `trap_risk`, `payout_ratio > 150%`, `earnings_quality = WEAK`, `dividend_trend = CUT`, `price_signal = NEW LOWS`, `data_confidence = LOW`.
+
+**Not held** (first matching rule wins):
+
+| Action | Rule |
+|---|---|
+| `AVOID` | `trap_risk` **and** weak earnings quality: cheap, deteriorating, and profit not backed by cash |
+| `BUY` | passes all four value tests with no red flags (notes momentum if `momentum_ok`) |
+| `INVESTIGATE` | passes all four but has a red flag, or is cheap and passes 3 of 4 (names the failed test) |
+| `WATCH` | cheap but failing 2+ tests; or getting cheaper fast (`momentum_ok`); or ROE, debt and yield pass but the price isn't cheap yet - the "wonderful company, wait for a fair price" list. Red flags are appended |
+| `IGNORE` | no value signal (not listed in the `--actions` report) |
+
+**Held** (any open parcel in `holdings`):
+
+| Action | Rule |
+|---|---|
+| `SELL` | fundamentals `DECLINING` **and** at least one of: trading above estimated value, weak earnings quality, dividend cut |
+| `REVIEW` | any red flag, or margin of safety below -50% (now well above estimated value - Graham's sell discipline) |
+| `HOLD` | otherwise ("could add" if it still passes all four tests) |
+
+**CGT timing note.** On `SELL`/`REVIEW`, if a held parcel reaches the 12-month CGT discount within 90 days, the reason says how many units, from what date, and how many days away - waiting can halve the tax on the gain. Never added to `HOLD`.
+
+**Presentation.** The full table gains `earnings_quality`, `price_signal`, `dividend_trend`, `data_confidence`, `held` and `action` (raw marker numbers stay in the database; company names are truncated to keep width down). `--actions` prints a grouped report instead (SELL, REVIEW, HOLD, BUY, INVESTIGATE, WATCH, AVOID) with the wrapped reason per company, action counts, any holdings that aren't on the screening watchlist, and a one-line reminder that these are rule-based research prompts, not financial advice. `--held` restricts either view to companies you hold. The daily automation log now records `--actions` rather than the full table.
+
+**Found in end-to-end testing:** the first version didn't append red flags to `WATCH` reasons, so a company with ~45% cash conversion read "quality passes, wait for a better price" - a cleaner bill of health than the data supported. Fixed (red flags now appended to every non-`IGNORE` reason) with a regression test, and the wording changed from "quality passes" to "ROE, debt and yield pass" to say exactly which tests passed.
 
 ---
 
@@ -561,6 +637,13 @@ pytest -m integration               # integration tests only
 TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test database
 ```
 
+### 10.13 Decision Markers, Suggested Actions and Holdings (2026-10-02)
+
+- **77 new tests** (156 total): `test_markers.py` (every band boundary, TWR's special-dividend shape reading as `CUT`), `test_cgt.py` (12-month boundary both sides of the anniversary, 29 February purchases, Australian FY labels, loss ordering in the FY summary), `test_actions.py` (every action rule, each red flag downgrading `BUY`, the CGT timing window), `test_portfolio.py` (partial-sale split preserving the combined cost base to the cent, FIFO across parcels, min-tax choosing a smaller undiscounted gain over a larger discounted one, specific-parcel sales, oversell and sell-before-buy guards, the schema's own `CHECK` constraint), plus markers end to end through `run_valuation_for_company()` with 250 days of real stored prices and five FY reports, and identical held/not-held companies getting `HOLD` vs `BUY`.
+- **Migration over live-shaped data:** created a database from the previous `db/schema.sql`, inserted a company with prices and a valuation, then applied the new schema - zero errors, 10 `ALTER TABLE`s, existing values intact and readable through the view alongside the new (empty until re-valued) columns, `holdings` created.
+- **CLIs end to end** on five synthetic companies built to hit specific rules: identical fundamentals with a rising price (`GEM`, held, `HOLD`) and a falling one (`KNIFE`, `INVESTIGATE`, "price still making new lows"); a declining business held ~10 months (`FADE`, `SELL`, with "300 units qualify for the CGT discount from 07 Dec 2026 (66 days)"); an expensive held company (`PRICY`, `REVIEW`); and weak cash conversion (`LEAK`). `portfolio.py sell --order min-tax` correctly sold the DRP parcel before the larger, older one, and split $9.95 sale brokerage into $0.50 + $9.45. This run found the `WATCH`-reason gap described in §9.1, fixed before commit.
+- Test databases and seed scripts deleted afterwards.
+
 ---
 
 ## 11. Known Issues & Design Limitations
@@ -585,6 +668,9 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 16 | The pipeline had to be run by hand (three separate commands) every time fresh data was wanted | Easy to let data go stale; no way to "just check it daily" without remembering the exact command sequence | Resolved 2026-10-02: `scripts/daily_refresh.ps1` runs ingestion → valuation → screener in one unattended pass, wired into Windows Task Scheduler. See §16 |
 | 17 | There was no way to tell *newly cheap* or *rapidly cheapening* companies from ones that have simply been statically cheap for months, nor any flag for a company that's cheap because its fundamentals are deteriorating (a classic value trap) | A static margin-of-safety snapshot alone can't distinguish "the market just mispriced this" from "this has been the market's fair assessment of a declining business for a while" — exactly the distinction that matters for acting early rather than falling for a trap | Resolved 2026-10-02 (user request): added `margin_of_safety_trend` (price-driven, needs `trend_days` of accumulated daily history - genuine cold-start gap, not a bug) and `fundamentals_trend` (business-driven, from existing annual report history, populates immediately) as two independent signals; screener surfaces them as `momentum_ok`/`--rank-by momentum` and a composite `trap_risk` warning. See §8.6, §9, §10.11 |
 | 18 | `fundamentals_trend` is a simple two-endpoint heuristic (latest vs oldest FY report's ROE/revenue direction), not a sophisticated trend model | Won't catch a decline that started mid-window and partially recovered; a company with only 2 FY reports gets a trend based on just those two points | Acceptable as-is, consistent with this codebase's existing formula simplicity (Graham Number, grossed-up yield); treat `trap_risk`/`fundamentals_trend` as a prompt to look closer, not a verdict. A weighted/multi-point regression would be the proper fix if false positives/negatives become a practical problem |
+| 19 | Holdings record keeping covers CGT on share parcels only | Dividend income and franking credits received, carried-forward capital losses from earlier years, and cost base adjustments from corporate actions (returns of capital, bonus issues, rights issues, share consolidations, demergers) aren't modelled - a `BONUS` parcel's cost base is whatever you enter | Treat `portfolio.py cgt` as a working record to reconcile against broker statements, not a tax return. A `dividends_received` table (amount, franking %, date per holding) would be the natural next addition for tax time |
+| 20 | Price markers need 200+ stored daily prices; the daily refresh only fetches 1 month | `price_signal`/`price_vs_200d` blank until history accumulates (~10 months) | One-off backfill: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 1y --delay 0.5` (§8.7) |
+| 21 | Suggested actions are rule-based, with fixed thresholds | The rules can't know context the data doesn't hold (a takeover bid, a one-off write-down, management change) and treat every sector with the same thresholds | By design - each action carries its reason so it can be checked, and every flag is a prompt to read the underlying numbers. Not financial advice |
 
 ---
 
@@ -608,18 +694,21 @@ psql "postgresql://postgres:change_me@localhost:5432/asx_value" -f db/schema.sql
 cp .env.example .env
 # edit .env → DATABASE_URL=postgresql+psycopg2://postgres:change_me@localhost:5432/asx_value
 
-# 5. Run the pipeline
+# 5. Run the pipeline (1y+ of prices so the 200-day price markers populate, §8.7)
 python -m src.ingestion.run_ingestion --tickers BHP CBA CSL WES WOW --period 2y
 python -m src.valuation.run_valuation --all
-python screen_asx.py
+python screen_asx.py --actions
 
-# 6. (Optional) Run the test suite (§10.12) - uses its own asx_test database,
+# 6. (Optional) Record holdings so held companies get HOLD/REVIEW/SELL (§19)
+python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --brokerage 9.95
+
+# 7. (Optional) Run the test suite (§10.12) - uses its own asx_test database,
 #    created automatically, never the one configured above
 pip install -r requirements-dev.txt
 pytest
 ```
 
-**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply):
+**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply). `holdings` is deliberately not in this list - parcel records are your tax records, not re-downloadable market data:
 ```bash
 psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, valuation_metrics CASCADE;"
 ```
@@ -688,6 +777,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | User asked whether another ranking could help catch a promising share before others do, and for a field to help identify a potential value trap (known-issue #17). Added two independent `valuation_metrics` columns: `margin_of_safety_trend` (price-driven - the change in margin of safety vs the most recent snapshot at least `trend_days` days old, default 30, new `--trend-days` flag on `run_valuation.py`) and `fundamentals_trend` (business-driven - `'IMPROVING'`/`'STABLE'`/`'DECLINING'` from ROE/revenue direction across the same multi-year `financial_reports` window used for the DCF/DDM average, known-issue #18). `screen_asx.py` gained two informational indicators deliberately excluded from `overall`: `momentum_ok` (margin_of_safety_trend above `--min-mos-trend`, default 5pp) and `trap_risk` (a composite: `mos_ok` cheap **and** `fundamentals_trend` declining - a candidate value trap), plus `--rank-by momentum` to sort by the trend instead of absolute margin of safety for a "catch it before others" view, and a `trap_risk` warning line matching the existing `payout_ratio` warning's style. `margin_of_safety_trend` is `NULL` for every company until `trend_days` of daily automation history has accumulated - a genuine cold-start gap the user explicitly anticipated ("a field that can populate in time"); the screener prints a note explaining this rather than leaving a blank column to look broken. `fundamentals_trend` has no such wait, since it only needs already-ingested annual report history. Validated with three synthetic companies on a disposable database (§10.11): a cheap-but-declining company correctly flagged `trap_risk = Y` despite also having positive price momentum (confirming the two signals are independent), a cheap-and-improving company correctly flagged `trap_risk = N`, and a brand-new company with no prior snapshot and only 1 FY report correctly showed blank trend fields rather than erroring |
 | 2026-10-02 | User asked to address known-issue #6 (no automated test suite). Added `tests/` - a 79-test `pytest` suite, two tiers: `tests/unit/` (64 tests, pure functions + `compute_metrics()`, no database - `compute_metrics()` takes plain, unpersisted ORM objects) and `tests/integration/` (15 tests, a real local PostgreSQL instance via `tests/conftest.py`, which creates an `asx_test` database and applies `db/schema.sql` automatically). Several tests regression-pin real historical figures already documented in this table: SUN's 3-year FCF average ($2,210.67M, known-issue #9), TWR's payout ratio (518.70%, known-issue #14), and BRN/WHI's exact overflow values (known-issue #15) - per this project's own suggested-next-step to use them as test fixtures. `run_valuation()`'s per-company crash isolation (known-issue #13) is validated with a real forced exception via `monkeypatch`, not just a skip case. Found and fixed a real bug in the test suite itself during development: the database-reachability fixture was initially `autouse=True` at session scope, which skipped *every* test - including pure unit tests that never touch a database - the moment Postgres was stopped; caught by literally stopping Postgres and re-running the suite, fixed by making only `db_session` depend on it. See §10.12 |
 | 2026-10-02 | User confirmed the DDM/trend/screener-redesign/test-suite work live on the real ~500-company database: re-applied `db/schema.sql` (idempotent, confirmed via `NOTICE: ... already exists, skipping` on every new column), re-ran `run_valuation --all` (487/501 valued, zero crashes - the only two warnings were the already-known BRN `roic`/WHI `pb_ratio`+`roe` overflow cases, caught and nulled exactly as designed), then `screen_asx.py` (487 rows shown, 16 passing `overall`, `margin_of_safety_trend` correctly blank for every company with the cold-start note printed, `fundamentals_trend` populated for every company with 2+ years of reports). Both warning lines fired against real data: `payout_ratio > 150%` for 29 tickers, `trap_risk` for 49. Cross-referencing the two lists surfaced a real, actionable finding: 10 tickers (GNC, YAL, IEL, RMC, OML, HZN, EDV, GNE, PRN, NHC) appear in **both** - an inflated yield from a likely special dividend *and* declining fundamentals *and* currently reading as cheap, exactly the combination `trap_risk` exists to catch. Pipeline confirmed stable and fully operational with every feature from this session's work (DDM, trend indicators, show-every-company screener, automated tests) now exercised together on live, non-synthetic data at full watchlist scale |
+| 2026-10-02 | User asked for more decision points "to level me up as an investor", a suggested-action field (watch, investigate, buy, sell, hold), and a holdings table with tax-relevant fields. Added: four decision markers (earnings quality, price position, dividend reliability, data confidence - §8.7) as six new `valuation_metrics` columns; `src/screening/actions.py` giving every company an action and a plain-English reason (§9.1), with `--actions` and `--held` on the screener and the daily log switched to the action report; a parcel-level `holdings` table and `portfolio.py` CLI (add, sell with automatic partial-parcel splitting and `fifo`/`min-tax`/specific-parcel ordering, list, CGT report per financial year, delete) with Australian CGT arithmetic: cost base including brokerage, the 12-month discount test, losses applied to non-discountable gains first (§19). Held companies get SELL/REVIEW/HOLD, with a note when a parcel is within 90 days of the CGT discount. 77 new tests (156 total); schema migration verified over an old-schema database holding data; end-to-end CLI run found and fixed a `WATCH` reason omitting red flags (§10.13). Known issues #19-21 added |
 
 ---
 
@@ -740,6 +830,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 11. **Automated test suite (known-issue #6).** *"Address known-issue #6 (no automated test suite)."* → Added `tests/` - a 79-test `pytest` suite split into `tests/unit/` (pure functions, no database) and `tests/integration/` (real local PostgreSQL via `tests/conftest.py`), regression-pinned against SUN's/TWR's/BRN's/WHI's real documented figures. Found and fixed a real bug in the suite itself during development (an `autouse` fixture skipping every test, not just the DB-dependent ones) by literally stopping Postgres and re-running it.
 
+12. **Decision markers, suggested actions and holdings.** *"Are there any other markers or decision points we should add to help level me up as an investor? And then add a field with variables advise on possible actions? For example watch, investigate, buy, sell, hold"*, then (choosing a database table for holdings) *"add tax beneficial fields. number of shares, buy price, sell price and dates bought, anything else that would be helpful for record keeping"*. → Added earnings quality, price position, dividend reliability and data confidence markers; a rule-based action plus reason for every company; a parcel-level `holdings` table and `portfolio.py` with Australian CGT record keeping.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -782,3 +874,41 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 
 **Sanity-check a specific result before acting on it:**
 > "Before I act on [TICKER]'s result, pull its raw financial_reports history and walk me through whether the numbers feeding its valuation look trustworthy, the way we did for SUN and TWR."
+
+**Decision markers, suggested actions, holdings (§8.7, §9.1, §19):** ✅ Done 2026-10-02.
+
+**Walk me through today's action report:**
+> "Here's today's python screen_asx.py --actions output. For each BUY and INVESTIGATE, explain in plain terms what the reason means, what I should check before acting, and which of them you'd look at first."
+
+**Track dividend income and franking credits for tax time (known-issue #19):**
+> "Add a dividends_received table linked to my holdings (payment date, amount, franking %) and a portfolio.py command that totals franked dividends and franking credits per financial year, alongside the CGT report."
+
+**Tune the action rules once I've seen them on real data:**
+> "Having watched the suggested actions for a few weeks, here's where they felt wrong: [examples]. Adjust the rules in src/screening/actions.py, keep a test for each change, and update §9.1."
+
+---
+
+## 19. Portfolio Holdings & CGT Record Keeping (`portfolio.py`, `src/portfolio/`)
+
+**Purpose.** Lets the screener know what you own (so held companies get HOLD / REVIEW / SELL rather than buy-side actions, §9.1) and keeps the records Australian CGT needs. User choice: a database table rather than a file, with tax-relevant fields and anything else useful for record keeping.
+
+**Parcel model.** One `holdings` row per parcel: every purchase, DRP allocation, bonus issue or transfer-in is its own parcel with its own acquisition date, because CGT (including the 12-month discount) is assessed per parcel. Fields: `asx_code`, `units`, `acquisition_method` (`PURCHASE`/`DRP`/`BONUS`/`TRANSFER`/`OTHER`), `buy_date`, `buy_price` (per share), `buy_brokerage`, `sell_date`, `sell_price`, `sell_brokerage`, `broker`, `notes`, `split_from_id`. Keyed on `asx_code` with no foreign key to `companies`, so anything can be recorded whether or not it's on the watchlist. `CHECK` constraints enforce positive units, non-negative prices, sell date on or after buy date, and sell date/price present together.
+
+**Partial sales split the parcel.** Selling 30 of 100 units creates a new sold row for the 30 (`split_from_id` pointing to the original) and leaves the original row holding 70. Buy brokerage is apportioned by units (rounded to the cent, remainder kept on the open portion) so the combined cost base is unchanged to the cent; sale brokerage is apportioned across every parcel a sale consumes, with the last parcel taking the rounding remainder so nothing is lost.
+
+**Sale order.** `fifo` (default, oldest first - also usually the parcels already past 12 months), `min-tax` (smallest taxable gain first per unit, counting the 50% discount: a $60 discounted gain is $30 taxable, so it's sold after a $10 undiscounted one; losses sort first), or `--parcel <id>` for specific identification. Identifying the parcel sold is permitted by the ATO; keep the trade confirmation that shows which you chose.
+
+**CGT arithmetic (`cgt.py`).** Cost base = units x price + buy brokerage. Proceeds = units x price - sell brokerage. Discount eligibility: the sale must fall after the first anniversary of purchase (the 12 months excludes the acquisition and disposal days; a 29 February purchase anniversaries on 28 February). Financial year summary: discountable gains, non-discountable gains and losses; losses applied to non-discountable gains first, then discountable; 50% discount on what remains; leftover losses shown as carried forward. The 50% rate is for individuals and trusts (super funds 33 1/3%, companies nil).
+
+**CLI.**
+```
+python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --brokerage 9.95 [--method DRP] [--broker CommSec] [--notes ...]
+python portfolio.py sell BHP --units 30 --price 48.10 --date 2026-04-02 --brokerage 9.95 [--order fifo|min-tax] [--parcel 1a2b3c4d]
+python portfolio.py list [--all]       # open parcels: cost base, value, unrealised gain, days held, discount date
+python portfolio.py cgt [--fy 2025-26] # realised gains and the FY summary
+python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
+```
+
+**Limits (known-issue #19).** Not tracked: dividend income and franking credits, losses carried forward from earlier years, and cost base adjustments from corporate actions (returns of capital, bonus/rights issues, consolidations, demergers). A record-keeping aid to reconcile against broker statements, not tax advice.
+
+**Back it up.** Unlike market data, holdings can't be re-downloaded. The teardown command in §12 deliberately leaves the table alone, and a periodic `pg_dump -t holdings asx_value > holdings_backup.sql` keeps a copy outside the database.

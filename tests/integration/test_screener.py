@@ -119,6 +119,27 @@ def test_rank_by_momentum_changes_order_by_clause():
     assert "ORDER BY margin_of_safety_trend" in query_momentum
 
 
+def test_held_position_gets_held_action_and_unheld_gets_buy_side_action(db_session):
+    from src.portfolio.holdings import add_parcel, position_summaries
+
+    _seed_and_value(db_session, "OWND", "Basic Materials", Decimal("110000000"), Decimal("0.60"), Decimal("10.00"))
+    _seed_and_value(db_session, "NOWN", "Basic Materials", Decimal("110000000"), Decimal("0.60"), Decimal("10.00"))
+    add_parcel(db_session, "OWND", Decimal("200"), Decimal("8.50"), date(2025, 1, 15), Decimal("9.95"))
+    db_session.commit()
+
+    args = _default_args()
+    positions = position_summaries(db_session, TODAY)
+    rows = {r["asx_code"]: annotate_row(r, args, positions.get(r["asx_code"]), TODAY)
+            for r in _query_rows(db_session, args)}
+
+    # Identical companies: the held one gets a held-side action, the other a buy-side one
+    assert rows["OWND"]["held"] == Decimal("200")
+    assert rows["OWND"]["action"] == "HOLD"
+    assert rows["OWND"]["action_reason"] == "still passes all four value tests, could add"
+    assert rows["NOWN"]["held"] is None
+    assert rows["NOWN"]["action"] == "BUY"
+
+
 def test_trap_risk_flags_cheap_but_declining_fundamentals(db_session):
     # mos_ok=Y (cheap) but fundamentals_trend will be DECLINING given a
     # sharply falling ROE/revenue profile - trap_risk must be Y.

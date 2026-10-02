@@ -26,9 +26,16 @@ src/
     graham.py                Graham Number
     dcf.py                    2-stage discounted cash flow (most sectors)
     ddm.py                    2-stage dividend discount model (Financial Services / Real Estate)
+    markers.py                earnings quality, price position, dividend reliability, data confidence
     engine.py                 pulls DB inputs together, picks DCF vs DDM by sector, upserts valuation_metrics
     run_valuation.py          CLI entrypoint
+  portfolio/
+    cgt.py                    Australian CGT arithmetic (cost base, 12-month discount, FY summary)
+    holdings.py               parcel records: add, sell (with splitting), positions
+  screening/
+    actions.py                suggested action + reason for each company
 screen_asx.py               CLI value screener
+portfolio.py                CLI for your holdings and CGT records
 requirements.txt
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
 pytest.ini
@@ -71,6 +78,15 @@ python -m src.valuation.run_valuation --all
 python screen_asx.py
 python screen_asx.py --min-roe 15 --min-yield 5 --sector Financials
 python screen_asx.py --passing-only              # old filtered-to-matches-only view
+python screen_asx.py --actions                   # suggested action + reason, grouped
+python screen_asx.py --actions --held            # just the shares you hold
+```
+
+The 200-day price markers need about a year of stored prices, but the daily
+refresh only fetches a month. Backfill once (safe to re-run):
+
+```bash
+python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 1y --delay 0.5
 ```
 
 `screen_asx.py` lists **every** company with a `Y`/`N` indicator column per
@@ -121,6 +137,57 @@ for that long - the screener prints a note when this is the case, so a blank
 column reads as "not enough history yet," not a bug. `fundamentals_trend`
 has no such wait: it only needs 2+ years of already-ingested annual reports,
 so it populates on the very next `run_valuation` run.
+
+## Decision Markers
+
+Four extra columns, each answering a question the four value tests can't:
+
+| Column | Question | Values |
+|---|---|---|
+| `earnings_quality` | Is reported profit turning into cash? (operating cash flow vs profit, 3 years) | `STRONG` / `ADEQUATE` / `WEAK` |
+| `price_signal` | Is the price stabilising, or still falling? (200-day average, 52-week range) | `UPTREND` / `DOWNTREND` / `NEW LOWS` |
+| `dividend_trend` | Is the dividend dependable? (up to 5 years) | `GROWING` / `STEADY` / `CUT` / `NONE` |
+| `data_confidence` | How much of the analysis rests on missing data? | `HIGH` / `MEDIUM` / `LOW` |
+
+## Suggested Actions
+
+Every company gets an `action` and a reason explaining it. `python screen_asx.py --actions`
+prints them grouped, which is also what the daily log records.
+
+- **Shares you don't hold:** `BUY` (passes all four tests, no red flags), `INVESTIGATE`
+  (passes but with a red flag, or cheap and passes 3 of 4), `WATCH` (cheap but failing
+  tests, getting cheaper fast, or a quality company waiting for a better price),
+  `AVOID` (cheap, declining and profit not backed by cash), `IGNORE` (no signal, not listed).
+- **Shares you hold:** `SELL` (fundamentals declining plus overvalued, weak cash or a dividend
+  cut), `REVIEW` (any red flag, or well above estimated value), `HOLD`. If a parcel is within
+  90 days of the 12-month CGT discount, the reason says so, since waiting can halve the tax.
+
+Red flags: value-trap risk, payout ratio over 150%, weak earnings quality, dividend cut,
+price making new lows, low data confidence. These are rule-based research prompts, not
+financial advice: read the reason, then check the numbers behind it.
+
+## Recording Your Holdings (CGT)
+
+`portfolio.py` keeps one record per parcel, since Australian CGT (including the 50%
+discount after 12 months) applies per parcel. Brokerage is included in the cost base.
+
+```bash
+python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --brokerage 9.95 --broker CommSec
+python portfolio.py add BHP --units 3 --price 44.10 --date 2025-09-25 --method DRP
+python portfolio.py sell BHP --units 50 --price 48.10 --date 2026-04-02 --brokerage 9.95
+python portfolio.py sell BHP --units 50 --price 48.10 --date 2026-04-02 --order min-tax   # least tax first
+python portfolio.py list --all        # open and sold parcels, gains, CGT discount dates
+python portfolio.py cgt --fy 2025-26  # realised gains and the financial-year summary
+python portfolio.py delete 1a2b3c4d   # fix a mistake (ID from `list`)
+```
+
+Selling part of a parcel splits it automatically, apportioning brokerage so the cost base
+stays exact. Sell order is oldest first by default; `--order min-tax` sells the parcels
+giving the smallest taxable gain (counting the discount) and `--parcel` picks one. Not
+covered: dividend income and franking credits, losses carried forward from earlier years,
+and cost base adjustments from corporate actions. A record-keeping aid, not tax advice.
+Back the table up occasionally, since unlike market data it can't be re-downloaded:
+`pg_dump -t holdings asx_value > holdings_backup.sql`.
 
 ## Testing
 
