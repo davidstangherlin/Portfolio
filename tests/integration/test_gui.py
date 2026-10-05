@@ -216,3 +216,26 @@ def test_dashboard_lists_each_active_portfolio(seeded):
     data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0)))
     assert [p["name"] for p in data["portfolio"]["portfolios"]] == ["My portfolio", "Super"]
     assert data["portfolio"]["value"] == 1000.0
+
+
+def test_an_unexpected_error_reads_as_a_message_not_a_bare_500(seeded, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("something odd")
+    monkeypatch.setattr(gui, "dashboard_payload", broken)
+    res = TestClient(gui.create_app(), raise_server_exceptions=False).get("/api/dashboard")
+    assert res.status_code == 500
+    assert res.json()["detail"].startswith("Server error (RuntimeError): something odd.")
+
+
+def test_a_database_behind_the_code_says_how_to_fix_it():
+    from sqlalchemy.exc import ProgrammingError
+
+    class UndefinedTable(Exception):
+        pass
+
+    exc = ProgrammingError("SELECT ...", {}, UndefinedTable('relation "portfolios" does not exist'))
+    assert "python -m src.apply_schema" in gui.error_message(exc)
+
+
+def test_startup_brings_the_database_up_to_date(_test_database):
+    assert gui.prepare_database() is None  # idempotent: safe on every start

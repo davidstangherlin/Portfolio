@@ -224,7 +224,8 @@ disagree). It only ever writes portfolios and trades you enter, and only from it
 python gui.py           # this PC: open http://localhost:8000
 python gui.py --lan     # also your phone on home Wi-Fi (see below)
 ```
-Press `Ctrl+C` to stop it.
+Press `Ctrl+C` to stop it. On start it brings the database up to date (the same step the
+nightly job runs first), so restarting it after a `git pull` is enough.
 
 - **Menu bar:** Dashboard, Screener, Watchlists, Portfolios, Track record and Markets (links
   to the ASX, the ASX's exchange traded funds (ETFs) list, the New York Stock Exchange (NYSE)

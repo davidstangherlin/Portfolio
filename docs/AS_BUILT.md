@@ -133,7 +133,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 280-test suite (§10.12, §10.13).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 283-test suite (§10.12, §10.13).
 
 ---
 
@@ -812,7 +812,8 @@ psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, va
 | Symptom | Likely Cause | Check / Fix |
 |---|---|---|
 | `ModuleNotFoundError: No module named 'src'` | Running a script from outside the repo root, or `PYTHONPATH` not set | Always run `python -m src.x.y` or `python screen_asx.py` **from the repo root** with the venv active |
-| `UndefinedColumn: column ... does not exist` or `relation "holdings" does not exist` | The code is newer than the database schema (known-issue #22) | `python -m src.apply_schema`, then re-run the command. The nightly job does this automatically |
+| `UndefinedColumn: column ... does not exist` or `relation "holdings" does not exist` | The code is newer than the database schema (known-issue #22) | `python -m src.apply_schema`, then re-run the command. The nightly job does this automatically, and so does starting `python gui.py` |
+| A Sift page shows "Could not load" | The server hit an error. Since 2026-10-05 the page shows the cause; before that only "Request failed (500)" | Read the message on the page (the full traceback is in the window running `gui.py`). "Missing a table or column" means the fix above |
 | Phone can't open the GUI, or the browser keeps asking for a password | `--lan` not used, the firewall rule is missing, the Wi-Fi network is set to Public, or the wrong `GUI_PASSWORD` | Run `python gui.py --lan`, add the `netsh` rule (README, Web GUI), set the network to Private; any username plus the `.env` password |
 | `sqlalchemy.exc.OperationalError: could not connect to server` | Postgres not running, or wrong `DATABASE_URL` | `pg_isready`, confirm the container/service is up, re-check `.env` |
 | `psycopg2.errors.UniqueViolation: duplicate key ... companies_ticker_key` | Attempting to insert a `Company` that already exists via raw insert instead of `get_or_create_company()` | Use `src.ingestion.common.get_or_create_company()`, or query-then-update if scripting manually |
@@ -885,6 +886,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for a pink "D" on the 12-month price chart when a dividend is paid, added to the legend and table. Added `dividend_payments` table and model (individual payments were not stored before, only yearly totals), filled during fundamentals ingestion with the abnormal flag; `/api/company` returns the last 12 months; chart markers at ex-dividend dates (Yahoo has no payment dates), outlined for one-offs, legend entries and a Dividend column in the data table. 2 new tests (221 total). §20 |
 | 2026-10-05 | User asked for a way to track prediction accuracy, finalised the design over two rounds (benchmark against the screened universe; 1, 3, 6 and 12 months; from today only; 14 months of detail plus monthly summaries; a verdict panel, missed opportunities and still-actionable lists) and added a menu bar, multiple watchlists and portfolios, Markets links and a dashboard home page. Built in four stages. **Stage 1** (this change): menu bar with search and a data-date chip, dashboard, holdings page, the screener moved to `#/screener`, and nightly signal recording (`signal_snapshots`, `src/tracking/`, nightly step 3) so the record starts as early as possible. Shared the GUI's row enrichment as `src/screening/enriched.py` so the GUI and the recorder judge identical rows. 239 tests pass (18 new). Checked in headless Chromium at 1280px, 1000px and 390px, light and dark, against a seeded database with two nights of signals |
 | 2026-10-05 | **Stage 2:** multiple portfolios, each with a tax type setting its CGT discount (individual and trust 50%, SMSF 33⅓%, company none), and trade entry in the browser (§19.1). `portfolios` table; `holdings.portfolio_id` with existing parcels migrated into "My portfolio"; archive (all sold) and delete (no sales) rules; undo sale; `portfolio.py --portfolio` and `portfolios` and `undo-sale` commands; per-portfolio CGT reports. Browser changes need the password and must come from Sift's own pages (custom header, Sec-Fetch-Site and Origin checks). 280 tests pass (41 new). Checked in headless Chromium: create, buy, sell (oldest first and smallest tax first), a refused future date, undo, delete, archive and delete rules, at 1280px and 390px |
+| 2026-10-05 | User reported the Track record page showing "Could not load: Request failed (500)" after pulling stage 2. Reproduced on a database with the previous schema: every page failed with `relation "portfolios" does not exist`, because the GUI was restarted before the schema step had run (known-issue #22 again, this time in the GUI). Fixes: `python gui.py` now applies the schema on start (`prepare_database()`, the same idempotent step as nightly step 0, reported on the console and never blocking the server), and an unexpected server error now returns its cause to the page (`error_message()`), with the exact command when the database is behind the code. 283 tests pass (3 new) |
 
 ---
 
@@ -1088,6 +1090,8 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 | Momentum | price signal UPTREND; not NEW LOWS; in upper half of 52-week range; margin-of-safety trend > 0; momentum_ok; fundamentals IMPROVING |
 
 The wheel describes; it does not decide. The suggested action still comes only from §9.1's rules.
+
+**Start-up.** `main()` applies `db/schema.sql` before serving (`prepare_database()`), so a `git pull` followed by a GUI restart can't leave the pages failing until the nightly run. An unexpected error on any route is logged with its traceback and returned as a readable `detail` (`error_message()`), which the page shows after "Could not load".
 
 **Security.** Default host `127.0.0.1` (this PC only). `--lan` binds `0.0.0.0` and refuses to start unless `GUI_PASSWORD` is set. When set, middleware requires HTTP Basic auth (any username, constant-time password compare) on every route including static files; a malformed header is a 401, not an error. The only writes are portfolios and trades, and they must also come from Sift's own pages (§19.1). Known-issue #23 covers plain HTTP on the LAN.
 

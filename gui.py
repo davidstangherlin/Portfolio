@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import logging
 import os
 import re
 import secrets
@@ -37,6 +38,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
@@ -51,6 +53,7 @@ from src.tracking.signals import signal_changes, tracking_status
 from src.valuation import dcf as dcf_module, ddm as ddm_module
 
 REPO_DIR = Path(__file__).resolve().parent
+logger = logging.getLogger("sift")
 WEB_DIR = REPO_DIR / "web"
 LOG_DIR = REPO_DIR / "logs"
 DEFAULT_PORT = 8000
@@ -115,6 +118,37 @@ def _same_site_write(request: Request) -> bool:
     if origin and urlsplit(origin).netloc.lower() != (request.headers.get("host") or "").lower():
         return False
     return True
+
+
+SCHEMA_HINT = ("The database is missing a table or column this version of Sift needs. "
+               "Run: python -m src.apply_schema, then reload. (Restarting python gui.py also does it.)")
+
+
+def error_message(exc: Exception) -> str:
+    """What the page shows for an unexpected server error: the fix when it's
+    a database that hasn't caught up with the code, otherwise the error
+    itself, so it can be reported without hunting through the console."""
+    if isinstance(exc, ProgrammingError) and type(getattr(exc, "orig", None)).__name__ in ("UndefinedTable", "UndefinedColumn"):
+        return SCHEMA_HINT
+    if isinstance(exc, OperationalError):
+        return "Can't reach the database. Check PostgreSQL is running and the settings in .env."
+    first = (str(getattr(exc, "orig", None) or exc).strip().splitlines() or [""])[0][:300]
+    return f"Server error ({type(exc).__name__}): {first}. The full details are in the window running gui.py."
+
+
+def prepare_database() -> str | None:
+    """Bring the database up to the code's schema before serving, the same
+    idempotent step the nightly job runs first (src/apply_schema.py), so a
+    git pull can't leave the pages failing until 6pm. Returns a problem to
+    report, or None."""
+    from src.apply_schema import apply_schema
+    from src.config import get_engine
+
+    try:
+        apply_schema(get_engine())
+    except Exception as exc:  # noqa: BLE001 - reported, and the server still starts
+        return f"{type(exc).__name__}: {str(exc).strip().splitlines()[0] if str(exc).strip() else ''}"
+    return None
 
 
 def _card_payload(card) -> dict:
@@ -381,7 +415,11 @@ def create_app(password: str | None = None) -> FastAPI:
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ASX Value Screener"'})
         if request.method in WRITE_METHODS and not _same_site_write(request):
             return JSONResponse({"detail": "Changes are only accepted from Sift's own pages."}, status_code=403)
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:  # noqa: BLE001 - an unexpected error becomes a readable message on the page
+            logger.exception("Error serving %s", request.url.path)
+            return JSONResponse({"detail": error_message(exc)}, status_code=500, headers={"Cache-Control": "no-store"})
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -572,6 +610,9 @@ def main(argv: list[str] | None = None) -> int:
         if address:
             print(f"On your phone (same Wi-Fi): http://{address}:{args.port}")
         print("Log in with any username and the GUI_PASSWORD from .env.")
+    problem = prepare_database()
+    print("Database: up to date." if problem is None else
+          f"Database update failed ({problem}). Pages may show errors; see docs/AS_BUILT.md §13.")
     print("Press Ctrl+C to stop.")
 
     import uvicorn  # imported here so tests can import this module without starting a server
