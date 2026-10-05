@@ -10,7 +10,8 @@
         1. src.ingestion.run_ingestion   (prices + fundamentals for the watchlist)
         2. src.valuation.run_valuation   (recompute every company's metrics)
         3. src.tracking.record_signals   (tonight's signals, for the track record)
-        4. screen_asx.py --actions       (today's suggested actions, with reasons)
+        4. src.tracking.score_signals    (score signals whose 1/3/6/12 months have passed; prune)
+        5. screen_asx.py --actions       (today's suggested actions, with reasons)
     Everything each step prints (including errors) is captured into one
     timestamped log file under logs\, so a run can be checked after the
     fact without having to watch it live. Logs older than 30 days are
@@ -71,6 +72,11 @@ python -m src.valuation.run_valuation --all 2>&1 |
 Write-Log ""
 Write-Log "--- Signal Record ---"
 python -m src.tracking.record_signals 2>&1 |
+    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+
+Write-Log ""
+Write-Log "--- Track Record ---"
+python -m src.tracking.score_signals 2>&1 |
     ForEach-Object { Add-Content -Path $LogFile -Value $_ }
 
 Write-Log ""

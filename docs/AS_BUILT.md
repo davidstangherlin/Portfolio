@@ -100,7 +100,10 @@ Portfolio/
 │   │   └── lists.py                    Watchlists: names, entries with notes and triggers, trigger checks (§22)
 │   └── tracking/                       Prediction track record (§21)
 │       ├── signals.py                  Nightly signal snapshots, action changes, recording status
-│       └── record_signals.py           CLI entrypoint; nightly step 3 (§16)
+│       ├── record_signals.py           CLI entrypoint; nightly step 3 (§16)
+│       ├── outcomes.py                 Scores signals at 1/3/6/12 months, monthly summary, 14-month deletion
+│       ├── score_signals.py            CLI entrypoint; nightly step 4 (§16)
+│       └── report.py                   Track record page: verdict, order check, missed, saved, still actionable
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── portfolio.py                        Root-level CLI: record parcels, list positions, CGT report (§19)
 ├── gui.py                              Root-level web GUI server: FastAPI over the screener's own loader (§20)
@@ -131,6 +134,7 @@ Portfolio/
 │       ├── test_ingestion.py           Franking by domicile, country backfill
 │       ├── test_gui.py                 Web API payloads, dashboard and the password guard (§20)
 │       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
+│       ├── test_track_record.py        Scoring against made-up history, summary, deletion, report rules (§21)
 │       └── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
 └── docs/
     ├── AS_BUILT.md                     This document
@@ -138,7 +142,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 301-test suite (§10.12, §10.13).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 312-test suite (§10.12, §10.13).
 
 ---
 
@@ -170,6 +174,7 @@ erDiagram
     companies ||--o{ valuation_metrics : has
     companies ||--o{ dividend_payments : has
     companies ||--o{ signal_snapshots : has
+    signal_snapshots ||--o{ signal_outcomes : "scored as"
     portfolios ||--o{ holdings : holds
     watchlists ||--o{ watchlist_items : lists
     companies ||--o{ watchlist_items : "watched as"
@@ -778,6 +783,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 26 | The track record starts from the night signal recording first runs (stage 1, 2026-10-05) and can't be backfilled | No accuracy results until a month after the first recording; 12-month results take a year. Reconstructing past signals from today's data would use information the rules didn't have at the time, flattering the results | By design. The dashboard and Track record page show when each horizon's first results are due |
 | 27 | Parcels can't be moved between portfolios, and changing a portfolio's tax type re-rates its past sales | An off-market transfer (for example shares moved into an SMSF) has to be entered as a sale in one portfolio and a buy in the other, which is also how the ATO treats it; a tax type changed by mistake changes the CGT report until changed back | By design for now. A transfer feature would need to record the change of ownership date and value |
 | 28 | Watchlist triggers are a state, not an alert | A trigger shows while it's true (dashboard, watchlist page) and disappears when it stops being true; nothing is sent, and a trigger met and lost between two visits isn't recorded | By design for now. The nightly signal record (§21) could later keep trigger history if wanted |
+| 29 | The benchmark is the plain average of the screened companies, not an index | Small companies count as much as large ones, so a BUY list tilted to large companies is judged against a small-company-heavy average; brokerage, tax and timing within the day are ignored | By design: it measures whether the rules pick better companies from the ones they look at, which an index wouldn't. A market-capitalisation-weighted benchmark could be added alongside |
 
 ---
 
@@ -903,10 +909,13 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | **Stage 2:** multiple portfolios, each with a tax type setting its CGT discount (individual and trust 50%, SMSF 33⅓%, company none), and trade entry in the browser (§19.1). `portfolios` table; `holdings.portfolio_id` with existing parcels migrated into "My portfolio"; archive (all sold) and delete (no sales) rules; undo sale; `portfolio.py --portfolio` and `portfolios` and `undo-sale` commands; per-portfolio CGT reports. Browser changes need the password and must come from Sift's own pages (custom header, Sec-Fetch-Site and Origin checks). 280 tests pass (41 new). Checked in headless Chromium: create, buy, sell (oldest first and smallest tax first), a refused future date, undo, delete, archive and delete rules, at 1280px and 390px |
 | 2026-10-05 | User reported the Track record page showing "Could not load: Request failed (500)" after pulling stage 2. Reproduced on a database with the previous schema: every page failed with `relation "portfolios" does not exist`, because the GUI was restarted before the schema step had run (known-issue #22 again, this time in the GUI). Fixes: `python gui.py` now applies the schema on start (`prepare_database()`, the same idempotent step as nightly step 0, reported on the console and never blocking the server), and an unexpected server error now returns its cause to the page (`error_message()`), with the exact command when the database is behind the code. 283 tests pass (3 new) |
 | 2026-10-05 | **Stage 3:** multiple watchlists (§22): `watchlists` and `watchlist_items` (note, margin-of-safety and price triggers), a Watchlists overview and page per list, "Add to watchlist" on company pages, a watchlist filter and ★ in the screener, triggered entries under Needs attention, and watchlist companies first in What changed. Caught by the new tests before release: the company page failed for a company already on a list (it read a field only the screener's rows carry). 301 tests pass (18 new). Checked in headless Chromium at 1280px and 390px |
+| 2026-10-05 | **Stage 4:** the track record is scored (§21): `signal_outcomes` and `track_record_monthly`, nightly step 4 (`score_signals`), and the Track record page's verdict panel with confidence and the order check, By month, What did I miss and Calls that saved money, What should I look at now, and a rules-version filter; the dashboard shows the headline BUY result. Found and fixed before release: `db/schema.sql` created `signal_outcomes` before the `signal_snapshots` it refers to, which only fails on a brand-new database, so every existing test database missed it; a new test now builds the schema from nothing. Also fixed the period buttons not showing which was selected. 312 tests pass (11 new). Checked against 13 months of made-up history in headless Chromium |
 
 ---
 
 ## 16. Automation (`scripts/daily_refresh.ps1`)
+
+**Step 4, Track Record (added 2026-10-05):** `python -m src.tracking.score_signals` scores every signal whose 1, 3, 6 or 12 months the prices have reached, rebuilds the monthly summary, then deletes detail older than 14 whole months (§21). Re-running it scores nothing twice. Suggested Actions is now step 5.
 
 **Step 3, Signal Record (added 2026-10-05):** `python -m src.tracking.record_signals` runs straight after valuation and writes tonight's `signal_snapshots` (§21). Re-running it the same night changes nothing. A company whose valuation failed tonight is skipped and listed as a WARNING rather than recorded with a stale estimate. Suggested Actions is now step 4.
 
@@ -978,6 +987,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 20. **Multiple portfolios.** *"start on stage 2"* (agreed earlier: a tax type per portfolio, all editing in the browser, archive a portfolio with sales, the existing parcel into "My portfolio"). → §19.1.
 
 21. **Multiple watchlists.** *"start on stage 3"* (agreed earlier: several named lists, a note and triggers per company, "Add to watchlist" on company pages, watchlist companies first in What changed). → §22.
+
+22. **Scoring the track record.** *"Stage 4"* (agreed earlier: 1, 3, 6 and 12 months against the screened-universe average, 14 months of detail plus permanent monthly summaries, a verdict panel with confidence, missed opportunities, still actionable, a rules-version filter). → §21.
 
 ---
 
@@ -1137,7 +1148,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 ---
 
-## 21. Track Record: Signal Recording (`src/tracking/`, stage 1 added 2026-10-05)
+## 21. Track Record (`src/tracking/`, recording added in stage 1, scoring in stage 4, 2026-10-05)
 
 **Purpose.** Answer "is Sift right?" with evidence: record what Sift said about every company each night, then (from stage 4) compare it with what the share price did over the following 1, 3, 6 and 12 months against the average of every screened company. Recording starts first, because results can only ever be measured forward from the first night recorded (known-issue #26).
 
@@ -1154,11 +1165,21 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 **Recording status.** `tracking_status()` gives first and latest dates, nights recorded, signals recorded, companies on the latest night and the date each horizon's first results are due (first date plus 1, 3, 6 and 12 months).
 
-**Still to come (agreed design).**
-- **Stage 2:** done 2026-10-05, see §19.1.
-- **Stage 3:** done 2026-10-05, see §22.
-- **Stage 4:** `signal_outcomes` (total return including dividends, universe-average benchmark, excess return, valuation gap closed, delisted companies at their last price), monthly summaries kept permanently, detail rows deleted after 14 months, and the Track record page: verdict panel with confidence (under 30 signals too early, 30 to 100 moderate, over 100 solid), Missed opportunities, and Still actionable (new, open, moved on), filterable by rules version.
-- **Browser editing safeguards (stages 2 and 3):** the same password as viewing, changes accepted only from Sift's own pages, and a confirmation before anything is deleted.
+**Scoring (stage 4, `outcomes.py`, nightly step 4).** In one transaction, after the night's signals are recorded:
+1. **Which signals are scored.** Each company's first snapshot of each calendar month (the *cohort*: one per company per month, so a company that stays BUY for a month counts once, not 21 times) and every snapshot where its action changed from the previous one with the held flag unchanged (a *change*; buying or selling isn't a signal). Each outcome row records which it is (`is_cohort`, `is_change`; both when a change falls on the month's first night).
+2. **When.** A horizon is scored once the market data reaches it: signal date plus 1, 3, 6 or 12 months (end-of-month dates clamp, as `add_months`) on or before the newest stored price date.
+3. **How.** End price: the company's last close on or before the horizon. Total return = (end price + every dividend with an ex-date after the signal and up to the horizon, one-offs included - signal price) / signal price. **Benchmark:** the plain average total return, the same way, of every company screened on the signal's night (`universe_size`). **Excess return** = total return - benchmark, in percentage points. **Gap closed** = share of the distance from price to estimated value covered, for signals priced below their estimate. A company with no close within 10 days of the horizon is flagged `delisted` and scored at its last price, so failures stay in the record instead of disappearing.
+4. **Monthly summary.** `track_record_monthly` is rebuilt for every month that still has scored cohort signals: per month, action, horizon and rules version, the count, how many beat the benchmark, and the average return, average excess and median excess. Months whose detail is gone keep their rows.
+5. **Deletion.** Snapshots before the first day of the month 14 months back are deleted, with their outcomes by cascade. Whole months only: deleting part of a month would make a later day that month's "first signal" and score it twice. Runs after the summary, so nothing is deleted unsummarised. On 5 October 2026 the cutoff is 1 August 2025.
+
+**Track record page (`report.py`, `GET /api/track-record[?version=]`).**
+- **Is Sift accurate?** From the permanent monthly summary, per period: one sentence per action ("BUY calls beat the average screened share by 5.8 points over 3 months; 67% of 202 beat it"), its confidence (too early under 30 signals, moderate 30 to 100, solid above 100), a tick when the direction is what the action intends (BUY, ACCUMULATE, INVESTIGATE should beat the average; AVOID and SELL should trail it; WATCH, HOLD, REVIEW and IGNORE are neutral), and the order check: BUY above WATCH above AVOID on average excess return, judged only when all three have 30 signals. Averages across months are weighted by each month's count. A "By month" table lists each month for the chosen period.
+- **What did I miss?** From the last 14 months of detail, each signal at its longest scored horizon: BUY or INVESTIGATE on shares not held, with no parcel bought (any portfolio) from the signal date to 30 days after, that beat the average by more than 10 points. **Calls that saved money:** AVOID on shares not held, and SELL on shares held, that trailed it by more than 10 points. First qualifying call per company, best first, up to 20, with price then and now and whether it's still undervalued. Watchlist companies carry a ★.
+- **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why (price rose out of the buy zone, you bought it, or its action changed).
+- **Rules version filter** limits the verdict, missed and saved lists to one `rules_version`. Empty panels say when their first results are due, or, with a version selected, that its signals aren't old enough yet.
+- **Dashboard:** the Track record card shows the BUY line at 3 months (1 month until then) once results exist.
+
+**Validated against made-up history.** `tests/integration/test_track_record.py` builds 13 months of daily prices and signals for a rising BUY, a falling AVOID, a flat WATCH that pays a dividend and turns BUY, and a company that stops trading, then checks benchmark arithmetic, dividends, scorecard selection, delisting, the summary, deletion at the month boundary, the verdict, the rules-version filter and the 30-day purchase rule. A disposable GUI database with 60 synthetic companies, whose signals were set to partly predict their returns, and two rules versions produced 21,816 outcomes in about 20 seconds; the page showed BUY at +5.8 points (solid), the order check "in order", and the 12-month filter's empty state.
 
 ---
 

@@ -1029,6 +1029,7 @@ function resultsTimeline(t) {
 function trackingCard(t, withLink = true) {
   const body = t.first_date
     ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}. Rules version ${t.rules_version}.` }),
+      t.headline ? h("ul", { class: "verdict" }, verdictLine(t.headline, t.headline.horizon_months)) : null,
       resultsTimeline(t)]
     : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
   return card("Track record", null, body,
@@ -1358,19 +1359,140 @@ async function renderPortfolio(id, note) {
   if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
-/* ---------- track record (recording now; results once a month has passed) ---------- */
+/* ---------- track record: is Sift right, what did I miss, what now ---------- */
+const BULLISH = new Set(["BUY", "ACCUMULATE", "INVESTIGATE"]);
+const BEARISH = new Set(["AVOID", "SELL"]);
+const trackState = { horizon: null, version: "" };
+const horizonText = (m) => (m === 1 ? "1 month" : `${m} months`);
+const points = (v) => `${fmt(Math.abs(v), 1)} point${Math.abs(v) === 1 ? "" : "s"}`;
+const signedPct = (v, dp = 1) => signed(v, (x) => fmt(x, dp) + "%");
+
+/* One plain sentence per action, e.g. "BUY calls beat the average screened
+   share by 3.2 points over 3 months; 62% of 140 did." */
+function verdictLine(a, months) {
+  const beat = a.avg_excess >= 0;
+  const rate = a.beat_rate === null ? null : beat ? a.beat_rate : 100 - a.beat_rate;
+  const intent = BULLISH.has(a.action) ? beat : BEARISH.has(a.action) ? !beat : null;
+  const mark = intent === null ? ["na", "–", "Neither good nor bad for this action"] : intent ? ["pass", "✓", "As intended"] : ["fail", "✕", "The opposite of what this action intends"];
+  return h("li", {},
+    h("span", { class: `mark ${mark[0]}`, title: mark[2], "aria-label": mark[2], text: mark[1] }),
+    h("span", { class: "verdict-text" }, badge(a.action),
+      ` calls ${beat ? "beat" : "trailed"} the average screened share by ${points(a.avg_excess)} over ${horizonText(months)}` +
+      (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`),
+      h("span", { class: `tag ${a.confidence === "solid" ? "" : "muted"} sm`, text: `Confidence: ${a.confidence}` })));
+}
+function orderLine(order) {
+  if (order.status === "too early") return h("p", { class: "hint", text: "Order check: too early. It needs 30 monthly signals each of BUY, WATCH and AVOID." });
+  return h("p", { class: `order ${order.status === "in order" ? "pos" : "neg"}`, text: order.status === "in order"
+    ? "In order: BUY beat WATCH, and WATCH beat AVOID. The rules rank companies the right way round."
+    : "Out of order: BUY, WATCH and AVOID don't line up best to worst. The rules need review." });
+}
+
+function verdictCard(d, months, setHorizon) {
+  const v = d.verdict[months];
+  const due = (d.status.results_due || []).find((r) => r.months === months);
+  const seg = h("div", { class: "segmented periods", role: "group", "aria-label": "Period" }, d.horizons.map((m) =>
+    h("button", { type: "button", "aria-pressed": String(m === months), text: horizonText(m), onclick: () => setHorizon(m) })));
+  const body = v.actions.length
+    ? [h("ul", { class: "verdict" }, v.actions.map((a) => verdictLine(a, months))), orderLine(v.order)]
+    : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
+      : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
+      : d.version ? `No ${months}-month results yet for the rules of ${longDate(d.version)}: their signals aren't ${horizonText(months)} old yet.`
+      : `First ${months}-month results arrive with the next nightly run.` })];
+  const c = card("Is Sift accurate?", "Each company's first signal of each month, against the average total return (dividends included) of every company screened that night. Points are percentage points.", seg, body);
+  c.classList.add("wide");
+  return c;
+}
+
+function monthlyCard(d, months) {
+  const rows = d.monthly.filter((r) => r.horizon_months === months);
+  const actions = [...new Set(rows.map((r) => r.action))].sort((a, b) => d.verdict[months].actions.findIndex((x) => x.action === a) - d.verdict[months].actions.findIndex((x) => x.action === b));
+  const monthsList = [...new Set(rows.map((r) => r.month))];
+  const cell = (m, a) => rows.find((r) => r.month === m && r.action === a);
+  const c = card(`By month, ${horizonText(months)} later`, "Average points above (+) or below (-) the average screened share, with the number of signals. Kept for good, after the daily detail is deleted.",
+    rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Signals given in" }), actions.map((a) => h("th", { class: "num", text: a })))),
+      h("tbody", {}, monthsList.map((m) => h("tr", { class: "static" }, h("td", { text: toDate(m).toLocaleDateString("en-AU", { month: "long", year: "numeric" }) }),
+        actions.map((a) => { const r = cell(m, a); return h("td", { class: `num ${r ? signClass(r.avg_excess) || "" : ""}`.trim(), text: r ? `${signed(r.avg_excess, (x) => fmt(x, 1))} (${r.signals})` : "" }); })))))) : h("p", { class: "empty", text: "Fills in month by month as results arrive." }));
+  c.classList.add("wide");
+  return c;
+}
+
+function signalTable(items, cols) {
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+    h("thead", {}, h("tr", {}, cols.map((col) => h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : ""].join(" ").trim() || null, text: col.label })))),
+    h("tbody", {}, items.map((it) => clickableRow(it.asx_code, cols.map((col) => {
+      const v = col.value(it);
+      return h("td", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.cls ? col.cls(it) || "" : ""].join(" ").trim() || null }, v);
+    }))))));
+}
+const companyCell = { label: "Company", value: (it) => [h("span", { class: "code", text: it.asx_code }), watchStar(it.watchlists), h("div", { class: "name", text: it.company_name || "" })] };
+
+function actionableCard(d) {
+  const a = d.actionable, p = d.proven, mos = d.rules.margin_of_safety;
+  const hint = p.proven
+    ? `Signals of the kind that has beaten the average at ${horizonText(p.horizon)}: ${p.actions.join(", ")}. Only those still more than ${fmt(mos, 0)}% below estimated value.`
+    : `Nothing is proven yet (too few results), so this lists today's ${p.actions.join(", ")} signals on the rules' own terms, more than ${fmt(mos, 0)}% below estimated value.`;
+  const cols = [companyCell,
+    { label: "Signal", value: (it) => badge(it.action) },
+    { label: "Since", opt: true, value: (it) => (it.since ? longDate(it.since) : NA) },
+    { label: "Price then", num: true, opt: true, value: (it) => money(it.price_then) },
+    { label: "Price now", num: true, value: (it) => money(it.price_now) },
+    { label: "Margin of safety", num: true, cls: (it) => signClass(it.margin_of_safety_now), value: (it) => pct(it.margin_of_safety_now, 0) }];
+  const group = (title, items, empty, extraCols = []) => [h("h3", { class: "sub-head", text: `${title} (${items.length})` }),
+    items.length ? signalTable(items, cols.concat(extraCols)) : h("p", { class: "empty", text: empty })];
+  const c = card("What should I look at now?", hint,
+    group("New this week", a.new, "No new signals this week."),
+    group("Still open", a.open, "None open."),
+    group("Moved on", a.moved_on, "Nothing has moved on in the last 90 days.", [{ label: "Why", value: (it) => it.why }]));
+  c.classList.add("wide");
+  return c;
+}
+
+function missedCard(d) {
+  const due = (d.status.results_due || [])[0];
+  const empty = due && toDate(due.date) > new Date() ? `Appears once the first results arrive (${longDate(due.date)}).` : "None so far.";
+  const later = { label: "Ahead of average", num: true, cls: (it) => signClass(it.excess_return), value: (it) => `${signed(it.excess_return, (x) => fmt(x, 1))} pts (${horizonText(it.horizon_months)})` };
+  const c = card("What did I miss?", `BUY and INVESTIGATE calls on shares you didn't hold and didn't buy within ${d.rules.purchase_window_days} days, that beat the average by more than ${fmt(d.rules.missed_excess, 0)} points. First call per company; ★ marks your watchlists.`,
+    d.missed.length ? signalTable(d.missed, [companyCell,
+      { label: "Signal", value: (it) => badge(it.action) },
+      { label: "Date", value: (it) => longDate(it.snapshot_date) },
+      { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
+      { label: "Price now", num: true, opt: true, value: (it) => money(it.price_now) },
+      later,
+      { label: "Still undervalued", value: (it) => (it.price_now === null ? NA : it.still_undervalued ? "Yes" : "No") }]) : h("p", { class: "empty", text: empty }),
+    h("h3", { class: "sub-head", text: `Calls that saved money (${d.saved.length})` }),
+    d.saved.length ? signalTable(d.saved, [companyCell,
+      { label: "Signal", value: (it) => badge(it.action) },
+      { label: "Date", value: (it) => longDate(it.snapshot_date) },
+      { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
+      { label: "Return", num: true, cls: (it) => signClass(it.total_return), value: (it) => signedPct(it.total_return) },
+      later]) : h("p", { class: "empty", text: `AVOID calls on shares you didn't hold, and SELL calls on shares you did, that trailed the average by more than ${fmt(d.rules.missed_excess, 0)} points. ${empty}` }));
+  c.classList.add("wide");
+  return c;
+}
+
 async function renderTrackRecord() {
   app.replaceChildren(h("p", { class: "loading", text: "Loading track record..." }));
-  const d = await getJSON("/api/dashboard");
-  const how = card("How Sift will be judged", null, h("div", { class: "prose" },
-    h("p", { text: "Each night Sift records what it said about every screened company: the suggested action, valuation status, estimated value and score. Those records are never edited, so later rule changes can't rewrite history." }),
-    h("p", { text: "After 1, 3, 6 and 12 months, each signal is compared with what actually happened: the total return including dividends, against the average of every screened company over the same period. A BUY that beats the average was right; one that lags it was wrong." }),
-    h("ul", {},
-      h("li", { text: "Verdict: how often each action was right, with confidence shown as too early (under 30 signals), moderate (30 to 100) or solid (over 100)." }),
-      h("li", { text: "Missed opportunities: companies flagged BUY that went on to rise strongly." }),
-      h("li", { text: "Still actionable: BUY signals that are still open, so you can act on them now." }))));
-  app.replaceChildren(pageHead("Track record", "Is Sift right?"),
-    h("div", { class: "cards" }, trackingCard(d.tracking, false), how));
+  const q = trackState.version ? `?version=${encodeURIComponent(trackState.version)}` : "";
+  const d = await getJSON(`/api/track-record${q}`);
+  const withData = d.horizons.filter((m) => d.verdict[m].actions.length);
+  if (!trackState.horizon || !d.horizons.includes(trackState.horizon)) trackState.horizon = withData.includes(3) ? 3 : withData[0] || 1;
+  const versionSelect = h("select", { "aria-label": "Rules version", class: "inline-select", onchange: (e) => { trackState.version = e.target.value; renderTrackRecord(); } },
+    h("option", { value: "", text: "All rules versions" }),
+    d.versions.map((v) => h("option", { value: v, selected: v === trackState.version, text: `Rules of ${longDate(v)}` })));
+  const how = card("How Sift is judged", null, h("div", { class: "prose" },
+    h("p", { text: "Each night Sift records what it said about every screened company. Those records are never edited, so later rule changes can't rewrite history." }),
+    h("p", { text: "Each company's first signal of each month is scored after 1, 3, 6 and 12 months: its total return including dividends, minus the average for every company screened that night. A company that stops trading is scored at its last price. A BUY that beats the average was right; an AVOID that trails it was right." }),
+    h("p", { text: `Confidence: too early under ${d.rules.too_early_below} signals, moderate up to ${d.rules.solid_above}, solid above that. The daily detail is kept for 14 months; the monthly results are kept for good.` })));
+  const draw = () => {
+    const m = trackState.horizon;
+    app.replaceChildren(pageHead("Track record", "Is Sift right?", versionSelect),
+      h("div", { class: "cards" },
+        verdictCard(d, m, (x) => { trackState.horizon = x; draw(); }),
+        actionableCard(d), missedCard(d), monthlyCard(d, m), trackingCard(d.status, false), how));
+  };
+  draw();
   window.scrollTo(0, 0);
 }
 

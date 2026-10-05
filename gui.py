@@ -49,6 +49,7 @@ from src.portfolio.holdings import HoldingsError
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
+from src.tracking import report as track_report
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
 from src.watchlist.lists import WatchlistError
@@ -406,7 +407,7 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "cgt_soon_days": CGT_SOON_DAYS,
         "portfolio": portfolio,
         "changes": changes,
-        "tracking": tracking_status(session),
+        "tracking": tracking_status(session) | {"headline": track_report.headline(session)},
         "top": top,
         "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
                        "debt_to_equity": universe.args.max_debt_equity, "yield": universe.args.min_yield},
@@ -479,6 +480,33 @@ def triggered_entries(session, rows: dict[str, dict]) -> list[dict]:
     return out
 
 
+def track_record_payload(session, today: date, version: str | None = None) -> dict:
+    """Everything the Track record page shows (§21). `version` limits the
+    verdict and lists to one rules version; None means all."""
+    universe = load_universe(session, today)
+    threshold = universe.args.min_margin_of_safety
+    current = {r["asx_code"]: r for r in universe.rows}
+    watched = watchlists.watched_codes(session)
+    verdict = track_report.verdict(session, version)
+    proven, is_proven, proven_at = track_report.proven_actions(verdict)
+    missed, saved = track_report.missed_and_saved(session, version, current, threshold, watched)
+    return {
+        "status": tracking_status(session),
+        "versions": track_report.versions(session),
+        "version": version,
+        "horizons": list(verdict),
+        "verdict": verdict,
+        "monthly": track_report.monthly(session, version),
+        "missed": missed,
+        "saved": saved,
+        "proven": {"actions": proven, "proven": is_proven, "horizon": proven_at},
+        "actionable": track_report.actionable(session, universe.rows, proven, threshold, watched),
+        "rules": {"too_early_below": track_report.TOO_EARLY_BELOW, "solid_above": track_report.SOLID_ABOVE,
+                  "missed_excess": track_report.MISSED_EXCESS, "purchase_window_days": track_report.PURCHASE_WINDOW_DAYS,
+                  "margin_of_safety": threshold},
+    }
+
+
 def create_app(password: str | None = None) -> FastAPI:
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -506,6 +534,11 @@ def create_app(password: str | None = None) -> FastAPI:
     def api_dashboard():
         with get_session() as session:
             return JSONResponse(_json_ready(dashboard_payload(session, date.today(), datetime.now())))
+
+    @app.get("/api/track-record")
+    def api_track_record(version: str | None = None):
+        with get_session() as session:
+            return JSONResponse(_json_ready(track_record_payload(session, date.today(), version or None)))
 
     @app.get("/api/companies")
     def api_companies():

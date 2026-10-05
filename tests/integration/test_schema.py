@@ -101,3 +101,26 @@ def test_existing_parcels_move_into_my_portfolio(_test_database):
         cur.execute("TRUNCATE holdings, portfolios CASCADE")
     conn.commit()
     conn.close()
+
+
+def test_schema_builds_a_brand_new_database(_test_database):
+    # Every other test runs against a database that already exists, which
+    # hides a table created before one it refers to. Build one from nothing.
+    conn = _connect("postgres")
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("DROP DATABASE IF EXISTS asx_schema_fresh")
+        cur.execute("CREATE DATABASE asx_schema_fresh")
+    conn.close()
+    fresh = _connect("asx_schema_fresh")
+    try:
+        with fresh.cursor() as cur:
+            cur.execute(SCHEMA_PATH.read_text())
+        fresh.commit()
+    finally:
+        fresh.close()
+        conn = _connect("postgres")
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("DROP DATABASE IF EXISTS asx_schema_fresh")
+        conn.close()

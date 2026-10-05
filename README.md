@@ -266,10 +266,21 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   sales can't be deleted, because those are tax records: archive it once everything is sold
   and it moves out of the way with its sales still in the CGT report. With more than one
   portfolio, the dashboard lists each one.
-- **Track record:** Sift records every company's suggested action, valuation and score each
-  night, never editing them afterwards, so they can be checked against what the share price
-  did next. Results start one month after recording begins; until then the page shows
-  what's been recorded and when each set of results is due.
+- **Track record:** is Sift right? Every night Sift records each company's suggested action,
+  valuation and score, never editing them afterwards. Each company's first signal of each
+  month is then scored 1, 3, 6 and 12 months later: its total return including dividends,
+  against the average of every company screened that night. The page answers three questions:
+  - **Is Sift accurate?** One sentence per action and period, for example "BUY calls beat the
+    average screened share by 5.8 points over 3 months; 67% of 202 beat it", with a confidence
+    label (too early under 30 signals, moderate up to 100, solid above), and a check that BUY
+    beats WATCH and WATCH beats AVOID. A table shows each month's results.
+  - **What did I miss?** BUY and INVESTIGATE calls on shares you didn't buy within 30 days that
+    beat the average by more than 10 points, and AVOID and SELL calls that saved you money.
+  - **What should I look at now?** Today's signals of the kind that has proven itself, still
+    more than 20% below estimated value: new this week, still open, and those that have moved on.
+  Filter by rules version to judge each set of rules on its own results. Results start one month
+  after recording begins; until then each panel says when its results are due. The dashboard's
+  Track record card shows the headline BUY result once there is one.
 - **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or
@@ -381,7 +392,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → valuation → signal record (for the track record) → screener, logging everything to a timestamped file
+schema update → ingestion → valuation → signal record → track record scoring → screener, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step runs even if
 a previous one hit problems, so a transient Yahoo Finance network error
 during ingestion doesn't block valuation/screener from running against

@@ -501,3 +501,17 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .trig.met { color: var(--good-text); font-weight: 600; }
 .note-cell { max-width: 220px; }
 @media (max-width: 560px) { .watch-panel { position: fixed; left: 16px; right: 16px; top: 72px; width: auto; } }
+
+/* ---------- track record ---------- */
+.verdict { list-style: none; margin: 12px 0 8px; padding: 0; }
+.verdict li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--grid); }
+.verdict li:first-child { border-top: 0; }
+.verdict .mark { width: 16px; flex: none; text-align: center; font-weight: 700; }
+.verdict-text { line-height: 1.6; }
+.verdict-text .badge { margin-right: 2px; }
+.verdict-text .tag { margin-left: 8px; }
+.order { font-weight: 600; margin: 6px 0 0; }
+.sub-head { font-size: 13px; margin: 16px 0 8px; color: var(--ink); }
+.inline-select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-left: auto; }
+.card .segmented.periods { max-width: 420px; }
+.segmented.periods button { white-space: nowrap; }

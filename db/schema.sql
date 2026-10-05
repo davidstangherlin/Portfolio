@@ -290,6 +290,50 @@ CREATE TABLE IF NOT EXISTS signal_snapshots (
     PRIMARY KEY (company_id, snapshot_date)
 );
 
+-- 5b2. SIGNAL OUTCOMES AND THE MONTHLY TRACK RECORD (docs/AS_BUILT.md §21)
+-- What happened after a signal, at 1, 3, 6 and 12 months: total return
+-- including dividends, the average total return of every company screened
+-- that same night (the benchmark), and the difference (excess return).
+-- Only scorecard signals get outcomes: each company's first signal of each
+-- month (is_cohort) and any night its action changed (is_change). Filled
+-- by the nightly job once the market data reaches each horizon; deleted
+-- with their snapshot after 14 months.
+CREATE TABLE IF NOT EXISTS signal_outcomes (
+    company_id UUID NOT NULL,
+    snapshot_date DATE NOT NULL,
+    horizon_months SMALLINT NOT NULL CHECK (horizon_months IN (1, 3, 6, 12)),
+    is_cohort BOOLEAN NOT NULL,
+    is_change BOOLEAN NOT NULL,
+    end_date DATE NOT NULL,                      -- the close used: last trading day on or before the horizon
+    end_price NUMERIC(12, 4) NOT NULL,
+    dividends NUMERIC(12, 4) NOT NULL DEFAULT 0, -- every dividend with an ex-date in the period, one-offs included
+    total_return NUMERIC(10, 2),                 -- % : (end price + dividends - signal price) / signal price
+    benchmark_return NUMERIC(10, 2),             -- % : average total return of every company screened that night
+    excess_return NUMERIC(10, 2),                -- percentage points: total_return - benchmark_return
+    gap_closed NUMERIC(10, 2),                   -- % of the gap from price to estimated value closed (undervalued signals only)
+    delisted BOOLEAN NOT NULL DEFAULT FALSE,     -- no price within 10 days of the horizon: scored at its last price
+    universe_size INT NOT NULL,                  -- companies in that night's benchmark
+    computed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (company_id, snapshot_date, horizon_months),
+    FOREIGN KEY (company_id, snapshot_date) REFERENCES signal_snapshots(company_id, snapshot_date) ON DELETE CASCADE
+);
+-- One row per month, action, horizon and rules version, from the monthly
+-- (cohort) signals. Kept for good: the long-run record survives the
+-- 14-month deletion of the daily detail.
+CREATE TABLE IF NOT EXISTS track_record_monthly (
+    month DATE NOT NULL,                         -- first day of the month the signals were given
+    action VARCHAR(12) NOT NULL,
+    horizon_months SMALLINT NOT NULL,
+    rules_version VARCHAR(10) NOT NULL,
+    signals INT NOT NULL,
+    beat_benchmark INT NOT NULL,                 -- signals whose excess return was above zero
+    avg_return NUMERIC(10, 2),
+    avg_excess NUMERIC(10, 2),
+    median_excess NUMERIC(10, 2),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (month, action, horizon_months, rules_version)
+);
+
 -- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
 SELECT
