@@ -1,0 +1,1216 @@
+{
+ "about": "Sift's knowledge base: the single source for the Help page, the hover explanations and the Word glossary. Edit here, then rebuild the Word document (scripts/build_rules_doc.js). {placeholders} take the live thresholds.",
+ "categories": [
+  {
+   "id": "guides",
+   "name": "Using Sift"
+  },
+  {
+   "id": "valuation",
+   "name": "Valuation"
+  },
+  {
+   "id": "ratios",
+   "name": "Ratios and returns"
+  },
+  {
+   "id": "dividends",
+   "name": "Dividends and franking"
+  },
+  {
+   "id": "signals",
+   "name": "Tests, signals and actions"
+  },
+  {
+   "id": "trends",
+   "name": "Trends and quality"
+  },
+  {
+   "id": "portfolios",
+   "name": "Portfolios and tax"
+  },
+  {
+   "id": "watchlists",
+   "name": "Watchlists"
+  },
+  {
+   "id": "track",
+   "name": "Track record"
+  },
+  {
+   "id": "market",
+   "name": "Market and general terms"
+  }
+ ],
+ "entries": [
+  {
+   "id": "getting-around",
+   "title": "Getting around Sift",
+   "category": "guides",
+   "definition": "What each page in the menu bar is for.",
+   "body": [
+    "Dashboard: the home page. What needs your attention, what changed overnight, the top opportunities and how the track record is going.",
+    "Screener: every company Sift values, with its score, margin of safety, the four value tests and a suggested action. Filter by action, sector, watchlist or held shares; click a heading to sort and a row to open the company.",
+    "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
+    "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
+    "Track record: whether Sift's suggestions have actually worked.",
+    "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
+    "Search: type a company code or name, or a term such as franking, in the box at the top."
+   ],
+   "related": [
+    "data-chip",
+    "suggested-action",
+    "score-wheel"
+   ],
+   "links": [
+    {
+     "text": "Open the dashboard",
+     "href": "#/"
+    },
+    {
+     "text": "Open the screener",
+     "href": "#/screener"
+    }
+   ]
+  },
+  {
+   "id": "data-chip",
+   "title": "Data date and the nightly refresh",
+   "category": "guides",
+   "definition": "The chip next to the search box shows the date of the latest prices and valuations, refreshed by a job each night.",
+   "body": [
+    "Each night at 6 pm the scheduled job updates the database schema, downloads prices and financial statements, recalculates every valuation, records that night's signals, scores earlier signals whose results are due, and writes the action report.",
+    "The chip is green when the data is current. It turns amber with a ! when the latest valuations are older than the last weekday's close (the job didn't run, or it was a public holiday) or when the last run crashed or didn't finish. Hover it to see when the last run started and finished and how many companies it couldn't update; a few each night is normal.",
+    "If a page shows Could not load, the message under it says why. A message about a missing table or column means the database needs updating: restart python gui.py, or run python -m src.apply_schema."
+   ],
+   "aliases": [
+    "data chip",
+    "nightly job",
+    "stale"
+   ],
+   "related": [
+    "getting-around",
+    "track-record-scoring"
+   ]
+  },
+  {
+   "id": "dashboard",
+   "title": "Dashboard",
+   "category": "guides",
+   "definition": "The home page: what needs attention, what changed and where the opportunities are.",
+   "hover": "Units held x latest closing price, across every open parcel recorded with portfolio.py.",
+   "labels": [
+    "Portfolio value",
+    "Today",
+    "Unrealised gain"
+   ],
+   "body": [
+    "Portfolio strip: value at the latest close, today's change, unrealised gain and cost base across every portfolio.",
+    "Needs attention: held shares flagged SELL or REVIEW, parcels reaching the CGT discount within 90 days, held shares missing from the nightly ticker file, and watchlist triggers met.",
+    "What changed: companies whose suggested action moved since the previous night. Watchlist companies come first, then better moves. A move between actions of equal rank, or one caused by your own buying or selling, isn't listed.",
+    "Top opportunities: up to six shares you don't hold, BUY first then INVESTIGATE, by score and margin of safety.",
+    "Today's suggested actions: counts per action; click one to open the screener filtered to it."
+   ],
+   "related": [
+    "suggested-action",
+    "watchlists",
+    "cgt-discount"
+   ],
+   "links": [
+    {
+     "text": "Open the dashboard",
+     "href": "#/"
+    }
+   ]
+  },
+  {
+   "id": "margin-of-safety",
+   "title": "Margin of safety",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Margin of safety",
+   "definition": "How far the share price sits below intrinsic value. A buffer against errors in the estimate.",
+   "hover": "How far the price sits below estimated intrinsic value: (value - price) / value. Positive means cheaper than estimated value; negative means dearer. Passes the value test above {margin_of_safety}%.",
+   "labels": [
+    "Margin of safety"
+   ],
+   "aliases": [
+    "MoS"
+   ],
+   "related": [
+    "estimated-value",
+    "valuation-status",
+    "four-value-tests",
+    "implied-upside"
+   ],
+   "links": [
+    {
+     "text": "Screener sorted by action",
+     "href": "#/screener"
+    }
+   ]
+  },
+  {
+   "id": "estimated-value",
+   "title": "Estimated value",
+   "category": "valuation",
+   "definition": "Sift's estimate of intrinsic value per share, from a discounted cash flow model, or a dividend discount model for banks, insurers and REITs.",
+   "hover": "Intrinsic value per share from the company's valuation model. Hover the bar label in the chart below for the model's full assumptions.",
+   "labels": [
+    "Estimated value"
+   ],
+   "related": [
+    "intrinsic-value",
+    "dcf",
+    "ddm",
+    "margin-of-safety"
+   ]
+  },
+  {
+   "id": "intrinsic-value",
+   "title": "Intrinsic value",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Intrinsic value",
+   "definition": "The estimated value of a share based on the cash it is expected to generate, independent of the market price.",
+   "related": [
+    "estimated-value"
+   ]
+  },
+  {
+   "id": "valuation-status",
+   "title": "Valuation status",
+   "category": "valuation",
+   "definition": "Where the price sits against estimated value: Undervalued, Fair value, Overvalued or No estimate.",
+   "hover": "Where the price sits against estimated value. Undervalued: margin of safety above {margin_of_safety}% (passes the value test). Fair value: 0% to {margin_of_safety}%. Overvalued: below 0%, so the price is above estimated value. No estimate: no valuation model could run.",
+   "labels": [
+    "Valuation"
+   ],
+   "aliases": [
+    "undervalued",
+    "fair value",
+    "overvalued",
+    "no estimate"
+   ],
+   "related": [
+    "margin-of-safety"
+   ]
+  },
+  {
+   "id": "implied-upside",
+   "title": "Implied upside",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Implied upside",
+   "definition": "How much the share price would need to rise to reach estimated value: (estimated value - price) / price.",
+   "hover": "How much the price would rise to reach estimated value: (value - price) / price. Not the same as margin of safety, which divides by value: a 40% margin of safety is a 67% implied upside.",
+   "labels": [
+    "Implied upside"
+   ],
+   "related": [
+    "margin-of-safety"
+   ]
+  },
+  {
+   "id": "graham-number",
+   "title": "Graham Number",
+   "category": "valuation",
+   "definition": "Benjamin Graham's ceiling price: the square root of 22.5 x earnings per share x book value per share.",
+   "hover": "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
+   "labels": [
+    "Graham Number"
+   ],
+   "related": [
+    "pe",
+    "pb",
+    "book-value"
+   ]
+  },
+  {
+   "id": "dcf",
+   "title": "Discounted cash flow (DCF)",
+   "category": "valuation",
+   "glossary": "acronym",
+   "abbreviation": "DCF",
+   "full": "Discounted cash flow",
+   "definition": "Valuation that converts expected future free cash flows into today's dollars.",
+   "hover": "Intrinsic value per share from a two-stage discounted cash flow (DCF) model: average free cash flow over the last three years, grown at 8% a year for five years and 2.5% a year after that, discounted back at 9% a year. Cash is added and debt subtracted, then the total is divided by shares on issue. This is the figure the margin of safety and the value test use.",
+   "related": [
+    "estimated-value",
+    "discount-rate",
+    "terminal-value",
+    "fcf"
+   ]
+  },
+  {
+   "id": "ddm",
+   "title": "Dividend discount model (DDM)",
+   "category": "valuation",
+   "glossary": "acronym",
+   "abbreviation": "DDM",
+   "full": "Dividend discount model",
+   "definition": "Valuation that converts expected future dividends into today's dollars. Used for financials and property.",
+   "hover": "Intrinsic value per share from a two-stage dividend discount model (DDM), used for banks, insurers and REITs because their free cash flow isn't meaningful: average dividend per share over the last three years, grown at 5% a year for five years and 2.5% a year after that, discounted back at 9% a year. This is the figure the margin of safety and the value test use.",
+   "related": [
+    "estimated-value",
+    "discount-rate"
+   ]
+  },
+  {
+   "id": "discount-rate",
+   "title": "Discount rate",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Discount rate",
+   "definition": "The annual return required to justify the investment, used to convert future cash into today's dollars. 9% in this tool.",
+   "related": [
+    "dcf",
+    "ddm"
+   ]
+  },
+  {
+   "id": "terminal-value",
+   "title": "Terminal value",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Terminal value",
+   "definition": "The value of all cash flows beyond the explicit forecast period, assuming steady growth thereafter.",
+   "related": [
+    "dcf"
+   ]
+  },
+  {
+   "id": "share-price",
+   "title": "Share price",
+   "category": "valuation",
+   "definition": "The latest closing price on the ASX.",
+   "hover": "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
+   "labels": [
+    "Share price"
+   ],
+   "related": [
+    "margin-of-safety"
+   ]
+  },
+  {
+   "id": "price",
+   "title": "Price",
+   "category": "valuation",
+   "definition": "The latest closing share price on the ASX.",
+   "hover": "Latest closing share price on the ASX.",
+   "labels": [
+    "Price"
+   ]
+  },
+  {
+   "id": "roe",
+   "title": "Return on equity (ROE)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "ROE",
+   "full": "Return on equity",
+   "definition": "Net profit as a percentage of shareholders' equity.",
+   "hover": "Return on equity: net profit after tax / shareholders' equity. How well the company earns on its owners' money. Passes the value test above {roe}%.",
+   "labels": [
+    "ROE"
+   ],
+   "related": [
+    "four-value-tests",
+    "roic"
+   ]
+  },
+  {
+   "id": "roic",
+   "title": "Return on invested capital (ROIC)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "ROIC",
+   "full": "Return on invested capital",
+   "definition": "Net profit as a percentage of debt plus equity, less cash.",
+   "hover": "Return on invested capital: net profit / (debt + equity - cash). The return on all the capital the business uses, not just shareholders' money.",
+   "labels": [
+    "ROIC"
+   ],
+   "related": [
+    "roe"
+   ]
+  },
+  {
+   "id": "debt-to-equity",
+   "title": "Debt to equity",
+   "category": "ratios",
+   "definition": "Total debt divided by shareholders' equity. Lower means less financial risk.",
+   "hover": "Total debt / shareholders' equity. Lower means less financial risk. Passes the value test below {debt_to_equity}.",
+   "labels": [
+    "Debt/equity"
+   ],
+   "aliases": [
+    "D/E",
+    "gearing"
+   ],
+   "related": [
+    "four-value-tests"
+   ]
+  },
+  {
+   "id": "pe",
+   "title": "Price-to-earnings ratio (P/E)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "P/E",
+   "full": "Price-to-earnings ratio",
+   "definition": "Share price divided by EPS.",
+   "hover": "Price-to-earnings ratio: share price / earnings per share. Lower can mean cheaper. Graham's ceiling was 15.",
+   "labels": [
+    "P/E"
+   ],
+   "related": [
+    "eps",
+    "graham-number"
+   ]
+  },
+  {
+   "id": "pb",
+   "title": "Price-to-book ratio (P/B)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "P/B",
+   "full": "Price-to-book ratio",
+   "definition": "Share price divided by book value per share.",
+   "hover": "Price-to-book ratio: share price / book value (equity) per share. Graham's ceiling was 1.5.",
+   "labels": [
+    "P/B"
+   ],
+   "related": [
+    "book-value",
+    "graham-number"
+   ]
+  },
+  {
+   "id": "price-to-free-cash-flow",
+   "title": "Price to free cash flow",
+   "category": "ratios",
+   "definition": "Share price divided by free cash flow per share.",
+   "hover": "Share price / free cash flow per share, latest year. Lower means more cash generated for each dollar paid.",
+   "labels": [
+    "Price to free cash flow"
+   ],
+   "related": [
+    "fcf"
+   ]
+  },
+  {
+   "id": "ev-ebit",
+   "title": "EV/EBIT",
+   "category": "ratios",
+   "definition": "Enterprise value divided by earnings before interest and tax.",
+   "hover": "Enterprise value (market capitalisation + debt - cash) / earnings before interest and tax. Compares companies regardless of how they are funded.",
+   "labels": [
+    "EV/EBIT"
+   ],
+   "related": [
+    "ev",
+    "ebit"
+   ]
+  },
+  {
+   "id": "ev",
+   "title": "Enterprise value (EV)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "EV",
+   "full": "Enterprise value",
+   "definition": "Market capitalisation plus debt minus cash: the value of the whole business.",
+   "related": [
+    "ev-ebit"
+   ]
+  },
+  {
+   "id": "ebit",
+   "title": "Earnings before interest and tax (EBIT)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "EBIT",
+   "full": "Earnings before interest and tax",
+   "definition": "Operating profit before financing costs and tax.",
+   "related": [
+    "ev-ebit"
+   ]
+  },
+  {
+   "id": "eps",
+   "title": "Earnings per share (EPS)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "EPS",
+   "full": "Earnings per share",
+   "definition": "Net profit after tax divided by shares on issue.",
+   "related": [
+    "pe"
+   ]
+  },
+  {
+   "id": "fcf",
+   "title": "Free cash flow (FCF)",
+   "category": "ratios",
+   "glossary": "acronym",
+   "abbreviation": "FCF",
+   "full": "Free cash flow",
+   "definition": "Operating cash flow less capital expenditure: the cash available to shareholders.",
+   "related": [
+    "dcf"
+   ]
+  },
+  {
+   "id": "book-value",
+   "title": "Book value",
+   "category": "ratios",
+   "glossary": "term",
+   "glossary_title": "Book value",
+   "definition": "Total shareholders' equity from the balance sheet. Per share: equity divided by shares on issue.",
+   "related": [
+    "pb"
+   ]
+  },
+  {
+   "id": "shares-on-issue",
+   "title": "Shares on issue",
+   "category": "ratios",
+   "glossary": "term",
+   "glossary_title": "Shares on issue",
+   "definition": "The total number of a company's shares held by investors."
+  },
+  {
+   "id": "percentage-point",
+   "title": "Percentage point",
+   "category": "ratios",
+   "glossary": "term",
+   "glossary_title": "Percentage point",
+   "definition": "The simple difference between two percentages. Moving from 20% to 25% is a rise of 5 percentage points.",
+   "aliases": [
+    "points"
+   ],
+   "related": [
+    "excess-return"
+   ]
+  },
+  {
+   "id": "grossed-up-dividend-yield",
+   "title": "Grossed-up dividend yield",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Grossed-up yield",
+   "definition": "Dividend yield including the value of franking credits.",
+   "hover": "Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above {yield}%. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
+   "labels": [
+    "Yield (grossed up)",
+    "Grossed-up yield"
+   ],
+   "aliases": [
+    "yield"
+   ],
+   "related": [
+    "franking-credit",
+    "four-value-tests",
+    "cash-dividend-yield"
+   ]
+  },
+  {
+   "id": "cash-dividend-yield",
+   "title": "Cash dividend yield",
+   "category": "dividends",
+   "definition": "Cash dividend divided by share price, before franking credits.",
+   "hover": "Cash dividend / share price, before franking credits. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
+   "labels": [
+    "Cash dividend yield"
+   ],
+   "related": [
+    "grossed-up-dividend-yield"
+   ]
+  },
+  {
+   "id": "franking-credit",
+   "title": "Franking credit",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Franking credit",
+   "definition": "A credit for company tax already paid on a dividend, which Australian resident shareholders can offset against their own tax.",
+   "aliases": [
+    "franking",
+    "imputation"
+   ],
+   "related": [
+    "grossed-up-dividend-yield"
+   ]
+  },
+  {
+   "id": "payout-ratio",
+   "title": "Payout ratio",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Payout ratio",
+   "definition": "The share of earnings paid out as dividends.",
+   "hover": "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
+   "labels": [
+    "Payout ratio"
+   ],
+   "related": [
+    "abnormal-distribution"
+   ]
+  },
+  {
+   "id": "abnormal-distribution",
+   "title": "Abnormal distribution",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Abnormal distribution",
+   "definition": "A one-off payment more than twice the usual annual dividend, such as a capital return or a very large special dividend. Excluded from all dividend figures (see section 3).",
+   "aliases": [
+    "special dividend",
+    "one-off dividend"
+   ],
+   "related": [
+    "capital-return",
+    "payout-ratio"
+   ]
+  },
+  {
+   "id": "capital-return",
+   "title": "Capital return",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Capital return",
+   "definition": "Money paid back to shareholders out of the company's capital rather than its profits, sometimes by cancelling a portion of shares. Not a dividend, though data feeds sometimes record it as one.",
+   "related": [
+    "abnormal-distribution"
+   ]
+  },
+  {
+   "id": "ex-dividend-date",
+   "title": "Ex-dividend date",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Ex-dividend date",
+   "definition": "The date from which a buyer of the share no longer receives the next dividend. Used to assign each payment to a financial year."
+  },
+  {
+   "id": "dividend-trend",
+   "title": "Dividend trend",
+   "category": "dividends",
+   "definition": "Whether ordinary dividends are GROWING, STEADY, CUT or NONE over up to five years.",
+   "hover": "Over up to five years. CUT: the latest dividend is more than 10% below last year's or the earlier median. GROWING: more than 5% above the oldest. STEADY otherwise. NONE: pays no dividend. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
+   "labels": [
+    "Dividend trend"
+   ],
+   "related": [
+    "red-flag"
+   ]
+  },
+  {
+   "id": "drp",
+   "title": "Dividend reinvestment plan (DRP)",
+   "category": "dividends",
+   "glossary": "acronym",
+   "abbreviation": "DRP",
+   "full": "Dividend reinvestment plan",
+   "definition": "Dividends paid as new shares instead of cash. Each reinvestment creates a new parcel.",
+   "related": [
+    "parcel"
+   ]
+  },
+  {
+   "id": "four-value-tests",
+   "title": "Four value tests",
+   "category": "signals",
+   "definition": "The core screen: margin of safety above {margin_of_safety}%, ROE above {roe}%, debt to equity below {debt_to_equity} and grossed-up yield above {yield}%.",
+   "hover": "The four core value tests, in order: margin of safety, ROE, debt/equity, grossed-up yield. A tick passes; a cross fails or has no data. All four must pass for an overall pass.",
+   "labels": [
+    "Value tests"
+   ],
+   "body": [
+    "All four must pass for an overall pass. A missing figure never counts as a pass.",
+    "The suggested action builds on these tests, then checks red flags and trends."
+   ],
+   "aliases": [
+    "value test",
+    "passes all four"
+   ],
+   "related": [
+    "margin-of-safety",
+    "roe",
+    "debt-to-equity",
+    "grossed-up-dividend-yield",
+    "suggested-action"
+   ],
+   "links": [
+    {
+     "text": "Screener: passes all four",
+     "href": "#/screener"
+    }
+   ]
+  },
+  {
+   "id": "suggested-action",
+   "title": "Suggested action",
+   "category": "signals",
+   "definition": "A research prompt from the rules for each company; not financial advice.",
+   "hover": "Suggested next step from the rules; the reason is on the company page. Shares you don't hold: BUY, INVESTIGATE, WATCH, AVOID, IGNORE. Shares you hold: SELL, REVIEW, ACCUMULATE, HOLD. A research prompt, not financial advice.",
+   "labels": [
+    "Action"
+   ],
+   "body": [
+    "Shares you don't hold:",
+    "BUY: passes all four value tests with no red flags.",
+    "INVESTIGATE: passes all four but has a red flag to check, or is cheap and passes three of the four.",
+    "WATCH: cheap but fails two or more tests, getting cheaper quickly, or passes the other three tests while the price isn't cheap yet.",
+    "AVOID: looks cheap, but fundamentals are declining and profit isn't backed by cash.",
+    "IGNORE: no value signal.",
+    "Shares you hold:",
+    "SELL: fundamentals declining, plus trading above estimated value, weak earnings quality or a dividend cut.",
+    "REVIEW: a red flag, or the price is now well above estimated value.",
+    "ACCUMULATE: still meets the BUY standard (all four tests, no red flags), so adding is reasonable.",
+    "HOLD: no red flags, but doesn't pass all four tests, so not adding.",
+    "A SELL or REVIEW also notes when waiting a few weeks would bring parcels into the CGT discount. Every action's reason is on the company page, and the track record checks how each action has actually done."
+   ],
+   "aliases": [
+    "BUY",
+    "INVESTIGATE",
+    "WATCH",
+    "AVOID",
+    "IGNORE",
+    "SELL",
+    "REVIEW",
+    "ACCUMULATE",
+    "HOLD"
+   ],
+   "related": [
+    "four-value-tests",
+    "red-flag",
+    "accumulate",
+    "track-record-scoring"
+   ],
+   "links": [
+    {
+     "text": "Screener: BUY",
+     "href": "#/screener?action=BUY"
+    }
+   ]
+  },
+  {
+   "id": "accumulate",
+   "title": "Accumulate",
+   "category": "signals",
+   "glossary": "term",
+   "glossary_title": "Accumulate",
+   "definition": "Add to a share you already hold. Suggested only when the share still meets the same standard as a new BUY.",
+   "related": [
+    "suggested-action"
+   ]
+  },
+  {
+   "id": "red-flag",
+   "title": "Red flag",
+   "category": "signals",
+   "glossary": "term",
+   "glossary_title": "Red flag",
+   "definition": "A condition that downgrades an otherwise attractive result (see section 9).",
+   "body": [
+    "The red flags: value-trap risk, a payout ratio over 150% (a likely one-off dividend), weak earnings quality, a dividend cut not yet restored, a price still making new lows, and low data confidence."
+   ],
+   "related": [
+    "suggested-action",
+    "value-trap"
+   ]
+  },
+  {
+   "id": "score-wheel",
+   "title": "Score wheel",
+   "category": "signals",
+   "glossary": "term",
+   "glossary_title": "Score wheel",
+   "definition": "A five-spoke chart in the web interface; each spoke counts how many of six yes/no checks a company passes (see section 11.2).",
+   "hover": "Score wheel total out of 30. Five spokes (Value, Performance, Health, Dividend, Momentum), each counting six yes/no checks. Higher is better. Open a company to see every check.",
+   "labels": [
+    "Score"
+   ],
+   "body": [
+    "Value: margin of safety above 0%, above 20% and above 40%; P/E between 0 and 15; P/B between 0 and 1.5; price below the Graham Number.",
+    "Performance: ROE above 12% and above 20%; ROIC above 10%; fundamentals not DECLINING; earnings quality STRONG or ADEQUATE, and STRONG.",
+    "Health: debt to equity below 0.8 and below 0.4; cash at least equal to debt; positive equity, free cash flow and net profit.",
+    "Dividend: pays a dividend; grossed-up yield above 4.5% and above 6%; payout ratio 100% or less; dividend trend STEADY or GROWING, and GROWING.",
+    "Momentum: price trend UPTREND; not at new lows; in the upper half of the 52-week range; margin of safety trend above zero; momentum above 5 points; fundamentals IMPROVING.",
+    "The wheel describes a company; it doesn't decide the suggested action."
+   ],
+   "related": [
+    "four-value-tests"
+   ]
+  },
+  {
+   "id": "company-column",
+   "title": "Company",
+   "category": "signals",
+   "definition": "ASX code and company name. HELD marks shares you own; a pink star marks companies on your watchlists.",
+   "hover": "ASX code and company name. HELD marks shares you own.",
+   "labels": [
+    "Company"
+   ]
+  },
+  {
+   "id": "sector",
+   "title": "Sector",
+   "category": "signals",
+   "definition": "Industry sector from Yahoo Finance, which also decides the valuation model.",
+   "hover": "Industry sector from Yahoo Finance. Financial Services and Real Estate are valued with a dividend discount model; every other sector with a discounted cash flow model.",
+   "labels": [
+    "Sector"
+   ],
+   "related": [
+    "dcf",
+    "ddm"
+   ]
+  },
+  {
+   "id": "earnings-quality",
+   "title": "Earnings quality",
+   "category": "trends",
+   "definition": "Operating cash flow as a share of net profit: STRONG, ADEQUATE or WEAK.",
+   "hover": "Operating cash flow / net profit over the last three years. STRONG at 100% or more, ADEQUATE 80% to 99%, WEAK below 80%. Profit that isn't turning into cash is a warning sign. Not assessed for banks, insurers and REITs.",
+   "labels": [
+    "Earnings quality"
+   ],
+   "aliases": [
+    "cash conversion"
+   ],
+   "related": [
+    "red-flag"
+   ]
+  },
+  {
+   "id": "price-signal",
+   "title": "Price signal",
+   "category": "trends",
+   "definition": "The price trend: UPTREND, DOWNTREND or NEW LOWS, from the 200-day average and the 52-week range.",
+   "hover": "Price trend. UPTREND: at or above the 200-day average. DOWNTREND: below it. NEW LOWS: below it and in the bottom 10% of the 52-week range. Needs 200 days of prices.",
+   "labels": [
+    "Price signal"
+   ],
+   "related": [
+    "200-day-moving-average",
+    "52-week-range"
+   ]
+  },
+  {
+   "id": "fundamentals-trend",
+   "title": "Fundamentals trend",
+   "category": "trends",
+   "definition": "Whether ROE and revenue are IMPROVING, STABLE or DECLINING across the last three annual reports.",
+   "hover": "Latest versus oldest of the last three annual reports. DECLINING: ROE down more than 2 points or revenue down more than 5%. IMPROVING: up by those amounts. STABLE otherwise. Ignores the share price.",
+   "labels": [
+    "Fundamentals trend"
+   ],
+   "related": [
+    "value-trap"
+   ]
+  },
+  {
+   "id": "margin-of-safety-trend",
+   "title": "Margin of safety trend",
+   "category": "trends",
+   "definition": "Change in margin of safety over 30 days, in percentage points.",
+   "hover": "Change in margin of safety over the last 30 days, in percentage points. Positive means the share is getting cheaper relative to its estimated value. More than 5 points counts as momentum.",
+   "labels": [
+    "Margin of safety trend"
+   ],
+   "related": [
+    "momentum-into-value"
+   ]
+  },
+  {
+   "id": "momentum-into-value",
+   "title": "Momentum (into value)",
+   "category": "trends",
+   "glossary": "term",
+   "glossary_title": "Momentum (into value)",
+   "definition": "A widening margin of safety: the share is getting cheaper relative to its estimated value.",
+   "related": [
+    "margin-of-safety-trend"
+   ]
+  },
+  {
+   "id": "value-trap",
+   "title": "Value trap",
+   "category": "trends",
+   "glossary": "term",
+   "glossary_title": "Value trap",
+   "definition": "A share that looks cheap because its business is deteriorating, not because the market has mispriced it.",
+   "hover": "Yes when the margin of safety passes but fundamentals are DECLINING: the share looks cheap, possibly for a good reason.",
+   "labels": [
+    "Value-trap risk"
+   ],
+   "related": [
+    "fundamentals-trend",
+    "red-flag"
+   ]
+  },
+  {
+   "id": "data-confidence",
+   "title": "Data confidence",
+   "category": "trends",
+   "definition": "How complete a company's inputs are: HIGH, MEDIUM or LOW.",
+   "hover": "How complete the inputs are, from 11 checks (price, market capitalisation, profit, revenue, equity, debt, cash flows, years of reports, days of prices). HIGH: 10 or 11. MEDIUM: 8 or 9. LOW: 7 or fewer.",
+   "labels": [
+    "Data confidence"
+   ],
+   "related": [
+    "red-flag"
+   ]
+  },
+  {
+   "id": "200-day-moving-average",
+   "title": "200-day moving average",
+   "category": "trends",
+   "glossary": "term",
+   "glossary_title": "200-day moving average",
+   "definition": "The average of the last 200 daily closing prices. A common gauge of the longer-term price trend.",
+   "related": [
+    "price-signal"
+   ]
+  },
+  {
+   "id": "52-week-range",
+   "title": "52-week range",
+   "category": "trends",
+   "glossary": "term",
+   "glossary_title": "52-week range",
+   "definition": "The lowest to highest closing price over the past year.",
+   "related": [
+    "price-signal"
+   ]
+  },
+  {
+   "id": "portfolios",
+   "title": "Portfolios and tax types",
+   "category": "portfolios",
+   "definition": "Several portfolios, each with its owner's tax type, which sets its CGT discount.",
+   "body": [
+    "Individual and trust: 50% CGT discount. Self-managed super fund: 33 1/3%. Company: none.",
+    "Create a portfolio from Portfolios, + New portfolio. Each has its own holdings, sales and CGT report.",
+    "Archive a portfolio once everything in it is sold: its sales stay in the CGT report. A portfolio with sales can't be deleted, because sale records are kept for five years.",
+    "A company counts as held, for the suggested actions, if any portfolio holds it."
+   ],
+   "aliases": [
+    "SMSF",
+    "trust",
+    "company",
+    "tax type"
+   ],
+   "related": [
+    "recording-trades",
+    "cgt-discount",
+    "parcel"
+   ],
+   "links": [
+    {
+     "text": "Open Portfolios",
+     "href": "#/portfolios"
+    }
+   ]
+  },
+  {
+   "id": "recording-trades",
+   "title": "Recording trades",
+   "category": "portfolios",
+   "definition": "Record buys and sales on a portfolio's page, or with portfolio.py.",
+   "body": [
+    "Buy: company, units, price, date and brokerage (added to the cost base), plus how it was acquired.",
+    "Sell: choose oldest parcels first, smallest taxable gain first (counting the portfolio's CGT discount), or one parcel. Part of a parcel can be sold; the rest stays open with its cost base intact.",
+    "Mistakes: Delete removes an open parcel entered in error; Undo reverses a sale. Both ask first.",
+    "Records are a tax aid, not tax advice."
+   ],
+   "aliases": [
+    "buy",
+    "sell",
+    "undo sale",
+    "delete parcel"
+   ],
+   "related": [
+    "portfolios",
+    "parcel",
+    "cost-base",
+    "fifo"
+   ]
+  },
+  {
+   "id": "parcel",
+   "title": "Parcel",
+   "category": "portfolios",
+   "glossary": "term",
+   "glossary_title": "Parcel",
+   "definition": "A single acquisition of shares, tracked separately for tax.",
+   "related": [
+    "recording-trades"
+   ]
+  },
+  {
+   "id": "cost-base",
+   "title": "Cost base",
+   "category": "portfolios",
+   "glossary": "term",
+   "glossary_title": "Cost base",
+   "definition": "The purchase value of a parcel plus buying brokerage.",
+   "hover": "What the shares still held cost: purchase price plus brokerage, the starting point for capital gains tax (CGT).",
+   "labels": [
+    "Cost base"
+   ],
+   "related": [
+    "capital-proceeds"
+   ]
+  },
+  {
+   "id": "capital-proceeds",
+   "title": "Capital proceeds",
+   "category": "portfolios",
+   "glossary": "term",
+   "glossary_title": "Capital proceeds",
+   "definition": "The sale value of a parcel less selling brokerage.",
+   "related": [
+    "cost-base"
+   ]
+  },
+  {
+   "id": "cgt",
+   "title": "Capital gains tax (CGT)",
+   "category": "portfolios",
+   "glossary": "acronym",
+   "abbreviation": "CGT",
+   "full": "Capital gains tax",
+   "definition": "Tax on the gain made when an asset, such as a share parcel, is sold.",
+   "related": [
+    "cgt-discount"
+   ]
+  },
+  {
+   "id": "cgt-discount",
+   "title": "CGT discount",
+   "category": "portfolios",
+   "glossary": "term",
+   "glossary_title": "CGT discount",
+   "definition": "The 50% reduction in a capital gain for individuals and trusts on shares held for more than 12 months.",
+   "hover": "The first date a sale qualifies for the capital gains tax (CGT) discount: the day after the parcel has been held for 12 months.",
+   "labels": [
+    "CGT discount from"
+   ],
+   "related": [
+    "portfolios"
+   ]
+  },
+  {
+   "id": "fifo",
+   "title": "First in, first out (FIFO)",
+   "category": "portfolios",
+   "glossary": "acronym",
+   "abbreviation": "FIFO",
+   "full": "First in, first out",
+   "definition": "Sell order that disposes of the oldest parcel first.",
+   "related": [
+    "recording-trades"
+   ]
+  },
+  {
+   "id": "fy",
+   "title": "Financial year (FY)",
+   "category": "portfolios",
+   "glossary": "acronym",
+   "abbreviation": "FY",
+   "full": "Financial year",
+   "definition": "A company's annual reporting period. For tax purposes, 1 July to 30 June."
+  },
+  {
+   "id": "ato",
+   "title": "Australian Taxation Office (ATO)",
+   "category": "portfolios",
+   "glossary": "acronym",
+   "abbreviation": "ATO",
+   "full": "Australian Taxation Office",
+   "definition": "Sets the capital gains tax rules applied to your holdings."
+  },
+  {
+   "id": "smsf",
+   "title": "Self-managed super fund (SMSF)",
+   "category": "portfolios",
+   "glossary": "acronym",
+   "abbreviation": "SMSF",
+   "full": "Self-managed super fund",
+   "definition": "A superannuation fund run by its own members. Gets a 33⅓% CGT discount on assets held over 12 months.",
+   "related": [
+    "portfolios"
+   ]
+  },
+  {
+   "id": "watchlists",
+   "title": "Watchlists and triggers",
+   "category": "watchlists",
+   "definition": "Named lists of companies to follow without owning them, each with an optional note and triggers.",
+   "body": [
+    "Add a company with Add to watchlist on its page, or from the watchlist's own page.",
+    "Triggers: margin of safety above X%, and price at or below $Y. A trigger met shows a tick on the watchlist page and appears under Needs attention on the dashboard while it stays true.",
+    "Watched companies carry a pink star in the screener, which can filter to one watchlist or to any.",
+    "Only companies Sift values can be watched. Watchlists are separate from the nightly ticker file (allords.txt), which decides which companies are valued."
+   ],
+   "aliases": [
+    "watchlist",
+    "trigger",
+    "star"
+   ],
+   "links": [
+    {
+     "text": "Open Watchlists",
+     "href": "#/watchlists"
+    }
+   ]
+  },
+  {
+   "id": "track-record-scoring",
+   "title": "Track record",
+   "category": "track",
+   "definition": "Whether Sift's suggestions have worked: each month's calls scored after 1, 3, 6 and 12 months.",
+   "body": [
+    "Each company's first signal of each month is scored on its total return, dividends included, against the average of every company screened that night.",
+    "Confidence: too early under 30 signals, moderate from 30 to 100, solid above 100. The order check asks whether BUY beat WATCH and WATCH beat AVOID.",
+    "What did I miss lists BUY and INVESTIGATE calls you didn't buy within 30 days that beat the average by more than 10 points. What should I look at now lists today's signals of a kind that has proven itself, still more than 20% below estimated value.",
+    "Daily detail is kept for 14 months; monthly results are kept for good. Filter by rules version to judge each set of rules on its own results."
+   ],
+   "aliases": [
+    "accuracy",
+    "verdict",
+    "missed opportunities"
+   ],
+   "related": [
+    "signal",
+    "excess-return"
+   ],
+   "links": [
+    {
+     "text": "Open the track record",
+     "href": "#/track-record"
+    }
+   ]
+  },
+  {
+   "id": "signal",
+   "title": "Signal",
+   "category": "track",
+   "glossary": "term",
+   "glossary_title": "Signal",
+   "definition": "What Sift said about a company on a given night: its suggested action, valuation status, estimated value and score, recorded for the track record (see section 11.4).",
+   "related": [
+    "track-record-scoring"
+   ]
+  },
+  {
+   "id": "excess-return",
+   "title": "Excess return",
+   "category": "track",
+   "definition": "Total return including dividends, minus the average for every company screened the same night, in percentage points.",
+   "related": [
+    "track-record-scoring",
+    "percentage-point"
+   ]
+  },
+  {
+   "id": "asx",
+   "title": "Australian Securities Exchange (ASX)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "ASX",
+   "full": "Australian Securities Exchange",
+   "definition": "Australia's main stock exchange. The companies screened are listed here."
+  },
+  {
+   "id": "nyse",
+   "title": "New York Stock Exchange (NYSE)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "NYSE",
+   "full": "New York Stock Exchange",
+   "definition": "The largest stock exchange in the United States."
+  },
+  {
+   "id": "etf",
+   "title": "Exchange traded fund (ETF)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "ETF",
+   "full": "Exchange traded fund",
+   "definition": "A fund that trades on a stock exchange like a share, usually tracking an index."
+  },
+  {
+   "id": "lic",
+   "title": "Listed investment company (LIC)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "LIC",
+   "full": "Listed investment company",
+   "definition": "An ASX-listed company whose business is investing in other shares."
+  },
+  {
+   "id": "reit",
+   "title": "Real estate investment trust (REIT)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "REIT",
+   "full": "Real estate investment trust",
+   "definition": "A listed trust that owns income-producing property.",
+   "related": [
+    "ddm"
+   ]
+  },
+  {
+   "id": "country",
+   "title": "Country",
+   "category": "market",
+   "definition": "Country of domicile from Yahoo Finance; outside Australia means no franking credits.",
+   "hover": "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
+   "labels": [
+    "Country"
+   ],
+   "related": [
+    "franking-credit"
+   ]
+  },
+  {
+   "id": "reporting-currency",
+   "title": "Reporting currency",
+   "category": "market",
+   "glossary": "term",
+   "glossary_title": "Reporting currency",
+   "definition": "The currency a company publishes its financial statements in, which can differ from the currency its shares trade in on the ASX.",
+   "hover": "The currency the company publishes its financial statements in. Statements in another currency (US dollars for most large miners, New Zealand dollars for NZ listings) are converted into the share price's currency at the exchange rate on each report's balance date, so earnings, book value, cash flow and every ratio built on them compare like with like. Dividends are already in the share price's currency and are not converted.",
+   "labels": [
+    "Accounts currency"
+   ],
+   "aliases": [
+    "accounts currency",
+    "currency conversion"
+   ]
+  },
+  {
+   "id": "y",
+   "title": "Yes (Y)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "Y",
+   "full": "Yes",
+   "definition": "The company passes the test."
+  },
+  {
+   "id": "n",
+   "title": "No (N)",
+   "category": "market",
+   "glossary": "acronym",
+   "abbreviation": "N",
+   "full": "No",
+   "definition": "The company fails the test."
+  }
+ ]
+}

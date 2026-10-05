@@ -75,49 +75,24 @@ const tipRow = (value, label, color) =>
 /* ---------- field explanations (hover, keyboard focus, or tap the "i") ---------- */
 const DEFAULT_THRESHOLDS = { margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 };
 const thresholds = () => (cache.screener && cache.screener.thresholds) || cache.thresholds || DEFAULT_THRESHOLDS;
-const FIELD_HELP = {
-  "Score": () => "Score wheel total out of 30. Five spokes (Value, Performance, Health, Dividend, Momentum), each counting six yes/no checks. Higher is better. Open a company to see every check.",
-  "Company": () => "ASX code and company name. HELD marks shares you own.",
-  "Sector": () => "Industry sector from Yahoo Finance. Financial Services and Real Estate are valued with a dividend discount model; every other sector with a discounted cash flow model.",
-  "Price": () => "Latest closing share price on the ASX.",
-  "Margin of safety": (t) => `How far the price sits below estimated intrinsic value: (value - price) / value. Positive means cheaper than estimated value; negative means dearer. Passes the value test above ${t.margin_of_safety}%.`,
-  "ROE": (t) => `Return on equity: net profit after tax / shareholders' equity. How well the company earns on its owners' money. Passes the value test above ${t.roe}%.`,
-  "Debt/equity": (t) => `Total debt / shareholders' equity. Lower means less financial risk. Passes the value test below ${fmt(t.debt_to_equity, 2)}.`,
-  "Yield (grossed up)": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.`,
-  "Grossed-up yield": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.`,
-  "Value tests": () => "The four core value tests, in order: margin of safety, ROE, debt/equity, grossed-up yield. A tick passes; a cross fails or has no data. All four must pass for an overall pass.",
-  "Action": () => "Suggested next step from the rules; the reason is on the company page. Shares you don't hold: BUY, INVESTIGATE, WATCH, AVOID, IGNORE. Shares you hold: SELL, REVIEW, ACCUMULATE, HOLD. A research prompt, not financial advice.",
-  "Earnings quality": () => "Operating cash flow / net profit over the last three years. STRONG at 100% or more, ADEQUATE 80% to 99%, WEAK below 80%. Profit that isn't turning into cash is a warning sign. Not assessed for banks, insurers and REITs.",
-  "Price signal": () => "Price trend. UPTREND: at or above the 200-day average. DOWNTREND: below it. NEW LOWS: below it and in the bottom 10% of the 52-week range. Needs 200 days of prices.",
-  "Dividend trend": () => "Over up to five years. CUT: the latest dividend is more than 10% below last year's or the earlier median. GROWING: more than 5% above the oldest. STEADY otherwise. NONE: pays no dividend. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
-  "Fundamentals trend": () => "Latest versus oldest of the last three annual reports. DECLINING: ROE down more than 2 points or revenue down more than 5%. IMPROVING: up by those amounts. STABLE otherwise. Ignores the share price.",
-  "Margin of safety trend": () => "Change in margin of safety over the last 30 days, in percentage points. Positive means the share is getting cheaper relative to its estimated value. More than 5 points counts as momentum.",
-  "Value-trap risk": () => "Yes when the margin of safety passes but fundamentals are DECLINING: the share looks cheap, possibly for a good reason.",
-  "Data confidence": () => "How complete the inputs are, from 11 checks (price, market capitalisation, profit, revenue, equity, debt, cash flows, years of reports, days of prices). HIGH: 10 or 11. MEDIUM: 8 or 9. LOW: 7 or fewer.",
-  "P/E": () => "Price-to-earnings ratio: share price / earnings per share. Lower can mean cheaper. Graham's ceiling was 15.",
-  "P/B": () => "Price-to-book ratio: share price / book value (equity) per share. Graham's ceiling was 1.5.",
-  "Price to free cash flow": () => "Share price / free cash flow per share, latest year. Lower means more cash generated for each dollar paid.",
-  "EV/EBIT": () => "Enterprise value (market capitalisation + debt - cash) / earnings before interest and tax. Compares companies regardless of how they are funded.",
-  "ROIC": () => "Return on invested capital: net profit / (debt + equity - cash). The return on all the capital the business uses, not just shareholders' money.",
-  "Cash dividend yield": () => "Cash dividend / share price, before franking credits. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
-  "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
-  "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
-  "Accounts currency": () => "The currency the company publishes its financial statements in. Statements in another currency (US dollars for most large miners, New Zealand dollars for NZ listings) are converted into the share price's currency at the exchange rate on each report's balance date, so earnings, book value, cash flow and every ratio built on them compare like with like. Dividends are already in the share price's currency and are not converted.",
-  "Valuation": (t) => `Where the price sits against estimated value. Undervalued: margin of safety above ${t.margin_of_safety}% (passes the value test). Fair value: 0% to ${t.margin_of_safety}%. Overvalued: below 0%, so the price is above estimated value. No estimate: no valuation model could run.`,
-  "Implied upside": () => "How much the price would rise to reach estimated value: (value - price) / price. Not the same as margin of safety, which divides by value: a 40% margin of safety is a 67% implied upside.",
-  "Estimated value": () => "Intrinsic value per share from the company's valuation model. Hover the bar label in the chart below for the model's full assumptions.",
-  "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
-  "Portfolio value": () => "Units held x latest closing price, across every open parcel recorded with portfolio.py.",
-  "Today": () => "Change in the portfolio's value from the previous close to the latest close. Blank until two days of prices are stored.",
-  "Unrealised gain": () => "Portfolio value less the cost base (purchase price plus brokerage) of the shares still held. Before tax; no CGT discount applied.",
-  "Cost base": () => "What the shares still held cost: purchase price plus brokerage, the starting point for capital gains tax (CGT).",
-  "CGT discount from": () => "The first date a sale qualifies for the capital gains tax (CGT) discount: the day after the parcel has been held for 12 months.",
-  "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
-};
-const ESTIMATED_VALUE_HELP = {
-  DCF: "Intrinsic value per share from a two-stage discounted cash flow (DCF) model: average free cash flow over the last three years, grown at 8% a year for five years and 2.5% a year after that, discounted back at 9% a year. Cash is added and debt subtracted, then the total is divided by shares on issue. This is the figure the margin of safety and the value test use.",
-  DDM: "Intrinsic value per share from a two-stage dividend discount model (DDM), used for banks, insurers and REITs because their free cash flow isn't meaningful: average dividend per share over the last three years, grown at 5% a year for five years and 2.5% a year after that, discounted back at 9% a year. This is the figure the margin of safety and the value test use.",
-};
+/* Field explanations and the Help page share one source, web/knowledge.json
+   (also the Word glossary's source). {placeholders} take the live thresholds. */
+const KNOWLEDGE = { categories: [], entries: [] };
+const FIELD_HELP = {};            // UI label -> (thresholds) => text
+const ESTIMATED_VALUE_HELP = {};  // valuation method -> (thresholds) => text
+function fillThresholds(text, t = thresholds()) {
+  return text.replace(/\{(margin_of_safety|roe|debt_to_equity|yield)\}/g, (_, k) => (k === "debt_to_equity" ? fmt(t[k], 2) : String(t[k])));
+}
+const knowledgeReady = fetch("/static/knowledge.json", { headers: { Accept: "application/json" } })
+  .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.status))))
+  .then((kb) => {
+    Object.assign(KNOWLEDGE, kb);
+    for (const e of kb.entries) {
+      for (const label of e.labels || []) FIELD_HELP[label] = (t) => fillThresholds(e.hover || e.definition, t);
+      if (e.id === "dcf" || e.id === "ddm") ESTIMATED_VALUE_HELP[e.id.toUpperCase()] = (t) => fillThresholds(e.hover, t);
+    }
+  })
+  .catch(() => { /* pages still work; explanations and Help are missing until a reload */ });
 
 function placeTipBelow(el, nodes) {
   const r = el.getBoundingClientRect();
@@ -650,7 +625,7 @@ async function renderCompany(code) {
     method ? `Estimated value from a ${method}. Graham Number shown for reference.` : "No intrinsic value estimate could be made for this company.",
     chartSlot((w) => valuationBars([
       { label: "Share price", value: c.current_price, emphasis: true, help: FIELD_HELP["Share price"] },
-      { label: "Estimated value", value: c.dcf_intrinsic_value, help: () => ESTIMATED_VALUE_HELP[c.valuation_method] },
+      { label: "Estimated value", value: c.dcf_intrinsic_value, help: ESTIMATED_VALUE_HELP[c.valuation_method] },
       { label: "Graham Number", value: c.graham_number, help: FIELD_HELP["Graham Number"] },
     ], w)));
 
@@ -774,7 +749,7 @@ function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
 const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
-  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"]];
+  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
 function backLink() {
   const target = previousPage || "#/screener";
   const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
@@ -861,6 +836,7 @@ async function loadStatus() {
 }
 
 /* Find a company: type a code or part of a name, pick from the list or press Enter. */
+function goTerm(e) { location.hash = `#/help/${e.id}`; }
 function findCompany(q) {
   const up = q.trim().toUpperCase();
   const list = cache.companies || [];
@@ -874,21 +850,31 @@ function initSearch() {
   const go = (c) => { input.value = ""; input.blur(); closeMenus(); location.hash = `#/company/${c.code}`; };
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const c = findCompany(input.value);
+    const q = input.value.trim();
+    const exactCode = (cache.companies || []).find((x) => x.code === q.toUpperCase());
+    const term = exactCode ? null : findTerm(q);
+    const c = exactCode || (term ? null : findCompany(q));
+    const clear = () => { input.value = ""; input.blur(); closeMenus(); };
+    if (term) { clear(); goTerm(term); return; }
     if (c) { go(c); return; }
+    if (q && searchKnowledge(q).length) { clear(); location.hash = `#/help?q=${encodeURIComponent(q)}`; return; }
     form.classList.add("no-match");
-    placeTipBelow(form, [h("div", { text: input.value.trim() ? `No screened company matches "${input.value.trim()}".` : "Type an ASX code or part of a company name." })]);
+    placeTipBelow(form, [h("div", { text: q ? `No company or help topic matches "${q}".` : "Type an ASX code, part of a company name, or a term such as franking." })]);
     setTimeout(() => { form.classList.remove("no-match"); hideTip(); }, 1800);
   });
   input.addEventListener("input", (e) => {
     // Picking from the list fills in the exact code; typing goes through Enter.
     if (e.inputType && e.inputType !== "insertReplacementText") return;
     const c = (cache.companies || []).find((x) => x.code === input.value.trim().toUpperCase());
-    if (c) go(c);
+    if (c) { go(c); return; }
+    const term = KNOWLEDGE.entries.find((x) => x.title === input.value.trim());
+    if (term) { input.value = ""; input.blur(); closeMenus(); goTerm(term); }
   });
   getJSON("/api/companies").then((list) => {
     cache.companies = list;
-    document.getElementById("company-list").replaceChildren(...list.map((c) => h("option", { value: c.code, label: c.name || c.code })));
+    knowledgeReady.then(() => document.getElementById("company-list").replaceChildren(
+      ...list.map((c) => h("option", { value: c.code, label: c.name || c.code })),
+      ...KNOWLEDGE.entries.map((e) => h("option", { value: e.title, label: "Help" }))));
   }).catch(() => { /* search still works once the page reloads */ });
 }
 
@@ -1691,6 +1677,87 @@ async function renderWatchlist(id, note) {
   if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
+/* ---------- help: the knowledge base (web/knowledge.json) ---------- */
+const helpState = { q: "", category: "" };
+const entryText = (e) => [e.title, e.abbreviation, e.full, ...(e.aliases || []), ...(e.labels || []), e.definition, e.hover, ...(e.body || [])]
+  .filter(Boolean).join(" ").toLowerCase();
+
+/* Ranked matches: title first, then names and aliases, then anywhere in the text. Every word must appear. */
+function searchKnowledge(q) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const full = q.trim().toLowerCase();
+  const scored = [];
+  for (const e of KNOWLEDGE.entries) {
+    const text = entryText(e);
+    if (!words.every((w) => text.includes(w))) continue;
+    const names = [e.title, e.abbreviation, e.full, ...(e.aliases || [])].filter(Boolean).map((x) => x.toLowerCase());
+    const score = names.some((n) => n === full) ? 0 : e.title.toLowerCase().startsWith(full) ? 1
+      : names.some((n) => n.includes(full)) ? 2 : (e.definition || "").toLowerCase().includes(full) ? 3 : 4;
+    scored.push([score, e]);
+  }
+  return scored.sort((a, b) => a[0] - b[0] || a[1].title.localeCompare(b[1].title)).map(([, e]) => e);
+}
+const knowledgeEntry = (id) => KNOWLEDGE.entries.find((e) => e.id === id);
+/* An exact term name typed in the menu search (title, abbreviation or alias). */
+function findTerm(q) {
+  const s = q.trim().toLowerCase();
+  if (!s || !KNOWLEDGE.entries) return null;
+  const hit = (names) => KNOWLEDGE.entries.find((e) => names(e).some((n) => n && n.toLowerCase() === s));
+  return hit((e) => [e.title, e.abbreviation, e.full]) || hit((e) => e.aliases || []) || null;
+}
+
+function helpEntry(e, open) {
+  const cat = KNOWLEDGE.categories.find((c) => c.id === e.category);
+  const inSift = e.hover && e.hover !== e.definition ? fillThresholds(e.hover) : null;
+  return h("details", { class: "help-entry", id: `help-${e.id}`, open },
+    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }),
+      h("span", { class: "help-title", text: e.title }),
+      h("span", { class: "help-def", text: fillThresholds(e.definition || "") })),
+    h("div", { class: "help-body" },
+      cat ? h("span", { class: "tag muted sm", text: cat.name }) : null,
+      e.full && e.abbreviation ? h("p", {}, h("strong", { text: e.abbreviation }), ` stands for ${e.full}.`) : null,
+      inSift ? h("p", {}, h("strong", { text: "In Sift: " }), inSift) : null,
+      (e.body || []).map((para) => h("p", { text: fillThresholds(para) })),
+      (e.related || []).length ? h("p", { class: "help-related" }, "Related: ",
+        e.related.map((id, i) => { const r = knowledgeEntry(id); return r ? [i ? ", " : "", h("a", { href: `#/help/${id}`, text: r.title })] : null; })) : null,
+      (e.links || []).length ? h("p", { class: "help-links" }, e.links.map((l, i) => [i ? "  |  " : "", h("a", { href: l.href, text: `${l.text} →` })])) : null));
+}
+
+async function renderHelp(query, focusId) {
+  if (query !== undefined) helpState.q = new URLSearchParams(query).get("q") || "";
+  const results = h("div", { class: "help-results" });
+  const count = h("span", { class: "count" });
+  const search = h("input", { type: "search", value: helpState.q, placeholder: "Search terms, rules and how-tos",
+    "aria-label": "Search help", autocomplete: "off" });
+  const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by topic" });
+  function draw() {
+    const q = helpState.q.trim();
+    let list = q ? searchKnowledge(q) : KNOWLEDGE.entries;
+    if (helpState.category) list = list.filter((e) => e.category === helpState.category);
+    count.textContent = `${list.length} of ${KNOWLEDGE.entries.length}`;
+    for (const c of chips.children) c.setAttribute("aria-pressed", String((c.dataset.cat || "") === helpState.category));
+    if (!list.length) { results.replaceChildren(h("p", { class: "empty", text: `Nothing matches "${q}". Try a shorter word, or clear the topic filter.` })); return; }
+    const open = (e) => e.id === focusId || (q !== "" && list.length <= 3);
+    if (q) { results.replaceChildren(h("div", { class: "card" }, list.map((e) => helpEntry(e, open(e))))); return; }
+    results.replaceChildren(...KNOWLEDGE.categories.map((c) => {
+      const items = list.filter((e) => e.category === c.id);
+      return items.length ? h("section", { class: "card help-group" }, h("h2", { text: c.name }), items.map((e) => helpEntry(e, open(e)))) : null;
+    }).filter(Boolean));
+  }
+  const chip = (id, name) => h("button", { type: "button", class: "chip", "data-cat": id, text: name,
+    onclick: () => { helpState.category = helpState.category === id ? "" : id; draw(); } });
+  chips.append(chip("", "All topics"), ...KNOWLEDGE.categories.map((c) => chip(c.id, c.name)));
+  search.addEventListener("input", () => { helpState.q = search.value; draw(); });
+  if (focusId) { helpState.q = ""; search.value = ""; helpState.category = ""; }
+  app.replaceChildren(pageHead("Help", "Terms, rules and how Sift works"),
+    h("div", { class: "controls" }, search, count), chips, results);
+  draw();
+  const target = focusId && document.getElementById(`help-${focusId}`);
+  if (target) target.scrollIntoView({ block: "start" }); else window.scrollTo(0, 0);
+  if (!focusId && window.matchMedia("(hover: hover)").matches) search.focus();
+}
+
 /* ---------- settings: theme ---------- */
 const THEME_KEY = "sift-theme";
 function currentThemeChoice() {
@@ -1720,6 +1787,8 @@ const ROUTES = [
   [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => renderCompany(m[1].toUpperCase())],
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
+  [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
+  [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
   [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
   [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
   [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
@@ -1743,4 +1812,4 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 initNav();
-route();
+knowledgeReady.then(route);

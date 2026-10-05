@@ -108,6 +108,7 @@ Portfolio/
 ├── portfolio.py                        Root-level CLI: record parcels, list positions, CGT report (§19)
 ├── gui.py                              Root-level web GUI server: FastAPI over the screener's own loader (§20)
 ├── web/                                index.html, style.css, app.js - the GUI front end, no build step (§20)
+│   └── knowledge.json                  The knowledge base: Help page, hover explanations, Word glossary (§23)
 ├── requirements.txt                    Pinned dependency versions
 ├── requirements-dev.txt                requirements.txt + pytest (§10.12)
 ├── pytest.ini                          Test discovery config (testpaths, pythonpath, integration marker)
@@ -115,7 +116,9 @@ Portfolio/
 ├── .gitignore                          Excludes .venv/, __pycache__/, .env, logs/, watchlist files
 ├── README.md                           Setup + workflow quick-start
 ├── scripts/
-│   └── daily_refresh.ps1               Windows Task Scheduler automation (§16)
+│   ├── daily_refresh.ps1               Windows Task Scheduler automation (§16)
+│   ├── build_rules_doc.js              Builds the Word rules document; glossary from web/knowledge.json (§23)
+│   └── package.json                    The builder's one dependency (docx 9.8.1)
 ├── tests/                              pytest suite (§10.12, known-issue #6)
 │   ├── conftest.py                     DB-reachability check, test-DB creation/schema apply, truncate-between-tests fixture
 │   ├── unit/                           No database - pure functions + compute_metrics()
@@ -124,6 +127,7 @@ Portfolio/
 │   │   ├── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
 │   │   ├── test_markers.py, test_cgt.py, test_actions.py
 │   │   ├── test_dashboard.py           Nightly-log reading, stale-data weekday rule, valuation status
+│   │   ├── test_knowledge.py           The knowledge base: IDs, links, hover labels, placeholders, glossary (§23)
 │   │   ├── test_trade_input.py         Browser input checks, CGT discount by tax type, the cross-site write guard
 │   │   ├── test_watchlist_triggers.py  Trigger thresholds and entry checks (§22)
 │   └── integration/                    Needs a real local PostgreSQL instance
@@ -142,7 +146,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code (2026-10-05):** about 6,000 lines across 50 Python files, 2,350 lines of web front end (`web/`) and 380 lines of SQL, plus `tests/`: 317 tests (215 unit, 102 integration) in 26 files. A coverage run puts the tested share of the code at 86% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
+**Total custom code (2026-10-05):** about 6,000 lines across 50 Python files, 2,350 lines of web front end (`web/`) and 380 lines of SQL, plus `tests/`: 402 tests (299 unit, 103 integration) in 27 files, of which 78 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 86% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -925,6 +929,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User reported the Track record page showing "Could not load: Request failed (500)" after pulling stage 2. Reproduced on a database with the previous schema: every page failed with `relation "portfolios" does not exist`, because the GUI was restarted before the schema step had run (known-issue #22 again, this time in the GUI). Fixes: `python gui.py` now applies the schema on start (`prepare_database()`, the same idempotent step as nightly step 0, reported on the console and never blocking the server), and an unexpected server error now returns its cause to the page (`error_message()`), with the exact command when the database is behind the code. 283 tests pass (3 new) |
 | 2026-10-05 | **Stage 3:** multiple watchlists (§22): `watchlists` and `watchlist_items` (note, margin-of-safety and price triggers), a Watchlists overview and page per list, "Add to watchlist" on company pages, a watchlist filter and ★ in the screener, triggered entries under Needs attention, and watchlist companies first in What changed. Caught by the new tests before release: the company page failed for a company already on a list (it read a field only the screener's rows carry). 301 tests pass (18 new). Checked in headless Chromium at 1280px and 390px |
 | 2026-10-05 | **Stage 4:** the track record is scored (§21): `signal_outcomes` and `track_record_monthly`, nightly step 4 (`score_signals`), and the Track record page's verdict panel with confidence and the order check, By month, What did I miss and Calls that saved money, What should I look at now, and a rules-version filter; the dashboard shows the headline BUY result. Found and fixed before release: `db/schema.sql` created `signal_outcomes` before the `signal_snapshots` it refers to, which only fails on a brand-new database, so every existing test database missed it; a new test now builds the schema from nothing. Also fixed the period buttons not showing which was selected. 312 tests pass (11 new). Checked against 13 months of made-up history in headless Chromium |
+| 2026-10-05 | User asked whether to add a searchable knowledge base from the glossary and build documents. Chose user help only, inside Sift, as the single source for the hover text and the Word glossary, without AI question-answering. Added `web/knowledge.json` (78 entries: every hover explanation, acronym and glossary term, merged one per concept, plus guides to each part of Sift), a Help page with search, topic filters and deep links, term search in the menu bar, and `scripts/build_rules_doc.js` (the Word document's builder, until then only in a temporary build workspace). The rebuilt Word document matches the previous one except one glossary row now sorted correctly. Browser checks found and fixed two bugs: every Help entry opening on a deep link, and SMSF opening the Portfolios guide instead of its own entry. 402 tests pass (85 new) |
 
 ---
 
@@ -1004,6 +1009,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 21. **Multiple watchlists.** *"start on stage 3"* (agreed earlier: several named lists, a note and triggers per company, "Add to watchlist" on company pages, watchlist companies first in What changed). → §22.
 
 22. **Scoring the track record.** *"Stage 4"* (agreed earlier: 1, 3, 6 and 12 months against the screened-universe average, 14 months of detail plus permanent monthly summaries, a verdict panel with confidence, missed opportunities, still actionable, a rules-version filter). → §21.
+
+23. **Knowledge base.** *"Should we consider including a searchable knowledge base in this solution, using the glossary and build files?"* Then chose user help only, inside Sift, one source for the hover text and Word glossary, no AI Q&A. → §23.
 
 ---
 
@@ -1132,7 +1139,7 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 - `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` dashboard, `#/screener` (optionally `?action=BUY,INVESTIGATE` or `?held=1` to open it pre-filtered), `#/company/BHP`, `#/portfolios`, `#/track-record`, `#/watchlists`; anything else goes to the dashboard.
 - Charts follow the dataviz method: validated categorical palette (blue/orange, checked light and dark), 2px lines, hairline grid, one axis per chart, legend only for two or more series, crosshair or per-bar tooltips, a data table under every chart, and light and dark themes.
 
-**Field explanations.** Every screener column heading, every label in the company page's markers and key-ratios panels, and the three bar labels in "Price against estimated value" (share price, estimated value, Graham Number) carries a plain-English explanation (what it measures, the formula, and the pass threshold, read from the live thresholds so it can't drift from the rules). `withHelp()` in `app.js` shows it on mouse hover and keyboard focus; on touch screens a small "i" button shows it on tap without triggering the column sort. With a mouse the "i" buttons are hidden and headings get a dotted underline instead, which keeps the table within a 1280px screen. The estimated value explanation follows the company's model (DCF or DDM, with its growth, terminal and discount rates); labels inside SVG charts use `svgLabelHelp()`, with an SVG "i" for touch screens.
+**Field explanations.** The text comes from `web/knowledge.json` (§23), loaded before the first page draws. Every screener column heading, every label in the company page's markers and key-ratios panels, and the three bar labels in "Price against estimated value" (share price, estimated value, Graham Number) carries a plain-English explanation (what it measures, the formula, and the pass threshold, read from the live thresholds so it can't drift from the rules). `withHelp()` in `app.js` shows it on mouse hover and keyboard focus; on touch screens a small "i" button shows it on tap without triggering the column sort. With a mouse the "i" buttons are hidden and headings get a dotted underline instead, which keeps the table within a 1280px screen. The estimated value explanation follows the company's model (DCF or DDM, with its growth, terminal and discount rates); labels inside SVG charts use `svgLabelHelp()`, with an SVG "i" for touch screens.
 
 **Score wheel (`scores.py`).** Five axes, six yes/no checks each; the score per axis is the count passed (0-6). A check is True, False or None (no data), and None never counts as a pass. Thresholds reuse the screener's own where one exists.
 
@@ -1225,3 +1232,21 @@ The wheel describes; it does not decide. The suggested action still comes only f
 - **Menu:** the Watchlists dropdown lists every watchlist, plus All watchlists and + New watchlist.
 
 **API.** `GET /api/watchlists` (counts; `?brief=1` names only), `POST /api/watchlists` (optionally with `asx_code` to start it with that company), `GET|PATCH|DELETE /api/watchlists/{id}`, `PUT /api/watchlists/{id}/items/{code}` (add or update: the same call), `DELETE /api/watchlists/{id}/items/{code}`. The screener rows carry `watchlists` (list names), the company payload carries every list with membership, note and triggers, and the dashboard carries `triggered`. Writes go through the same password, same-page guard and one-transaction `change()` as portfolios (§19.1); rule breaks return a 400 with a plain-English message.
+
+---
+
+## 23. Knowledge Base and Help (`web/knowledge.json`, added 2026-10-05)
+
+**Purpose.** One searchable place for every term, rule and how-to, and one source for text that used to live in three places (the hover explanations in `app.js`, the Word glossary in the document builder, and the README), so a definition can't say one thing on hover and another in the document.
+
+**Source: `web/knowledge.json`.** `categories` (ten topics) and `entries`, each with: `id` (also its link, `#/help/<id>`), `title`, `category`, `definition` (one line; the Word glossary text for glossary entries), optional `hover` and `labels` (the UI labels that show it, e.g. "Debt/equity"), `body` paragraphs, `aliases` (search words such as SMSF or special dividend), `related` IDs and `links` into Sift. Glossary entries carry `glossary: "acronym"` (with `abbreviation` and `full`) or `glossary: "term"` (with `glossary_title`). `{margin_of_safety}`, `{roe}`, `{debt_to_equity}` and `{yield}` are filled with the live thresholds wherever the text is shown. The first version merged the 37 hover explanations, both valuation-model explanations, 23 acronyms and 27 glossary terms into 78 entries (one per concept, e.g. ROE's acronym, glossary meaning and hover text are one entry), and added guides to the dashboard, the nightly refresh, actions, the score wheel, portfolios and trades, watchlists and the track record, each checked against the code.
+
+**Where it's used.**
+- **Hover explanations:** `app.js` loads the file before the first page draws and builds `FIELD_HELP` (label to text) and `ESTIMATED_VALUE_HELP` (DCF/DDM) from it; `withHelp()` and `svgLabelHelp()` are unchanged. If the file can't load, pages still work without explanations.
+- **Help page (`#/help`, `#/help?q=`, `#/help/<id>`):** entries grouped by topic, each a collapsible row (pink twisty) with the definition, "In Sift" hover text where it differs, the full explanation, related terms and links. Search needs every word to appear and ranks exact names, then titles starting with the query, then names and aliases, then definitions, then anywhere; up to three results open automatically. Topic chips filter.
+- **Menu search:** an exact company code wins; then an exact term (title, abbreviation or full name before aliases) opens its entry; then companies by code prefix or name; then, if any entry matches, the Help results. Terms appear in the search list labelled Help.
+- **Word document:** `scripts/build_rules_doc.js` takes Appendix A's acronyms and key terms from the file (sorted by name), and writes the rest of the document itself. Run `npm install` once in `scripts/`, then `node build_rules_doc.js`.
+
+**Checks (`tests/unit/test_knowledge.py`).** IDs unique and URL-safe; every entry has a title, definition and known category; every related ID and link is real; every UI label Sift asks for is explained exactly once; both valuation models are explained; glossary entries have what the Word table needs and none were lost; and, per entry, no em dashes and no unknown placeholders. `test_gui.py` checks the file is served behind the password.
+
+**Not included, by choice:** AS_BUILT stays a separate technical document, and there's no AI question-answering (it would need an API key and send questions out). Both can be added later; the Help search would be the place to hang Q&A.

@@ -515,3 +515,28 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .inline-select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-left: auto; }
 .card .segmented.periods { max-width: 420px; }
 .segmented.periods button { white-space: nowrap; }
+
+/* ---------- help ---------- */
+.help-group h2 { margin-bottom: 6px; }
+.help-group + .help-group { margin-top: 16px; }
+.help-results .card { padding-top: 12px; padding-bottom: 8px; }
+.help-entry { border-top: 1px solid var(--grid); }
+.help-entry:first-of-type { border-top: 0; }
+.help-entry > summary { display: grid; grid-template-columns: 12px minmax(160px, 260px) 1fr; gap: 4px 12px; align-items: baseline;
+  padding: 9px 2px; cursor: pointer; list-style: none; }
+.help-entry > summary::-webkit-details-marker { display: none; }
+.help-entry > summary:hover .help-title { color: var(--twisty); }
+.help-entry > summary:focus-visible { outline: 2px solid var(--twisty); outline-offset: 2px; border-radius: 4px; }
+.help-entry[open] .twisty { transform: rotate(90deg); }
+.help-title { font-weight: 650; }
+.help-def { color: var(--ink-2); font-size: 13px; }
+.help-entry[open] .help-def { color: var(--ink); }
+.help-body { padding: 0 2px 12px 24px; max-width: 80ch; color: var(--ink-2); }
+.help-body p { margin: 8px 0 0; }
+.help-body .tag { margin-top: 2px; }
+.help-related, .help-links { font-size: 13px; }
+@media (max-width: 720px) {
+  .help-entry > summary { grid-template-columns: 12px 1fr; }
+  .help-def { grid-column: 2; }
+  .help-body { padding-left: 14px; }
+}

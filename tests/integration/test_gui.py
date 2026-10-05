@@ -258,3 +258,10 @@ def test_unarchive_through_the_browser(seeded):
     base = f"/api/portfolios/{pf['portfolio_id']}"
     assert client.patch(base, json={"archived": True}, headers=WRITE).json()["archived"] is True  # empty: allowed
     assert client.patch(base, json={"archived": False}, headers=WRITE).json()["archived"] is False
+
+
+def test_knowledge_base_is_served_behind_the_password(seeded):
+    client = TestClient(gui.create_app(password="s3cret-pass"))
+    assert client.get("/static/knowledge.json").status_code == 401
+    kb = client.get("/static/knowledge.json", headers=_auth("s3cret-pass")).json()
+    assert {"categories", "entries"} <= set(kb)

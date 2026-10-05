@@ -51,12 +51,14 @@ screen_asx.py               CLI value screener
 portfolio.py                CLI for your portfolios, holdings and CGT records
 gui.py                      web GUI server, Sift (see Web GUI below)
 web/                        web GUI page, styles and script (no build step)
+  knowledge.json            the knowledge base: Help page, hover text and Word glossary
 requirements.txt
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
 pytest.ini
 .env.example
 scripts/
   daily_refresh.ps1          Windows Task Scheduler automation (see below)
+  build_rules_doc.js         builds the Word rules document (see Editing the Help text)
 tests/
   conftest.py                 test-database setup (see Testing below)
   unit/                       no database needed
@@ -242,8 +244,13 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   and Nasdaq, opening in a new tab). The pink underline shows where you are. On a phone or
   narrow window the menu folds behind the ☰ button. The Watchlists and Portfolios menus list
   yours, with a link to create a new one.
-- **Find a company:** type a code or part of a name in the search box and pick from the list,
-  or press Enter, to jump straight to that company's page.
+- **Find a company or term:** type a code or part of a name in the search box and pick from the
+  list, or press Enter, to jump straight to that company's page. Type a term instead (franking,
+  SMSF, margin of safety) and it opens that Help entry, or the Help search results.
+- **Help:** a searchable page of every term, rule and how-to in Sift: 78 entries in ten topics,
+  from margin of safety and the four value tests to portfolios, watchlists and the track record.
+  Each entry has a one-line definition, the full explanation with the live thresholds, related
+  terms and links to the right page (for example, the screener filtered to BUY).
 - **Data chip:** next to the search box, the date of the latest prices and valuations. Green
   when current; amber with a "!" when the data is behind the last weekday's close (the
   nightly job didn't run, or it was a public holiday) or the last nightly run crashed or
@@ -313,7 +320,8 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   your phone). Your choice is remembered in that browser.
 - **Field explanations:** hover any column heading, or any label on the company page, to see
   what it measures, how it is calculated and the pass threshold. Underlined headings have one.
-  On a phone, tap the small "i" next to the heading instead.
+  On a phone, tap the small "i" next to the heading instead. These come from the same
+  knowledge base as the Help page (see "Editing the Help text" below).
 - **Score wheel:** five spokes (Value, Performance, Health, Dividend, Momentum), each a count
   of six yes/no checks, so every score traces to named rules. Missing data never counts as a
   pass. The checks are listed in `src/screening/scores.py` and the rules document.
@@ -333,6 +341,21 @@ router to expose it to the internet.
 **Start it automatically.** In Task Scheduler, create a task triggered "At log on" that runs
 `C:\Users\mrdav\Portfolio\.venv\Scripts\python.exe` with arguments `gui.py --lan` and
 "Start in" set to `C:\Users\mrdav\Portfolio`.
+
+### Editing the Help text
+
+`web/knowledge.json` is the single source for three things: the Help page, the hover
+explanations, and the glossary in the Word rules document. Edit a definition there, reload
+Sift, and the Help page and hover text change together. `{margin_of_safety}`, `{roe}`,
+`{debt_to_equity}` and `{yield}` are replaced with the live thresholds. `pytest` checks the
+file (unique IDs, working links, every hover label covered, no unknown placeholders).
+
+To rebuild the Word document after a change (needs Node.js, once: `npm install`):
+```
+cd scripts
+npm install
+node build_rules_doc.js
+```
 
 ## Recording Your Holdings (CGT)
 
@@ -379,14 +402,15 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers, 317 tests in all:
+Two tiers, 402 tests in all:
 
-- **`tests/unit/`** (215 tests) - no database connection at all, so these run in about a
+- **`tests/unit/`** (299 tests) - no database connection at all, so these run in about a
   second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
   the score wheel, dividend history and currency conversion, franking, CGT arithmetic
   (including the discount by tax type), browser input checks and the cross-site write guard,
-  watchlist triggers, and the dashboard's log reading and stale-data rule.
-- **`tests/integration/`** (102 tests) - the parts that genuinely need a real database: the
+  watchlist triggers, the dashboard's log reading and stale-data rule, and the knowledge base
+  behind the Help page (one check per entry).
+- **`tests/integration/`** (103 tests) - the parts that genuinely need a real database: the
   schema (re-applied, upgraded from an older version, and built from nothing), ingestion
   upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
   web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password

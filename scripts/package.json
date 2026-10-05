@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Builds the Word rules document: npm install, then node build_rules_doc.js",
+  "dependencies": {
+    "docx": "9.8.1"
+  }
+}
