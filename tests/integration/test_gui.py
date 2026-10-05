@@ -149,3 +149,70 @@ def test_companies_api_feeds_the_search_box(seeded):
 def test_dashboard_api_responds(seeded):
     data = TestClient(gui.create_app()).get("/api/dashboard").json()
     assert {"status", "attention", "portfolio", "changes", "tracking", "top"} <= set(data)
+
+
+# ---------- portfolios and trades from the browser (§19.1) ----------
+
+WRITE = {"X-Sift": "1"}
+
+
+def test_changes_need_sifts_header_and_the_password(seeded):
+    client = TestClient(gui.create_app(password="s3cret-pass"))
+    body = {"name": "Super", "tax_type": "SMSF"}
+    assert client.post("/api/portfolios", json=body, headers=WRITE).status_code == 401
+    assert client.post("/api/portfolios", json=body, headers=_auth("s3cret-pass")).status_code == 403
+    cross = _auth("s3cret-pass") | WRITE | {"Origin": "https://evil.example"}
+    assert client.post("/api/portfolios", json=body, headers=cross).status_code == 403
+    assert client.post("/api/portfolios", json=body, headers=_auth("s3cret-pass") | WRITE).status_code == 200
+
+
+def test_create_buy_sell_undo_and_report(seeded):
+    client = TestClient(gui.create_app())
+    pf = client.post("/api/portfolios", json={"name": "Super", "tax_type": "SMSF"}, headers=WRITE).json()
+    base = f"/api/portfolios/{pf['portfolio_id']}"
+    assert pf["discount_rate"] == pytest.approx(1 / 3)
+
+    bought = client.post(f"{base}/buys", headers=WRITE, json={
+        "asx_code": "good", "units": "200", "price": "8.00", "date": "2024-07-01", "brokerage": "10"})
+    assert bought.status_code == 200 and bought.json()["cost_base"] == 1610.0
+
+    bad = client.post(f"{base}/sales", headers=WRITE, json={"asx_code": "GOOD", "units": "500", "price": "10", "date": "2026-07-01"})
+    assert bad.status_code == 400 and bad.json()["detail"].startswith("Only 200 units of GOOD held in Super")
+
+    sale = client.post(f"{base}/sales", headers=WRITE, json={"asx_code": "GOOD", "units": "50", "price": "10", "date": "2026-07-01"}).json()
+    assert (sale["parcels"], sale["gain"], sale["discounted_units"]) == (1, 97.5, 50.0)  # 500 - 402.50 cost base
+
+    detail = client.get(base).json()
+    assert detail["positions"][0]["units"] == 150.0 and detail["positions"][0]["action"] == "ACCUMULATE"
+    assert detail["cgt"] == [{"financial_year": "2026-27", "sales": 1, "discountable_gains": 97.5, "non_discountable_gains": 0.0,
+                              "capital_losses": 0.0, "net_capital_gain": 65.0, "unused_losses": 0.0}]  # two thirds taxable
+    assert client.delete(f"/api/parcels/{detail['sales'][0]['holding_id']}", headers=WRITE).status_code == 400  # sold: undo instead
+    assert client.post(f"/api/parcels/{detail['sales'][0]['holding_id']}/undo-sale", headers=WRITE).json()["units"] == 200.0
+
+    overview = client.get("/api/portfolios").json()["portfolios"]
+    assert [(p["name"], p["holdings"]) for p in overview] == [("My portfolio", 1), ("Super", 1)]
+    menu = client.get("/api/portfolios?brief=1").json()["portfolios"]
+    assert "value" not in menu[0]
+
+
+def test_archive_and_delete_rules_reach_the_browser(seeded):
+    client = TestClient(gui.create_app())
+    pf = client.post("/api/portfolios", json={"name": "Spare"}, headers=WRITE).json()
+    base = f"/api/portfolios/{pf['portfolio_id']}"
+    client.post(f"{base}/buys", headers=WRITE, json={"asx_code": "DEAR", "units": "1", "price": "60", "date": "2026-01-02"})
+    refused = client.patch(base, json={"archived": True}, headers=WRITE)
+    assert refused.status_code == 400 and "still holds 1 open parcel" in refused.json()["detail"]
+    assert client.patch(base, json={"name": "my PORTFOLIO"}, headers=WRITE).status_code == 400  # name taken
+    assert client.delete(base, headers=WRITE).json() == {"deleted": "Spare", "parcels_deleted": 1}
+    assert client.get(base).status_code == 404
+    assert client.get("/api/portfolios/not-a-uuid").status_code == 404
+
+
+def test_dashboard_lists_each_active_portfolio(seeded):
+    from datetime import datetime
+
+    client = TestClient(gui.create_app())
+    client.post("/api/portfolios", json={"name": "Super", "tax_type": "SMSF"}, headers=WRITE)
+    data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0)))
+    assert [p["name"] for p in data["portfolio"]["portfolios"]] == ["My portfolio", "Super"]
+    assert data["portfolio"]["value"] == 1000.0

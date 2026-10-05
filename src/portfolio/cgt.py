@@ -12,9 +12,11 @@ rules that follow mechanically from your trade records:
   most favourable to an individual), then the discount is applied to what
   remains of the discountable gains.
 
-The 50% rate is for individuals and trusts; complying super funds get
-33 1/3% and companies none. Prior-year carried-forward losses, dividend
-income and franking credits are not tracked here.
+The discount depends on who owns the shares (DISCOUNT_RATES): 50% for
+individuals and trusts, 33 1/3% for complying super funds including
+SMSFs, none for companies. Each portfolio records its tax type. Prior-year
+carried-forward losses, dividend income and franking credits are not
+tracked here.
 """
 
 from __future__ import annotations
@@ -23,7 +25,20 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-CGT_DISCOUNT_RATE = Decimal("0.5")
+CGT_DISCOUNT_RATE = Decimal("0.5")  # individuals and trusts, the default
+TAX_TYPES = ("INDIVIDUAL", "TRUST", "SMSF", "COMPANY")
+DISCOUNT_RATES = {
+    "INDIVIDUAL": CGT_DISCOUNT_RATE,
+    "TRUST": CGT_DISCOUNT_RATE,
+    "SMSF": Decimal("1") / Decimal("3"),
+    "COMPANY": Decimal("0"),
+}
+TAX_TYPE_LABELS = {
+    "INDIVIDUAL": "Individual",
+    "TRUST": "Trust",
+    "SMSF": "Self-managed super fund (SMSF)",
+    "COMPANY": "Company",
+}
 CENTS = Decimal("0.01")
 
 
@@ -89,7 +104,8 @@ class CgtSummary:
     unused_losses: Decimal  # losses left over to carry forward
 
 
-def summarise(financial_year_label: str, gains: list[RealisedGain]) -> CgtSummary:
+def summarise(financial_year_label: str, gains: list[RealisedGain],
+              discount_rate: Decimal = CGT_DISCOUNT_RATE) -> CgtSummary:
     discountable = sum((g.gain for g in gains if g.gain > 0 and g.discount_eligible), Decimal("0"))
     non_discountable = sum((g.gain for g in gains if g.gain > 0 and not g.discount_eligible), Decimal("0"))
     losses = sum((-g.gain for g in gains if g.gain < 0), Decimal("0"))
@@ -103,7 +119,7 @@ def summarise(financial_year_label: str, gains: list[RealisedGain]) -> CgtSummar
     discountable_after = discountable - applied
     remaining_losses -= applied
 
-    net = non_discountable_after + discountable_after * (1 - CGT_DISCOUNT_RATE)
+    net = non_discountable_after + discountable_after * (1 - discount_rate)
     return CgtSummary(
         financial_year=financial_year_label,
         discountable_gains=to_cents(discountable),

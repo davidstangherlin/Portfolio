@@ -17,7 +17,7 @@ const state = {
   q: "", sector: "", actions: new Set(), passing: false, held: false,
   sort: { key: "action", dir: "asc" }, shown: PAGE_SIZE,
 };
-const cache = { screener: null, thresholds: null, status: null };
+const cache = { screener: null, thresholds: null, status: null, portfolios: null };
 
 /* ---------- DOM helpers (text always via textContent) ---------- */
 function setAttrs(el, attrs) {
@@ -762,7 +762,7 @@ async function renderCompany(code) {
 function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
-const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "My holdings"],
+const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
   [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"]];
 function backLink() {
   const target = previousPage || "#/screener";
@@ -909,6 +909,7 @@ function initNav() {
   bindHelp(chip, () => [h("div", { class: "t-title", text: "Data" }), ...statusLines(cache.status || {}).map((l) => h("div", { text: l }))]);
   initSearch();
   loadStatus();
+  loadPortfolioMenu();
 }
 
 /* ---------- dashboard ---------- */
@@ -922,6 +923,17 @@ function portfolioStrip(pf) {
     statTile("Today", signed(pf.day_change, (v) => money(v, 0)), signClass(pf.day_change), dayPct === null ? "needs two days of prices" : signed(dayPct, (v) => fmt(v, 2) + "%")),
     statTile("Unrealised gain", signed(pf.gain, (v) => money(v, 0)), signClass(pf.gain), gainPct === null ? null : signed(gainPct, (v) => fmt(v, 1) + "%") + " on cost"),
     statTile("Cost base", money(pf.cost_base, 0), null, "purchase price plus brokerage"));
+}
+
+/* One line per active portfolio, when there's more than one. */
+function portfoliosCard(list) {
+  return card("Portfolios", null, h("ul", { class: "items" }, list.map((p) => h("li", {},
+    h("div", { class: "main" }, h("a", { class: "row-link", href: portfolioHref(p) }, h("span", { class: "code", text: p.name })),
+      h("span", { class: "detail", text: `${p.tax_type_label}, ${plural(p.holdings, "holding")}` })),
+    p.holdings ? h("div", { class: "side" }, h("div", { class: "strong", text: money(p.value, 0) }),
+      h("div", { class: `detail ${signClass(p.gain) || ""}`.trim(), text: `${signed(p.gain, (v) => money(v, 0))} gain` }))
+      : h("div", { class: "side detail", text: "no holdings yet" })))),
+    h("p", { class: "card-foot" }, h("a", { href: "#/portfolios", text: "All portfolios →" })));
 }
 
 function attentionCard(d) {
@@ -1020,45 +1032,312 @@ async function renderDashboard() {
   app.replaceChildren(...[
     pageHead("Dashboard", today),
     pf.holdings.length ? portfolioStrip(pf) : null,
-    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d), actionsCard(d), trackingCard(d.tracking)),
+    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d),
+      pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null, actionsCard(d), trackingCard(d.tracking)),
     statusFoot(d.status),
   ].filter(Boolean));
   window.scrollTo(0, 0);
 }
 
-/* ---------- holdings (one portfolio until multiple portfolios arrive) ---------- */
-async function renderPortfolios() {
-  app.replaceChildren(h("p", { class: "loading", text: "Loading holdings..." }));
-  const d = await getJSON("/api/dashboard");
-  cache.thresholds = d.thresholds;
+/* ---------- portfolios (each with its own tax type) and trades ---------- */
+/* Every change carries the X-Sift header: gui.py refuses changes without
+   it, so another website's page can't make them with your saved password. */
+async function send(method, url, body) {
+  const res = await fetch(url, { method, headers: { "Content-Type": "application/json", Accept: "application/json", "X-Sift": "1" },
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Request failed (${res.status})`);
+  return data;
+}
+/* After a trade, held flags and actions change: refetch the screener and the menu next time. */
+function afterChange() { cache.screener = null; loadPortfolioMenu(); }
+
+const discountText = (rate) => (rate > 0 ? `${fmt(rate * 100, rate * 100 % 1 ? 1 : 0)}% CGT discount` : "no CGT discount");
+const taxTag = (p) => h("span", { class: "tag", text: `${p.tax_type_label}, ${discountText(p.discount_rate)}` });
+const portfolioHref = (p) => `#/portfolio/${p.portfolio_id}`;
+
+async function loadPortfolioMenu() {
+  const slot = document.getElementById("portfolio-menu-items");
+  try {
+    const d = await getJSON("/api/portfolios?brief=1");
+    cache.portfolios = d.portfolios;
+    slot.replaceChildren(...d.portfolios.filter((p) => !p.archived).map((p) => h("a", { href: portfolioHref(p), text: p.name })));
+  } catch (e) { /* the menu keeps its last list */ }
+}
+
+function field(label, input, hint) {
+  return h("label", { class: "field" }, h("span", { class: "field-label", text: label }), input, hint ? h("span", { class: "field-hint", text: hint }) : null);
+}
+const todayIso = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+function taxSelect(types, value) {
+  return h("select", { name: "tax_type" }, types.map((t) =>
+    h("option", { value: t.tax_type, selected: t.tax_type === value, text: `${t.tax_type === "SMSF" ? "SMSF" : t.label} (${discountText(t.discount_rate)})` })));
+}
+/* A status line under a form: what happened, or what to fix. */
+function formMessage() { return h("p", { class: "form-msg", role: "status", "aria-live": "polite" }); }
+/* Only the latest outcome stays on screen: an earlier "Recorded" must not sit above a new error. */
+function showMessage(el, text, ok) {
+  for (const other of document.querySelectorAll(".form-msg")) if (other !== el) other.textContent = "";
+  el.textContent = text; el.className = `form-msg ${ok ? "ok" : "bad"}`;
+}
+
+function newPortfolioCard(types, focus) {
+  const name = h("input", { name: "name", maxlength: 60, required: true, placeholder: "e.g. Super fund", autocomplete: "off" });
+  const tax = taxSelect(types, "INDIVIDUAL");
+  const msg = formMessage();
+  const form = h("form", { class: "form-grid", novalidate: true },
+    field("Name", name), field("Owner's tax type", tax, "Sets the capital gains tax discount on its sales."),
+    h("div", { class: "form-actions" }, h("button", { class: "btn primary", type: "submit", text: "Create portfolio" })), msg);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const p = await send("POST", "/api/portfolios", { name: name.value, tax_type: tax.value });
+      afterChange();
+      location.hash = portfolioHref(p);
+    } catch (err) { showMessage(msg, err.message, false); }
+  });
+  const c = card("New portfolio", "One per owner or account, for example your own shares, a family trust or a self-managed super fund.", form);
+  if (focus) setTimeout(() => { c.scrollIntoView({ block: "center" }); name.focus(); }, 0);
+  return c;
+}
+
+function portfolioCard(p) {
+  const c = h("a", { class: "card pf-card", href: portfolioHref(p) },
+    h("div", { class: "pf-head" }, h("h2", { text: p.name }), p.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
+    taxTag(p),
+    p.archived ? h("p", { class: "hint", text: `${plural(p.sales, "sale")} kept for tax records.` })
+      : !p.holdings ? h("p", { class: "hint pf-kv", text: "No holdings yet. Open it to record a buy." }) : h("dl", { class: "kv pf-kv" },
+      h("dt", { text: "Value" }), h("dd", { text: money(p.value, 0) }),
+      h("dt", { text: "Unrealised gain" }), h("dd", { class: signClass(p.gain), text: signed(p.gain, (v) => money(v, 0)) }),
+      h("dt", { text: "Today" }), h("dd", { class: signClass(p.day_change), text: signed(p.day_change, (v) => money(v, 0)) }),
+      h("dt", { text: "Holdings" }), h("dd", { text: `${fmt(p.holdings, 0)} ${p.holdings === 1 ? "company" : "companies"}, ${plural(p.open_parcels, "parcel")}` })));
+  return c;
+}
+
+async function renderPortfolios(query) {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading portfolios..." }));
+  const d = await getJSON("/api/portfolios");
+  const active = d.portfolios.filter((p) => !p.archived), archived = d.portfolios.filter((p) => p.archived);
+  const wantNew = new URLSearchParams(query || "").get("new") === "1";
+  app.replaceChildren(...[
+    pageHead("Portfolios", active.length ? `${plural(active.length, "active portfolio")}` : null),
+    active.length ? h("div", { class: "cards" }, active.map(portfolioCard)) : h("p", { class: "empty", text: "No portfolios yet. Create one below, then record your first buy." }),
+    archived.length ? h("details", { class: "archived" }, h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), `Archived (${archived.length})`),
+      h("div", { class: "cards" }, archived.map(portfolioCard))) : null,
+    h("div", { class: "cards", style: "margin-top:16px" }, newPortfolioCard(d.tax_types, wantNew)),
+  ].filter(Boolean));
+  if (!wantNew) window.scrollTo(0, 0);
+}
+
+/* Buy or sell form. Sell offers only what the portfolio holds, and which parcels go first. */
+function tradeCard(d, reload) {
   const pf = d.portfolio;
-  const note = card("Coming next", null, h("p", { class: "hint", text:
-    "Several portfolios (each with its own tax type), and recording buys and sells here in the browser, arrive in the next update. Until then, record trades with portfolio.py." }));
-  if (!pf.holdings.length) {
-    app.replaceChildren(pageHead("My holdings", null), card("No holdings yet", null,
-      h("p", { class: "empty", text: "Record a purchase with: python portfolio.py add CODE UNITS PRICE DATE" })), note);
-    return;
+  if (pf.archived) return card("Record a trade", null, h("p", { class: "empty", text: "This portfolio is archived. Unarchive it in Settings to record trades." }));
+  let mode = "BUY";
+  const msg = formMessage();
+  const seg = h("div", { class: "segmented", role: "group", "aria-label": "Trade type" });
+  const body = h("div");
+  const date = () => h("input", { type: "date", name: "date", value: todayIso(), max: todayIso(), required: true });
+  const num = (name, placeholder) => h("input", { name, inputmode: "decimal", autocomplete: "off", placeholder: placeholder || "" });
+
+  function buyForm() {
+    const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "e.g. BHP", style: "text-transform:uppercase" });
+    const method = h("select", { name: "method" }, ["PURCHASE", "DRP", "BONUS", "TRANSFER", "OTHER"].map((m) =>
+      h("option", { value: m, text: { PURCHASE: "Purchase", DRP: "Dividend reinvestment (DRP)", BONUS: "Bonus issue", TRANSFER: "Transfer in", OTHER: "Other" }[m] })));
+    return [field("Company", code), field("Units", num("units")), field("Price per share", num("price", "$")),
+      field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Adds to the cost base."), field("How acquired", method),
+      field("Broker or account", h("input", { name: "broker", maxlength: 50, autocomplete: "off" })), field("Notes", h("input", { name: "notes", maxlength: 500, autocomplete: "off" }))];
   }
+  function sellForm() {
+    const codes = d.positions.map((p) => p.asx_code);
+    const code = h("select", { name: "asx_code" }, codes.map((c) => h("option", { value: c, text: `${c} (${fmt(d.positions.find((p) => p.asx_code === c).units, 0)} units)` })));
+    const order = h("select", { name: "order" });
+    const fillOrder = () => {
+      const parcels = d.parcels.filter((p) => p.asx_code === code.value);
+      order.replaceChildren(h("option", { value: "fifo", text: "Oldest parcels first" }),
+        h("option", { value: "min-tax", text: "Smallest taxable gain first" }),
+        parcels.length > 1 ? parcels.map((p) => h("option", { value: `parcel:${p.holding_id}`, text: `Only parcel ${p.short_id}: ${fmt(p.units, 0)} units bought ${longDate(p.buy_date)}` })) : null);
+    };
+    code.addEventListener("change", fillOrder);
+    fillOrder();
+    return [field("Company", code), field("Units", num("units")), field("Price per share", num("price", "$")),
+      field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Reduces the capital proceeds."),
+      field("Which parcels", order, "Smallest taxable gain counts this portfolio's CGT discount.")];
+  }
+  const form = h("form", { class: "form-grid", novalidate: true });
+  const submit = h("button", { class: "btn primary", type: "submit" });
+  function draw() {
+    for (const b of seg.children) b.setAttribute("aria-pressed", b.dataset.mode === mode);
+    form.replaceChildren(...(mode === "BUY" ? buyForm() : sellForm()), h("div", { class: "form-actions" }, submit), msg);
+    submit.textContent = mode === "BUY" ? "Record buy" : "Record sale";
+  }
+  for (const [m, label] of [["BUY", "Buy"], ["SELL", "Sell"]]) {
+    seg.append(h("button", { type: "button", "data-mode": m, text: label, disabled: m === "SELL" && !d.positions.length,
+      onclick: () => { mode = m; msg.textContent = ""; draw(); } }));
+  }
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (data.order && data.order.startsWith("parcel:")) { data.parcel_id = data.order.slice(7); data.order = "fifo"; }
+    submit.disabled = true;
+    try {
+      if (mode === "BUY") {
+        const r = await send("POST", `/api/portfolios/${pf.portfolio_id}/buys`, data);
+        afterChange();
+        await reload(`Recorded: ${fmt(r.units, 0)} ${r.asx_code}, cost base ${money(r.cost_base)}.${pf.discount_rate > 0 ? ` CGT discount applies to sales from ${longDate(r.discount_from)}.` : ""}`);
+      } else {
+        const r = await send("POST", `/api/portfolios/${pf.portfolio_id}/sales`, data);
+        afterChange();
+        await reload(`Recorded: sold ${fmt(r.units, 0)} units from ${plural(r.parcels, "parcel")}, proceeds ${money(r.proceeds)}, ` +
+          `${r.gain >= 0 ? "capital gain" : "capital loss"} ${money(Math.abs(r.gain))}` +
+          `${pf.discount_rate > 0 ? ` (${fmt(r.discounted_units, 0)} units eligible for the discount)` : ""}.`);
+      }
+    } catch (err) { showMessage(msg, err.message, false); submit.disabled = false; }
+  });
+  draw();
+  return card("Record a trade", null, seg, form);
+}
+
+function holdingsTable(lines) {
   const heads = ["Company", "Units", "Cost base", "Price", "Value", "Gain", "Today", "Action", "CGT discount from"];
-  const numeric = new Set([1, 2, 3, 4, 5, 6]);
-  const optional = new Set([2, 3, 6, 8]);
-  app.replaceChildren(
-    pageHead("My holdings", plural(pf.holdings.length, "company", "companies")),
-    portfolioStrip(pf),
-    h("div", { class: "table-wrap", style: "margin-top:16px" }, h("table", { class: "grid" },
-      h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
-      h("tbody", {}, pf.holdings.map((r) => clickableRow(r.asx_code,
-        h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
-        h("td", { class: "num", text: fmt(r.units, 0) }),
-        h("td", { class: "num opt", text: money(r.cost_base, 0) }),
-        h("td", { class: "num opt", text: money(r.price) }),
-        h("td", { class: "num", text: money(r.value, 0) }),
-        h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
-        h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
-        h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" })),
-        h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "all eligible" })))))),
-    h("div", { class: "cards", style: "margin-top:16px" }, note));
-  window.scrollTo(0, 0);
+  const numeric = new Set([1, 2, 3, 4, 5, 6]), optional = new Set([2, 3, 6, 8]);
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
+    h("tbody", {}, lines.map((r) => clickableRow(r.asx_code,
+      h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
+      h("td", { class: "num", text: fmt(r.units, 0) }),
+      h("td", { class: "num opt", text: money(r.cost_base, 0) }),
+      h("td", { class: "num opt", text: money(r.price) }),
+      h("td", { class: "num", text: money(r.value, 0) }),
+      h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
+      h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
+      h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" })),
+      h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "eligible now" }))))));
+}
+
+function rowButton(label, cls, onClick) {
+  return h("button", { type: "button", class: `btn small ${cls}`, text: label, onclick: (e) => { e.stopPropagation(); onClick(); } });
+}
+
+function parcelsCard(d, reload, msg) {
+  const gets = d.portfolio.discount_rate > 0;
+  const remove = async (p) => {
+    if (!confirm(`Delete parcel ${p.short_id}: ${fmt(p.units, 0)} ${p.asx_code} bought ${longDate(p.buy_date)}?\n\nOnly for a parcel entered by mistake. This can't be undone.`)) return;
+    try { await send("DELETE", `/api/parcels/${p.holding_id}`); afterChange(); await reload(`Deleted parcel ${p.short_id}.`); }
+    catch (err) { showMessage(msg, err.message, false); }
+  };
+  const c = card("Open parcels", "Each buy is its own parcel for tax. Delete is for a parcel entered by mistake.",
+    d.parcels.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Company", "Parcel", "Bought", "Units", "Buy price", "Cost base", "Gain", gets ? "CGT discount from" : "CGT discount", ""].map((x, i) =>
+        h("th", { class: [i >= 3 && i <= 6 ? "num" : "", [1, 4, 7].includes(i) ? "opt" : ""].join(" ").trim() || null, text: x })))),
+      h("tbody", {}, d.parcels.map((p) => h("tr", { class: "static" },
+        h("td", {}, h("span", { class: "code", text: p.asx_code }), p.method !== "PURCHASE" ? h("span", { class: "tag muted sm", text: p.method }) : null),
+        h("td", { class: "opt mono", text: p.short_id }),
+        h("td", { text: longDate(p.buy_date) }),
+        h("td", { class: "num", text: fmt(p.units, 0) }),
+        h("td", { class: "num opt", text: money(p.buy_price, 3) }),
+        h("td", { class: "num", text: money(p.cost_base) }),
+        h("td", { class: `num ${signClass(p.gain) || ""}`.trim(), text: signed(p.gain, (v) => money(v, 0)) }),
+        h("td", { class: "opt", text: p.discount_from ? (p.discount_from <= todayIso() ? "eligible now" : longDate(p.discount_from)) : "n/a" }),
+        h("td", { class: "act" }, rowButton("Delete", "danger", () => remove(p)))))))) : h("p", { class: "empty", text: "No open parcels." }));
+  c.classList.add("wide");
+  return c;
+}
+
+function salesCard(d, reload, msg) {
+  const gets = d.portfolio.discount_rate > 0;
+  const undo = async (s) => {
+    if (!confirm(`Undo the sale of ${fmt(s.units, 0)} ${s.asx_code} on ${longDate(s.sell_date)}?\n\nThe units go back into the open parcel they came from.`)) return;
+    try { await send("POST", `/api/parcels/${s.holding_id}/undo-sale`); afterChange(); await reload(`Sale undone: ${fmt(s.units, 0)} ${s.asx_code} are open again.`); }
+    catch (err) { showMessage(msg, err.message, false); }
+  };
+  const c = card("Sales", "Every sale recorded, newest first. Undo is for a sale entered by mistake.",
+    d.sales.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Company", "Sold", "Units", "Proceeds", "Cost base", "Gain", "CGT discount", "Financial year", ""].map((x, i) =>
+        h("th", { class: [i >= 2 && i <= 5 ? "num" : "", [3, 4, 7].includes(i) ? "opt" : "", i === 6 ? "opt2" : ""].join(" ").trim() || null, text: x })))),
+      h("tbody", {}, d.sales.map((s) => h("tr", { class: "static" },
+        h("td", {}, h("span", { class: "code", text: s.asx_code })),
+        h("td", { text: longDate(s.sell_date) }),
+        h("td", { class: "num", text: fmt(s.units, 0) }),
+        h("td", { class: "num opt", text: money(s.proceeds) }),
+        h("td", { class: "num opt", text: money(s.cost_base) }),
+        h("td", { class: `num ${signClass(s.gain) || ""}`.trim(), text: signed(s.gain, (v) => money(v)) }),
+        h("td", { class: "opt2", text: gets ? (s.discount_eligible ? "Yes" : "No") : "n/a" }),
+        h("td", { class: "opt", text: s.financial_year }),
+        h("td", { class: "act" }, rowButton("Undo", "", () => undo(s)))))))) : h("p", { class: "empty", text: "No sales recorded." }));
+  c.classList.add("wide");
+  return c;
+}
+
+function cgtCard(d) {
+  const pf = d.portfolio;
+  const c = card("Capital gains by financial year",
+    `${pf.tax_type_label}: ${discountText(pf.discount_rate)}. Losses are set against gains that don't get the discount first.`,
+    d.cgt.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Financial year", "Sales", "Gains with discount", "Other gains", "Losses", "Net capital gain", "Losses carried forward"].map((x, i) =>
+        h("th", { class: [i ? "num" : "", i === 1 || i === 6 ? "opt2" : ""].join(" ").trim() || null, text: x })))),
+      h("tbody", {}, d.cgt.map((y) => h("tr", { class: "static" },
+        h("td", { text: y.financial_year }), h("td", { class: "num opt2", text: fmt(y.sales, 0) }),
+        h("td", { class: "num", text: money(y.discountable_gains) }), h("td", { class: "num", text: money(y.non_discountable_gains) }),
+        h("td", { class: "num", text: money(y.capital_losses) }), h("td", { class: "num strong", text: money(y.net_capital_gain) }),
+        h("td", { class: "num opt2", text: money(y.unused_losses) })))))) : h("p", { class: "empty", text: "Appears once a sale is recorded." }),
+    h("p", { class: "hint", style: "margin-top:8px", text: "A record-keeping aid, not tax advice. Losses carried forward from earlier years aren't included; confirm anything you lodge with the ATO or your accountant." }));
+  c.classList.add("wide");
+  return c;
+}
+
+function settingsCard(d, reload) {
+  const pf = d.portfolio;
+  const msg = formMessage();
+  const name = h("input", { name: "name", value: pf.name, maxlength: 60, autocomplete: "off" });
+  const tax = taxSelect(d.tax_types, pf.tax_type);
+  const save = h("form", { class: "form-grid", novalidate: true },
+    field("Name", name),
+    field("Owner's tax type", tax, d.sales.length ? "Changing it changes the CGT discount on the sales already recorded here." : null),
+    h("div", { class: "form-actions" }, h("button", { class: "btn", type: "submit", text: "Save" })));
+  save.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { name: name.value, tax_type: tax.value }); afterChange(); await reload("Saved."); }
+    catch (err) { showMessage(msg, err.message, false); }
+  });
+  const open = d.parcels.length, sales = d.sales.length;
+  const archive = pf.archived
+    ? h("button", { class: "btn", type: "button", text: "Unarchive", onclick: async () => {
+        try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { archived: false }); afterChange(); await reload("Unarchived."); }
+        catch (err) { showMessage(msg, err.message, false); } } })
+    : h("button", { class: "btn", type: "button", text: "Archive", disabled: open > 0, onclick: async () => {
+        if (!confirm(`Archive ${pf.name}? It moves out of the menu and dashboard; its sales stay in the CGT report.`)) return;
+        try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { archived: true }); afterChange(); await reload("Archived."); }
+        catch (err) { showMessage(msg, err.message, false); } } });
+  const del = h("button", { class: "btn danger", type: "button", text: "Delete portfolio", disabled: sales > 0, onclick: async () => {
+    if (!confirm(`Delete ${pf.name}${open ? ` and its ${plural(open, "open parcel")}` : ""}? This can't be undone.`)) return;
+    try { await send("DELETE", `/api/portfolios/${pf.portfolio_id}`); afterChange(); location.hash = "#/portfolios"; }
+    catch (err) { showMessage(msg, err.message, false); } } });
+  return card("Settings", null, save,
+    h("div", { class: "danger-zone" },
+      h("div", {}, archive, h("span", { class: "field-hint", text: open ? "Archive once every parcel is sold." : "Keeps the sale records for tax, out of the way." })),
+      h("div", {}, del, h("span", { class: "field-hint", text: sales ? "Has sales, which are tax records: archive it instead." : "Removes it and any open parcels." }))),
+    msg);
+}
+
+async function renderPortfolio(id, note) {
+  if (!note) app.replaceChildren(h("p", { class: "loading", text: "Loading portfolio..." }));
+  const d = await getJSON(`/api/portfolios/${encodeURIComponent(id)}`);
+  const pf = d.portfolio;
+  const reload = (text) => renderPortfolio(id, text);
+  const notice = formMessage();
+  if (note) showMessage(notice, note, true);
+  const strip = d.positions.length ? portfolioStrip({ ...d.totals, holdings: d.positions }) : null;
+  app.replaceChildren(...[
+    h("a", { class: "back", href: "#/portfolios", text: "← Portfolios" }),
+    h("div", { class: "page-head" }, h("h1", { text: pf.name }), taxTag(pf), pf.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
+    notice,
+    strip,
+    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsTable(d.positions)) : null,
+    h("div", { class: "cards dash", style: "margin-top:16px" }, tradeCard(d, reload), settingsCard(d, reload),
+      parcelsCard(d, reload, notice), salesCard(d, reload, notice), cgtCard(d)),
+  ].filter(Boolean));
+  if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
 /* ---------- track record (recording now; results once a month has passed) ---------- */
@@ -1114,7 +1393,8 @@ const ROUTES = [
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
   [/^#\/watchlists$/, "watchlists", () => renderWatchlists()],
-  [/^#\/portfolios$/, "portfolios", () => renderPortfolios()],
+  [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
+  [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => renderPortfolio(m[1])],
   [/^(#\/?)?$/, "dashboard", () => renderDashboard()],
 ];
 let previousPage = null;

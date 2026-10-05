@@ -218,7 +218,7 @@ financial advice: read the reason, then check the numbers behind it.
 
 `gui.py` is a local web app, branded **Sift**, over the same database and the same rules as
 `screen_asx.py` (it calls the screener's own row loader, so the two never
-disagree). It is read-only.
+disagree). It only ever writes portfolios and trades you enter, and only from its own pages.
 
 ```
 python gui.py           # this PC: open http://localhost:8000
@@ -244,8 +244,17 @@ Press `Ctrl+C` to stop it.
   action moved since the previous night, better first); **Top opportunities** (BUY, then
   INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
   it); and how far the track record has got.
-- **My holdings (Portfolios menu):** every open holding with units, cost base, price, value,
-  gain, today's change, suggested action and the CGT discount date.
+- **Portfolios:** keep several portfolios (for example your own shares, a family trust and a
+  self-managed super fund), each with its owner's tax type, which sets its capital gains tax
+  (CGT) discount: individual or trust 50%, SMSF 33⅓%, company none. The Portfolios menu lists
+  them; **All portfolios** shows a card for each and a form to create one. Each portfolio's page
+  has its holdings, a **Record a trade** form (buy, or sell with oldest parcels first, smallest
+  taxable gain first, or one chosen parcel), its open parcels, its sales, CGT by financial year
+  and its settings (rename, change tax type, archive, delete). Mistakes: **Delete** removes a
+  parcel entered by mistake and **Undo** reverses a sale; both ask first. A portfolio with
+  sales can't be deleted, because those are tax records: archive it once everything is sold
+  and it moves out of the way with its sales still in the CGT report. With more than one
+  portfolio, the dashboard lists each one.
 - **Track record:** Sift records every company's suggested action, valuation and score each
   night, never editing them afterwards, so they can be checked against what the share price
   did next. Results start one month after recording begins; until then the page shows
@@ -295,10 +304,23 @@ router to expose it to the internet.
 
 ## Recording Your Holdings (CGT)
 
-`portfolio.py` keeps one record per parcel, since Australian CGT (including the 50%
-discount after 12 months) applies per parcel. Brokerage is included in the cost base.
+Record trades in the browser (Sift's Portfolios pages, above) or with `portfolio.py`; both
+use the same records and rules. Each parcel is kept separately, since Australian CGT
+(including the discount after 12 months) applies per parcel. Brokerage is included in the
+cost base.
+
+**Portfolios.** Every parcel belongs to a portfolio with its owner's tax type: individual or
+trust (50% discount), self-managed super fund (33⅓%) or company (none). Existing parcels
+moved into "My portfolio" (individual) automatically. With one active portfolio there is
+nothing to choose; with several, name one with `--portfolio` on `add` and `sell` (`list` and
+`cgt` show every portfolio, each with its own discount, unless you name one).
 
 ```bash
+python portfolio.py portfolios                                   # list them
+python portfolio.py portfolios create "Super fund" --tax-type SMSF
+python portfolio.py portfolios archive "Old account"             # once everything in it is sold
+python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --portfolio "Super fund"
+python portfolio.py undo-sale 5e6f7a8b                           # reverse a sale entered by mistake
 python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --brokerage 9.95 --broker CommSec
 python portfolio.py add BHP --units 3 --price 44.10 --date 2025-09-25 --method DRP
 python portfolio.py sell BHP --units 50 --price 48.10 --date 2026-04-02 --brokerage 9.95
@@ -314,7 +336,7 @@ giving the smallest taxable gain (counting the discount) and `--parcel` picks on
 covered: dividend income and franking credits, losses carried forward from earlier years,
 and cost base adjustments from corporate actions. A record-keeping aid, not tax advice.
 Back the table up occasionally, since unlike market data it can't be re-downloaded:
-`pg_dump -t holdings asx_value > holdings_backup.sql`.
+`pg_dump -t holdings -t portfolios asx_value > holdings_backup.sql`.
 
 ## Testing
 

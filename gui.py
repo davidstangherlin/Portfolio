@@ -13,7 +13,8 @@ a score wheel (see src/screening/scores.py), price against estimated
 value, price and margin-of-safety history and five years of financials,
 and a holdings page.
 
-Read-only: it never writes to the database.
+It writes to the database only to record portfolios and trades (§19.1),
+and only for requests that come from Sift's own pages (_same_site_write).
 """
 
 from __future__ import annotations
@@ -26,11 +27,13 @@ import re
 import secrets
 import socket
 import sys
+import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
@@ -38,6 +41,9 @@ from sqlalchemy import func, select, text
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
 from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
+from src.models import Holding, Portfolio
+from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
+from src.portfolio.holdings import HoldingsError
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
@@ -87,6 +93,28 @@ def _authorised(header: str | None, password: str) -> bool:
         return False
     _, _, supplied = decoded.partition(":")
     return secrets.compare_digest(supplied.encode("utf-8"), password.encode("utf-8"))
+
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+WRITE_HEADER = "x-sift"  # set by web/app.js on every change; another site's page can't add it without permission
+
+
+def _same_site_write(request: Request) -> bool:
+    """A change must come from Sift's own pages. The browser sends saved
+    Basic-auth credentials with any site's request, so a password alone
+    doesn't stop another website's page posting to Sift. Three checks: the
+    custom header (cross-site requests can't set it without a CORS
+    permission Sift never grants), the browser's Sec-Fetch-Site, and the
+    Origin's host matching the Host."""
+    if request.headers.get(WRITE_HEADER) != "1":
+        return False
+    site = request.headers.get("sec-fetch-site")
+    if site and site not in ("same-origin", "none"):
+        return False
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc.lower() != (request.headers.get("host") or "").lower():
+        return False
+    return True
 
 
 def _card_payload(card) -> dict:
@@ -279,58 +307,14 @@ def status_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR)
     }
 
 
-def _two_latest_closes(session, codes: set[str]) -> dict[str, list]:
-    if not codes:
-        return {}
-    rows = session.execute(text("""
-        SELECT asx_code, close_price, price_date FROM (
-            SELECT c.asx_code, p.close_price, p.price_date,
-                   ROW_NUMBER() OVER (PARTITION BY p.company_id ORDER BY p.price_date DESC) AS n
-            FROM daily_prices p JOIN companies c ON c.company_id = p.company_id
-            WHERE c.asx_code = ANY(:codes)
-        ) ranked WHERE n <= 2 ORDER BY asx_code, price_date DESC
-    """), {"codes": sorted(codes)}).all()
-    out: dict[str, list] = {}
-    for code, close, _ in rows:
-        out.setdefault(code, []).append(close)
-    return out
-
-
 def portfolio_payload(session, universe, today: date) -> dict:
-    """Every open holding valued at the latest close, with the day's move
-    and the screener's suggested action."""
+    """Every open holding across all portfolios valued at the latest close,
+    with the day's move and the suggested action, plus a summary line for
+    each active portfolio."""
     rows = {r["asx_code"]: r for r in universe.rows}
-    closes = _two_latest_closes(session, set(universe.positions))
-    names = dict(session.execute(
-        select(Company.asx_code, Company.company_name).where(Company.asx_code.in_(universe.positions))
-    ).all()) if universe.positions else {}
-    holdings = []
-    for code, pos in sorted(universe.positions.items()):
-        row = rows.get(code)
-        last = closes.get(code, [])
-        price = last[0] if last else None
-        value = pos.units * price if price is not None else None
-        holdings.append({
-            "asx_code": code, "company_name": names.get(code), "units": pos.units, "cost_base": pos.cost_base,
-            "price": price, "value": value,
-            "gain": value - pos.cost_base if value is not None else None,
-            "day_change": pos.units * (last[0] - last[1]) if len(last) == 2 else None,
-            "action": row["action"] if row else None, "action_reason": row["action_reason"] if row else None,
-            "valuation_status": row["valuation_status"] if row else None,
-            "next_discount_date": pos.next_discount_date, "units_pending_discount": pos.units_pending_discount,
-        })
-    priced = [h for h in holdings if h["value"] is not None]
-    value = sum((h["value"] for h in priced), Decimal("0"))
-    cost = sum((h["cost_base"] for h in priced), Decimal("0"))
-    day = [h["day_change"] for h in priced if h["day_change"] is not None]
-    return {
-        "holdings": holdings,
-        "value": value if priced else None,
-        "cost_base": cost if priced else None,
-        "gain": value - cost if priced else None,
-        "day_change": sum(day, Decimal("0")) if day else None,
-        "unpriced": [h["asx_code"] for h in holdings if h["value"] is None],
-    }
+    out = portfolio_views.combined(session, rows, today)
+    out["portfolios"] = [p for p in portfolio_views.portfolio_summaries(session, rows, today) if not p["archived"]]
+    return out
 
 
 def _brief(row: dict) -> dict:
@@ -395,6 +379,8 @@ def create_app(password: str | None = None) -> FastAPI:
         # Covers every route, including the static files.
         if password and not _authorised(request.headers.get("authorization"), password):
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ASX Value Screener"'})
+        if request.method in WRITE_METHODS and not _same_site_write(request):
+            return JSONResponse({"detail": "Changes are only accepted from Sift's own pages."}, status_code=403)
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -426,6 +412,127 @@ def create_app(password: str | None = None) -> FastAPI:
         if payload is None:
             raise HTTPException(status_code=404, detail=f"{asx_code.upper()} is not in the screener")
         return JSONResponse(_json_ready(payload))
+
+    # ---------- portfolios and trades (§19.1) ----------
+    def rows_by_code(session):
+        return {r["asx_code"]: r for r in load_universe(session, date.today()).rows}
+
+    def portfolio_or_404(session, portfolio_id: str) -> Portfolio:
+        try:
+            found = session.get(Portfolio, uuid.UUID(portfolio_id))
+        except ValueError:
+            found = None
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such portfolio")
+        return found
+
+    def parcel_or_404(session, holding_id: str) -> Holding:
+        try:
+            found = session.get(Holding, uuid.UUID(holding_id))
+        except ValueError:
+            found = None
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such parcel")
+        return found
+
+    def change(action):
+        """Run one change in its own transaction; a HoldingsError is the
+        person's mistake (400 with the message), never a half-saved change."""
+        with get_session() as session:
+            try:
+                result = action(session)
+                session.commit()
+            except HoldingsError as exc:
+                session.rollback()
+                raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
+        return JSONResponse(_json_ready(result))
+
+    @app.get("/api/portfolios")
+    def api_portfolios(brief: bool = False):
+        """Every portfolio with its totals; ?brief=1 gives names only, for the menu."""
+        with get_session() as session:
+            if brief:
+                portfolios = [portfolio_views.portfolio_info(p) for p in parcels_module.list_portfolios(session)]
+            else:
+                portfolios = portfolio_views.portfolio_summaries(session, rows_by_code(session), date.today())
+            return JSONResponse(_json_ready({"tax_types": portfolio_views.tax_types(), "portfolios": portfolios}))
+
+    @app.post("/api/portfolios")
+    def api_create_portfolio(body: dict = Body(...)):
+        def action(session):
+            fields = trade_input.parse_portfolio(body)
+            return portfolio_views.portfolio_info(parcels_module.create_portfolio(session, **fields))
+        return change(action)
+
+    @app.get("/api/portfolios/{portfolio_id}")
+    def api_portfolio(portfolio_id: str):
+        with get_session() as session:
+            portfolio = portfolio_or_404(session, portfolio_id)
+            return JSONResponse(_json_ready(
+                portfolio_views.portfolio_detail(session, portfolio, rows_by_code(session), date.today())))
+
+    @app.patch("/api/portfolios/{portfolio_id}")
+    def api_update_portfolio(portfolio_id: str, body: dict = Body(...)):
+        def action(session):
+            portfolio = portfolio_or_404(session, portfolio_id)
+            fields = trade_input.parse_portfolio(body, partial=True)
+            archived = fields.pop("archived", None)
+            parcels_module.update_portfolio(session, portfolio, **fields)
+            if archived is True and not portfolio.is_archived:
+                parcels_module.archive_portfolio(session, portfolio)
+            elif archived is False and portfolio.is_archived:
+                parcels_module.unarchive_portfolio(session, portfolio)
+            return portfolio_views.portfolio_info(portfolio)
+        return change(action)
+
+    @app.delete("/api/portfolios/{portfolio_id}")
+    def api_delete_portfolio(portfolio_id: str):
+        def action(session):
+            portfolio = portfolio_or_404(session, portfolio_id)
+            name = portfolio.name
+            return {"deleted": name, "parcels_deleted": parcels_module.delete_portfolio(session, portfolio)}
+        return change(action)
+
+    @app.post("/api/portfolios/{portfolio_id}/buys")
+    def api_buy(portfolio_id: str, body: dict = Body(...)):
+        def action(session):
+            portfolio = portfolio_or_404(session, portfolio_id)
+            parcel = parcels_module.add_parcel(session, portfolio=portfolio, **trade_input.parse_buy(body, date.today()))
+            return {"holding_id": str(parcel.holding_id), "asx_code": parcel.asx_code, "units": parcel.units,
+                    "cost_base": cgt.cost_base(parcel.units, parcel.buy_price, parcel.buy_brokerage),
+                    "discount_from": cgt.discount_eligible_from(parcel.buy_date)}
+        return change(action)
+
+    @app.post("/api/portfolios/{portfolio_id}/sales")
+    def api_sell(portfolio_id: str, body: dict = Body(...)):
+        def action(session):
+            portfolio = portfolio_or_404(session, portfolio_id)
+            sold = parcels_module.sell(session, portfolio=portfolio, **trade_input.parse_sell(body, date.today()))
+            gains = [parcels_module.realised_gain(p) for p in sold]
+            gets_discount = parcels_module.discount_rate(portfolio) > 0
+            return {"parcels": len(sold), "units": sum((g.units for g in gains), Decimal("0")),
+                    "proceeds": sum((g.proceeds for g in gains), Decimal("0")),
+                    "gain": sum((g.gain for g in gains), Decimal("0")),
+                    "discounted_units": sum((g.units for g in gains if g.discount_eligible and gets_discount), Decimal("0"))}
+        return change(action)
+
+    @app.delete("/api/parcels/{holding_id}")
+    def api_delete_parcel(holding_id: str):
+        def action(session):
+            parcel = parcel_or_404(session, holding_id)
+            if not parcel.is_open:
+                raise HoldingsError("that parcel has been sold: undo the sale instead")
+            parcels_module.delete_parcel(session, holding_id)
+            return {"deleted": holding_id}
+        return change(action)
+
+    @app.post("/api/parcels/{holding_id}/undo-sale")
+    def api_undo_sale(holding_id: str):
+        def action(session):
+            parcel_or_404(session, holding_id)
+            parcel = parcels_module.undo_sale(session, holding_id)
+            return {"holding_id": str(parcel.holding_id), "units": parcel.units}
+        return change(action)
 
     @app.get("/")
     def index():

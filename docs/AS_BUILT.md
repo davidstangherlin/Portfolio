@@ -66,6 +66,7 @@ Portfolio/
 │   │   ├── dividend_payment.py         DividendPayment model - one row per ex-dividend date (§20)
 │   │   ├── financial_report.py         FinancialReport model
 │   │   ├── holding.py                  Holding model - one share parcel (§19)
+│   │   ├── portfolio.py                Portfolio model - a named owner with a tax type (§19.1)
 │   │   ├── signal_snapshot.py          SignalSnapshot model - what Sift said each night (§21)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
@@ -86,7 +87,9 @@ Portfolio/
 │   │   └── run_valuation.py            CLI entrypoint
 │   ├── portfolio/                      Your holdings (§19)
 │   │   ├── cgt.py                      Australian CGT arithmetic: cost base, 12-month discount, FY summary
-│   │   └── holdings.py                 Parcel add/sell (with splitting)/delete, position summaries
+│   │   ├── holdings.py                 Portfolios; parcel add/sell (with splitting)/delete/undo sale; position summaries
+│   │   ├── views.py                    Portfolio figures for the web GUI: totals, positions, parcels, CGT by year (§19.1)
+│   │   └── trade_input.py              Checks on trades typed into the browser, with plain-English errors (§19.1)
 │   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
 │   ├── screening/
 │   │   ├── actions.py                  Suggested action + reason per company (§9.1)
@@ -115,6 +118,7 @@ Portfolio/
 │   │   ├── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
 │   │   ├── test_markers.py, test_cgt.py, test_actions.py
 │   │   ├── test_dashboard.py           Nightly-log reading, stale-data weekday rule, valuation status
+│   │   ├── test_trade_input.py         Browser input checks, CGT discount by tax type, the cross-site write guard
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
 │       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
@@ -129,7 +133,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 239-test suite (§10.12, §10.13).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 280-test suite (§10.12, §10.13).
 
 ---
 
@@ -161,6 +165,7 @@ erDiagram
     companies ||--o{ valuation_metrics : has
     companies ||--o{ dividend_payments : has
     companies ||--o{ signal_snapshots : has
+    portfolios ||--o{ holdings : holds
 
     companies {
         uuid company_id PK
@@ -261,6 +266,13 @@ erDiagram
         varchar broker
         text notes
         uuid split_from_id FK "self-reference for partial sales"
+        uuid portfolio_id FK "NOT NULL, ON DELETE RESTRICT"
+    }
+    portfolios {
+        uuid portfolio_id PK
+        varchar name UK
+        varchar tax_type "INDIVIDUAL/TRUST/SMSF/COMPANY"
+        timestamptz archived_at "NULL while active"
     }
     signal_snapshots {
         uuid company_id PK,FK
@@ -281,6 +293,7 @@ erDiagram
 ### 4.2 Constraints of Note
 
 - `companies.ticker` and `companies.asx_code` are both `UNIQUE`
+- `holdings.portfolio_id` is `NOT NULL` and `ON DELETE RESTRICT`: a portfolio can't be deleted out from under its parcels at the database level; `delete_portfolio()` removes open parcels first and refuses outright once there are sales (§19.1)
 - `signal_snapshots` has `PRIMARY KEY (company_id, snapshot_date)`, and the recorder inserts with `ON CONFLICT DO NOTHING`: a date once recorded is never rewritten (§21)
 - `daily_prices` has a `UNIQUE (company_id, price_date)` constraint — one price per company per day, and the upsert logic in `price_ingestion.py` relies on this as its conflict target
 - `financial_reports` has a `UNIQUE (company_id, fiscal_year, period_type)` constraint and a `CHECK (period_type IN ('FY', 'H1', 'H2'))`
@@ -749,6 +762,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 24 | Yahoo's dividend feed mixed in one-off distributions and was summed by calendar year | A capital return read as a dividend (TWR: 519% payout, 107% yield, inflated DDM value, false "cut"); dividends half a year out of step with earnings for September and December year-ends | Resolved 2026-10-05: `dividend_history.py` (§7.6) excludes abnormal distributions (shown, not hidden) and matches dividends to each financial year |
 | 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD; EPS, book value and free cash flow were compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Resolved 2026-10-05: statements converted into the trading currency at each balance date's rate during ingestion (§7.7). Residual: revenue trend is measured in AUD, so it includes currency movements |
 | 26 | The track record starts from the night signal recording first runs (stage 1, 2026-10-05) and can't be backfilled | No accuracy results until a month after the first recording; 12-month results take a year. Reconstructing past signals from today's data would use information the rules didn't have at the time, flattering the results | By design. The dashboard and Track record page show when each horizon's first results are due |
+| 27 | Parcels can't be moved between portfolios, and changing a portfolio's tax type re-rates its past sales | An off-market transfer (for example shares moved into an SMSF) has to be entered as a sale in one portfolio and a buy in the other, which is also how the ATO treats it; a tax type changed by mistake changes the CGT report until changed back | By design for now. A transfer feature would need to record the change of ownership date and value |
 
 ---
 
@@ -786,7 +800,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply). `holdings` is deliberately not in this list - parcel records are your tax records, not re-downloadable market data:
+**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply). `holdings` and `portfolios` are deliberately not in this list - parcel records are your tax records, not re-downloadable market data:
 ```bash
 psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, valuation_metrics CASCADE;"
 ```
@@ -870,6 +884,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for the 0% line in "Margin of safety over time" to be pink. The zero line now uses the pink `--twisty` token (1.5px, `.zero-line`), and the chart's hint explains it (0% = price equals estimated value). §20 |
 | 2026-10-05 | User asked for a pink "D" on the 12-month price chart when a dividend is paid, added to the legend and table. Added `dividend_payments` table and model (individual payments were not stored before, only yearly totals), filled during fundamentals ingestion with the abnormal flag; `/api/company` returns the last 12 months; chart markers at ex-dividend dates (Yahoo has no payment dates), outlined for one-offs, legend entries and a Dividend column in the data table. 2 new tests (221 total). §20 |
 | 2026-10-05 | User asked for a way to track prediction accuracy, finalised the design over two rounds (benchmark against the screened universe; 1, 3, 6 and 12 months; from today only; 14 months of detail plus monthly summaries; a verdict panel, missed opportunities and still-actionable lists) and added a menu bar, multiple watchlists and portfolios, Markets links and a dashboard home page. Built in four stages. **Stage 1** (this change): menu bar with search and a data-date chip, dashboard, holdings page, the screener moved to `#/screener`, and nightly signal recording (`signal_snapshots`, `src/tracking/`, nightly step 3) so the record starts as early as possible. Shared the GUI's row enrichment as `src/screening/enriched.py` so the GUI and the recorder judge identical rows. 239 tests pass (18 new). Checked in headless Chromium at 1280px, 1000px and 390px, light and dark, against a seeded database with two nights of signals |
+| 2026-10-05 | **Stage 2:** multiple portfolios, each with a tax type setting its CGT discount (individual and trust 50%, SMSF 33⅓%, company none), and trade entry in the browser (§19.1). `portfolios` table; `holdings.portfolio_id` with existing parcels migrated into "My portfolio"; archive (all sold) and delete (no sales) rules; undo sale; `portfolio.py --portfolio` and `portfolios` and `undo-sale` commands; per-portfolio CGT reports. Browser changes need the password and must come from Sift's own pages (custom header, Sec-Fetch-Site and Origin checks). 280 tests pass (41 new). Checked in headless Chromium: create, buy, sell (oldest first and smallest tax first), a refused future date, undo, delete, archive and delete rules, at 1280px and 390px |
 
 ---
 
@@ -942,6 +957,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 19. **Track record, menu bar and dashboard.** *"I want a way to track the accuracy of our predictions over time... Let's finalise the design before building."* Then a 14-month retention limit with monthly summaries, a verdict panel, missed opportunities and still-actionable lists, *"we also need to add a top line banner for menu selection"* with multiple watchlists and portfolios, Markets links and a dashboard home page, and *"yes start on stage 1"*. → §20, §21.
 
+20. **Multiple portfolios.** *"start on stage 2"* (agreed earlier: a tax type per portfolio, all editing in the browser, archive a portfolio with sales, the existing parcel into "My portfolio"). → §19.1.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -1006,7 +1023,7 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 
 **Partial sales split the parcel.** Selling 30 of 100 units creates a new sold row for the 30 (`split_from_id` pointing to the original) and leaves the original row holding 70. Buy brokerage is apportioned by units (rounded to the cent, remainder kept on the open portion) so the combined cost base is unchanged to the cent; sale brokerage is apportioned across every parcel a sale consumes, with the last parcel taking the rounding remainder so nothing is lost.
 
-**Sale order.** `fifo` (default, oldest first - also usually the parcels already past 12 months), `min-tax` (smallest taxable gain first per unit, counting the 50% discount: a $60 discounted gain is $30 taxable, so it's sold after a $10 undiscounted one; losses sort first), or `--parcel <id>` for specific identification. Identifying the parcel sold is permitted by the ATO; keep the trade confirmation that shows which you chose.
+**Sale order.** `fifo` (default, oldest first - also usually the parcels already past 12 months), `min-tax` (smallest taxable gain first per unit, counting the portfolio's discount: for an individual, a $60 discounted gain is $30 taxable, so it's sold after a $10 undiscounted one; losses sort first), or `--parcel <id>` for specific identification. Identifying the parcel sold is permitted by the ATO; keep the trade confirmation that shows which you chose.
 
 **CGT arithmetic (`cgt.py`).** Cost base = units x price + buy brokerage. Proceeds = units x price - sell brokerage. Discount eligibility: the sale must fall after the first anniversary of purchase (the 12 months excludes the acquisition and disposal days; a 29 February purchase anniversaries on 28 February). Financial year summary: discountable gains, non-discountable gains and losses; losses applied to non-discountable gains first, then discountable; 50% discount on what remains; leftover losses shown as carried forward. The 50% rate is for individuals and trusts (super funds 33 1/3%, companies nil).
 
@@ -1021,13 +1038,35 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 
 **Limits (known-issue #19).** Not tracked: dividend income and franking credits, losses carried forward from earlier years, and cost base adjustments from corporate actions (returns of capital, bonus/rights issues, consolidations, demergers). A record-keeping aid to reconcile against broker statements, not tax advice.
 
-**Back it up.** Unlike market data, holdings can't be re-downloaded. The teardown command in §12 deliberately leaves the table alone, and a periodic `pg_dump -t holdings asx_value > holdings_backup.sql` keeps a copy outside the database.
+**Back it up.** Unlike market data, holdings can't be re-downloaded. The teardown command in §12 deliberately leaves the table alone, and a periodic `pg_dump -t holdings -t portfolios asx_value > holdings_backup.sql` keeps a copy outside the database.
+
+### 19.1 Portfolios and Trade Entry in the Browser (stage 2, added 2026-10-05)
+
+**Purpose.** Hold several portfolios (for example your own shares, a family trust and a self-managed super fund), each taxed as its owner is, and record trades in Sift instead of only at the command line.
+
+**Model.** `portfolios` (name, unique ignoring case; `tax_type`; `archived_at`). Every parcel has a `portfolio_id`. The schema migration creates "My portfolio" (individual) and moves existing parcels into it, only when there are parcels without a portfolio, then makes the column `NOT NULL`; re-running it changes nothing. On a fresh database the first `add_parcel()` creates "My portfolio".
+
+**Tax type sets the CGT discount (`cgt.DISCOUNT_RATES`).** Individual 50%, trust 50% (passed through to beneficiaries), complying super fund including SMSF 33⅓%, company 0%. It drives the FY summary (`summarise(..., discount_rate)`), `min-tax` sale ordering, and whether a parcel ever waits for a discount date: company parcels never do, so they're left out of `next_discount_date`, the screener's "consider timing any sale" reason (§9.1) and the dashboard's CGT reminders. Changing a portfolio's tax type re-rates the sales already recorded in it (the settings form warns when there are any).
+
+**Rules.**
+- **Choosing a portfolio:** a function given no portfolio uses the only active one; with several it refuses and names them (`portfolio.py --portfolio NAME`).
+- **Sales stay inside a portfolio:** `sell()` only draws on that portfolio's parcels, and a split-off sold portion keeps the portfolio.
+- **Archive** needs every parcel sold; an archived portfolio refuses new trades, leaves the menu and dashboard, and keeps its sales in the CGT report. Unarchive reverses it.
+- **Delete** removes the portfolio and its open parcels, and is refused once it has any sale, because the ATO expects records kept for five years after each sale: archive instead.
+- **Undo sale** (`undo_sale()`): a sold portion split from a still-open parcel goes back into it (units and buy brokerage restored, so the cost base is exact again); otherwise the parcel reopens. Delete is only for open parcels entered by mistake.
+- **Held means held in any portfolio:** suggested actions (§9.1) treat a company as held when any active portfolio holds it.
+
+**Browser (`gui.py`).** `GET /api/portfolios` (each with totals; `?brief=1` names only, for the menu), `POST /api/portfolios`, `GET|PATCH|DELETE /api/portfolios/{id}` (detail; rename, tax type, archive or unarchive; delete), `POST /api/portfolios/{id}/buys`, `POST /api/portfolios/{id}/sales`, `DELETE /api/parcels/{id}` (open parcels only), `POST /api/parcels/{id}/undo-sale`. Each change runs in one transaction; a rule broken is a 400 with a plain-English message (`trade_input.py` checks codes, numbers, decimal places within the column sizes, and that the date isn't in the future), and nothing is half-saved. Pages: `#/portfolios` (a card per portfolio, archived ones folded away, and a create form; `?new=1` jumps to it) and `#/portfolio/{id}` (summary strip, holdings, Record a trade, Settings, Open parcels, Sales, Capital gains by financial year). Deleting a parcel or portfolio, undoing a sale and archiving all ask for confirmation first.
+
+**Write protection.** The same password as viewing. Because a browser sends saved Basic-auth credentials with any site's request, a password alone wouldn't stop another website's page posting to Sift, so every POST, PATCH, PUT or DELETE must also pass `_same_site_write()`: the `X-Sift: 1` header that Sift's own script adds (another site can't add a custom header without a CORS permission Sift never grants), `Sec-Fetch-Site` same-origin when the browser sends it, and an `Origin` whose host matches. Anything else gets a 403 before reaching a route.
+
+**CLI.** `portfolio.py portfolios [list|create|archive|unarchive] [NAME] [--tax-type ...]`, `--portfolio/-p` on `add`, `sell`, `list` and `cgt`, and `undo-sale PARCEL`. `list` and `cgt` show every portfolio separately, each `cgt` report at its own discount rate.
 
 ---
 
 ## 20. Web GUI (`gui.py`, `web/`, `src/screening/scores.py`, added 2026-10-05)
 
-**Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Read-only.
+**Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Writes only portfolios and trades (§19.1).
 
 **Architecture.**
 - `gui.py`: FastAPI app run by uvicorn. `GET /api/screener` (every row, trimmed to the fields the table needs, plus five axis scores) and `GET /api/company/{code}` (the full row, the 30 checks, the four tests with thresholds, red flags, position, 365 days of prices, margin-of-safety history and up to 5 FY reports). `/` and `/static/*` serve `web/`.
@@ -1050,7 +1089,7 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 
 The wheel describes; it does not decide. The suggested action still comes only from §9.1's rules.
 
-**Security.** Default host `127.0.0.1` (this PC only). `--lan` binds `0.0.0.0` and refuses to start unless `GUI_PASSWORD` is set. When set, middleware requires HTTP Basic auth (any username, constant-time password compare) on every route including static files; a malformed header is a 401, not an error. No route writes to the database. Known-issue #23 covers plain HTTP on the LAN.
+**Security.** Default host `127.0.0.1` (this PC only). `--lan` binds `0.0.0.0` and refuses to start unless `GUI_PASSWORD` is set. When set, middleware requires HTTP Basic auth (any username, constant-time password compare) on every route including static files; a malformed header is a 401, not an error. The only writes are portfolios and trades, and they must also come from Sift's own pages (§19.1). Known-issue #23 covers plain HTTP on the LAN.
 
 **Validation (2026-10-05).** Seeded a disposable database with eight synthetic companies built to hit specific paths (a clean pass held, a held falling knife, a bank on DDM, a foreign listing, a REIT, an overvalued tech stock, a loss-maker), ran the server and drove it in headless Chromium at 1280px and 390px, light and dark, plus search, sort, row navigation and chart hover. Fixed four defects found on screen: the "Show more" button visible when it should be hidden (CSS overrode `[hidden]`), chart text scaling with card width, a `null` printed by the native `replaceChildren`, and table overflow on a phone. `tests/unit/test_scores.py` and `tests/integration/test_gui.py` cover the checks, both payloads, the 404, and the password guard on API, page and static files.
 
@@ -1071,7 +1110,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 - **Search:** a `<datalist>` of every screened code and name from `/api/companies`. Picking an entry, or pressing Enter, opens the company: exact code first, then code prefix, then name contains. No match shows a short tooltip.
 - **Data chip (`/api/status`):** newest `valuation_metrics.as_of_date`, newest price date, and the latest `logs/refresh_*.log` parsed by `last_refresh()`. Stale when the newest valuation is older than the previous weekday (so Friday's data is current all weekend; a public holiday shows amber harmlessly). The log reader handles UTF-8 and UTF-16 (PowerShell) files and classifies a run as `ok`, `errors` (one or more ERROR lines: individual companies that failed, normal on most nights), `crashed` (a traceback with no ERROR line before it: a whole step died), `running` (unfinished and under 3 hours old) or `incomplete`. Amber, with a "!", only for stale data, `crashed` or `incomplete`, so routine Yahoo gaps don't train you to ignore it.
 - **Dashboard (`/api/dashboard`):** one `load_universe()` call feeds: a portfolio strip (value at the latest close, today's change from the two latest closes, unrealised gain, cost base); Needs attention (held SELL/REVIEW with reasons, parcels reaching the CGT discount within 90 days, holdings not on the watchlist file); What changed (§21); Top opportunities (up to six, BUY then INVESTIGATE, by score total then margin of safety; shares you hold are excluded because their actions are the held set); action counts linking to the pre-filtered screener; recording status; and a footer repeating the data status in full.
-- **My holdings (`#/portfolios`):** the same portfolio payload as a table, until stage 2 brings multiple portfolios and trade entry in the browser.
+- **Portfolios:** the Portfolios menu lists active portfolios; with more than one, the dashboard adds a card listing each with its value and gain (§19.1).
 - **Back link:** a company page's back link returns to the page you came from (dashboard, screener with its filters, holdings or track record), defaulting to the screener.
 
 ---
@@ -1094,7 +1133,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 **Recording status.** `tracking_status()` gives first and latest dates, nights recorded, signals recorded, companies on the latest night and the date each horizon's first results are due (first date plus 1, 3, 6 and 12 months).
 
 **Still to come (agreed design).**
-- **Stage 2:** multiple portfolios with a tax type each (individual or trust 50% CGT discount, SMSF 33⅓%, company 0%), archived rather than deleted once they have sales (records kept five years), trade entry in the browser, and `portfolio.py --portfolio`.
+- **Stage 2:** done 2026-10-05, see §19.1.
 - **Stage 3:** multiple watchlists with notes and triggers (margin of safety above X%, price below $Y), "Add to watchlist" on company pages, and watchlist companies listed first in What changed.
 - **Stage 4:** `signal_outcomes` (total return including dividends, universe-average benchmark, excess return, valuation gap closed, delisted companies at their last price), monthly summaries kept permanently, detail rows deleted after 14 months, and the Track record page: verdict panel with confidence (under 30 signals too early, 30 to 100 moderate, over 100 solid), Missed opportunities, and Still actionable (new, open, moved on), filterable by rules version.
 - **Browser editing safeguards (stages 2 and 3):** the same password as viewing, changes accepted only from Sift's own pages, and a confirmation before anything is deleted.

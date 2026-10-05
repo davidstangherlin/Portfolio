@@ -15,6 +15,9 @@ class Holding(Base):
     __tablename__ = "holdings"
 
     holding_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portfolio_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("portfolios.portfolio_id", ondelete="RESTRICT"), nullable=False
+    )
     asx_code: Mapped[str] = mapped_column(String(6), nullable=False)
     units: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     acquisition_method: Mapped[str] = mapped_column(String(10), nullable=False, default="PURCHASE")

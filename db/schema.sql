@@ -176,6 +176,22 @@ CREATE TABLE IF NOT EXISTS dividend_payments (
     PRIMARY KEY (company_id, ex_date)
 );
 
+-- 5a. PORTFOLIOS (docs/AS_BUILT.md §19.1)
+-- Each parcel belongs to one portfolio, and each portfolio has the tax type
+-- of whoever owns it, which sets its CGT discount: individual or trust 50%,
+-- self-managed super fund (SMSF) 33 1/3%, company none. A portfolio with
+-- sales is archived rather than deleted, because the ATO expects records
+-- kept for five years after each sale.
+CREATE TABLE IF NOT EXISTS portfolios (
+    portfolio_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(60) NOT NULL UNIQUE,
+    tax_type VARCHAR(10) NOT NULL DEFAULT 'INDIVIDUAL'
+        CHECK (tax_type IN ('INDIVIDUAL', 'TRUST', 'SMSF', 'COMPANY')),
+    archived_at TIMESTAMP WITH TIME ZONE,          -- NULL while active
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5. PERSONAL HOLDINGS (CGT record keeping - see portfolio.py, docs/AS_BUILT.md §19)
 -- One row per parcel: every buy, DRP allocation or transfer-in is its own
 -- parcel with its own acquisition date, because Australian CGT (including
@@ -205,6 +221,17 @@ CREATE TABLE IF NOT EXISTS holdings (
     CHECK ((sell_date IS NULL) = (sell_price IS NULL)),
     CHECK (sell_date IS NULL OR sell_date >= buy_date)
 );
+
+-- Parcels recorded before portfolios existed move into a first portfolio,
+-- "My portfolio" (individual), created only if there are parcels to move.
+ALTER TABLE holdings ADD COLUMN IF NOT EXISTS portfolio_id UUID REFERENCES portfolios(portfolio_id) ON DELETE RESTRICT;
+INSERT INTO portfolios (name, tax_type)
+    SELECT 'My portfolio', 'INDIVIDUAL'
+    WHERE NOT EXISTS (SELECT 1 FROM portfolios)
+      AND EXISTS (SELECT 1 FROM holdings WHERE portfolio_id IS NULL);
+UPDATE holdings SET portfolio_id = (SELECT portfolio_id FROM portfolios ORDER BY created_at, name LIMIT 1)
+    WHERE portfolio_id IS NULL;
+ALTER TABLE holdings ALTER COLUMN portfolio_id SET NOT NULL;
 
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
@@ -282,4 +309,5 @@ CREATE INDEX IF NOT EXISTS idx_companies_asx ON companies(asx_code);
 CREATE INDEX IF NOT EXISTS idx_daily_prices_date ON daily_prices(company_id, price_date DESC);
 CREATE INDEX IF NOT EXISTS idx_financials_year ON financial_reports(company_id, fiscal_year DESC);
 CREATE INDEX IF NOT EXISTS idx_holdings_asx ON holdings(asx_code);
+CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_signal_snapshots_date ON signal_snapshots(snapshot_date);

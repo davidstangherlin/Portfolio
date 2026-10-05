@@ -36,8 +36,9 @@
         <div class="dd" data-nav="portfolios">
           <button type="button" class="dd-btn" aria-expanded="false" aria-haspopup="true">Portfolios <svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div class="dd-menu" hidden>
-            <a href="#/portfolios">My holdings</a>
-            <span class="dd-soon">New portfolio (coming soon)</span>
+            <a href="#/portfolios">All portfolios</a>
+            <div id="portfolio-menu-items"></div>
+            <a href="#/portfolios?new=1" class="dd-new">+ New portfolio</a>
           </div>
         </div>
         <a href="#/track-record" data-nav="track-record">Track record</a>

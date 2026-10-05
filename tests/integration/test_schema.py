@@ -72,3 +72,32 @@ def test_apply_schema_adds_missing_columns_to_an_older_database(_test_database):
         cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'country'")
         assert cur.fetchone() is not None
     conn.close()
+
+
+def test_existing_parcels_move_into_my_portfolio(_test_database):
+    # A database from before portfolios existed: parcels with no portfolio.
+    from src.apply_schema import apply_schema
+    from src.config import get_engine
+
+    conn = _connect()
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE holdings, portfolios CASCADE")
+        cur.execute("ALTER TABLE holdings ALTER COLUMN portfolio_id DROP NOT NULL")
+        cur.execute("INSERT INTO holdings (asx_code, units, buy_date, buy_price) VALUES ('BHP', 100, '2025-03-14', 42.5)")
+    conn.close()
+
+    apply_schema(get_engine())
+    apply_schema(get_engine())  # and again: still one portfolio
+
+    conn = _connect()
+    with conn.cursor() as cur:
+        cur.execute("SELECT name, tax_type FROM portfolios")
+        assert cur.fetchall() == [("My portfolio", "INDIVIDUAL")]
+        cur.execute("SELECT count(*) FROM holdings h JOIN portfolios p USING (portfolio_id)")
+        assert cur.fetchone() == (1,)
+        cur.execute("SELECT is_nullable FROM information_schema.columns WHERE table_name = 'holdings' AND column_name = 'portfolio_id'")
+        assert cur.fetchone() == ("NO",)
+        cur.execute("TRUNCATE holdings, portfolios CASCADE")
+    conn.commit()
+    conn.close()
