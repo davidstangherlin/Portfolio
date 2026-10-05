@@ -172,3 +172,19 @@ details.table-view table { margin-top: 6px; }
 .tooltip .t-key { width: 12px; height: 2px; display: inline-block; }
 .error { color: var(--critical); }
 .chart.wheel { margin: 0 auto; }
+
+/* Field explanations */
+.info {
+  display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px; padding: 0;
+  border: 1px solid var(--muted); border-radius: 50%; background: transparent; color: var(--muted);
+  font: italic 600 10px/1 Georgia, serif; cursor: help; vertical-align: 1px;
+}
+.info:hover, .info:focus-visible { border-color: var(--s1); color: var(--s1); outline: none; }
+dt.has-help { cursor: help; }
+.tooltip .t-title { font-weight: 600; margin-bottom: 2px; }
+/* With a mouse, hover is enough: a dotted underline signals the explanation
+   and the "i" buttons (for touch screens) are hidden to save width. */
+@media (hover: hover) and (pointer: fine) {
+  .info { display: none; }
+  .has-help { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+}

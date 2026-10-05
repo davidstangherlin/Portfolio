@@ -191,6 +191,9 @@ Press `Ctrl+C` to stop it.
   value and the Graham Number, the four value tests, quality markers and red flags, key
   ratios, a 12-month price chart with the 200-day average, margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.
+- **Field explanations:** hover any column heading, or any label on the company page, to see
+  what it measures, how it is calculated and the pass threshold. Underlined headings have one.
+  On a phone, tap the small "i" next to the heading instead.
 - **Score wheel:** five spokes (Value, Performance, Health, Dividend, Momentum), each a count
   of six yes/no checks, so every score traces to named rules. Missing data never counts as a
   pass. The checks are listed in `src/screening/scores.py` and the rules document.

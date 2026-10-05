@@ -72,6 +72,62 @@ const tipRow = (value, label, color) =>
   h("div", { class: "t-row" }, color ? h("span", { class: "t-key", style: `background:var(${color})` }) : null,
     h("strong", { text: value }), h("span", { text: label }));
 
+/* ---------- field explanations (hover, keyboard focus, or tap the "i") ---------- */
+const DEFAULT_THRESHOLDS = { margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 };
+const thresholds = () => (cache.screener && cache.screener.thresholds) || DEFAULT_THRESHOLDS;
+const FIELD_HELP = {
+  "Score": () => "Score wheel total out of 30. Five spokes (Value, Performance, Health, Dividend, Momentum), each counting six yes/no checks. Higher is better. Open a company to see every check.",
+  "Company": () => "ASX code and company name. HELD marks shares you own.",
+  "Sector": () => "Industry sector from Yahoo Finance. Financial Services and Real Estate are valued with a dividend discount model; every other sector with a discounted cash flow model.",
+  "Price": () => "Latest closing share price on the ASX.",
+  "Margin of safety": (t) => `How far the price sits below estimated intrinsic value: (value - price) / value. Positive means cheaper than estimated value; negative means dearer. Passes the value test above ${t.margin_of_safety}%.`,
+  "ROE": (t) => `Return on equity: net profit after tax / shareholders' equity. How well the company earns on its owners' money. Passes the value test above ${t.roe}%.`,
+  "Debt/equity": (t) => `Total debt / shareholders' equity. Lower means less financial risk. Passes the value test below ${fmt(t.debt_to_equity, 2)}.`,
+  "Yield (grossed up)": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%.`,
+  "Grossed-up yield": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%.`,
+  "Value tests": () => "The four core value tests, in order: margin of safety, ROE, debt/equity, grossed-up yield. A tick passes; a cross fails or has no data. All four must pass for an overall pass.",
+  "Action": () => "Suggested next step from the rules; the reason is on the company page. Shares you don't hold: BUY, INVESTIGATE, WATCH, AVOID, IGNORE. Shares you hold: SELL, REVIEW, ACCUMULATE, HOLD. A research prompt, not financial advice.",
+  "Earnings quality": () => "Operating cash flow / net profit over the last three years. STRONG at 100% or more, ADEQUATE 80% to 99%, WEAK below 80%. Profit that isn't turning into cash is a warning sign. Not assessed for banks, insurers and REITs.",
+  "Price signal": () => "Price trend. UPTREND: at or above the 200-day average. DOWNTREND: below it. NEW LOWS: below it and in the bottom 10% of the 52-week range. Needs 200 days of prices.",
+  "Dividend trend": () => "Over up to five years. CUT: the latest dividend is more than 10% below last year's or the earlier median. GROWING: more than 5% above the oldest. STEADY otherwise. NONE: pays no dividend.",
+  "Fundamentals trend": () => "Latest versus oldest of the last three annual reports. DECLINING: ROE down more than 2 points or revenue down more than 5%. IMPROVING: up by those amounts. STABLE otherwise. Ignores the share price.",
+  "Margin of safety trend": () => "Change in margin of safety over the last 30 days, in percentage points. Positive means the share is getting cheaper relative to its estimated value. More than 5 points counts as momentum.",
+  "Value-trap risk": () => "Yes when the margin of safety passes but fundamentals are DECLINING: the share looks cheap, possibly for a good reason.",
+  "Data confidence": () => "How complete the inputs are, from 11 checks (price, market capitalisation, profit, revenue, equity, debt, cash flows, years of reports, days of prices). HIGH: 10 or 11. MEDIUM: 8 or 9. LOW: 7 or fewer.",
+  "P/E": () => "Price-to-earnings ratio: share price / earnings per share. Lower can mean cheaper. Graham's ceiling was 15.",
+  "P/B": () => "Price-to-book ratio: share price / book value (equity) per share. Graham's ceiling was 1.5.",
+  "Price to free cash flow": () => "Share price / free cash flow per share, latest year. Lower means more cash generated for each dollar paid.",
+  "EV/EBIT": () => "Enterprise value (market capitalisation + debt - cash) / earnings before interest and tax. Compares companies regardless of how they are funded.",
+  "ROIC": () => "Return on invested capital: net profit / (debt + equity - cash). The return on all the capital the business uses, not just shareholders' money.",
+  "Cash dividend yield": () => "Cash dividend / share price, before franking credits.",
+  "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off.",
+  "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
+};
+
+function placeTipBelow(el, nodes) {
+  const r = el.getBoundingClientRect();
+  showTip({ clientX: r.left, clientY: r.bottom }, nodes);
+}
+
+/* Adds an explanation to a heading or label: shown on mouse hover and
+   keyboard focus, and via a small "i" button for touch screens. */
+function withHelp(el, label) {
+  const help = FIELD_HELP[label];
+  if (!help) return el;
+  const nodes = () => [h("div", { class: "t-title", text: label }), h("div", { text: help(thresholds()) })];
+  el.classList.add("has-help");
+  el.addEventListener("pointermove", (e) => { if (e.pointerType !== "touch") showTip(e, nodes()); });
+  el.addEventListener("pointerleave", hideTip);
+  el.addEventListener("focus", () => placeTipBelow(el, nodes()));
+  el.addEventListener("blur", hideTip);
+  const info = h("button", { type: "button", class: "info", "aria-label": `What is ${label}?`, text: "i" });
+  info.addEventListener("click", (e) => { e.stopPropagation(); placeTipBelow(info, nodes()); });
+  info.addEventListener("keydown", (e) => e.stopPropagation()); // Enter on the "i" shouldn't sort the column
+  el.append(info);
+  return el;
+}
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".info")) hideTip(); });
+
 /* ---------- data ---------- */
 async function getJSON(url) {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -392,9 +448,9 @@ async function renderScreener() {
   }
 
   for (const col of COLUMNS) {
-    headRow.append(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
+    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
       scope: "col", tabindex: 0, text: col.label,
-      onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } }));
+      onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } }), col.label));
   }
   function sortBy(col) {
     state.sort = state.sort.key === col.key
@@ -486,13 +542,13 @@ async function renderCompany(code) {
 
   const markers = card("Quality and trend markers", null,
     h("dl", { class: "kv" },
-      h("dt", { text: "Earnings quality" }), h("dd", { text: `${c.earnings_quality || NA}${c.cash_conversion !== null ? ` (cash flow ${fmt(c.cash_conversion, 0)}% of profit)` : ""}` }),
-      h("dt", { text: "Price signal" }), h("dd", { text: `${c.price_signal || NA}${c.price_vs_200d !== null ? ` (${fmt(c.price_vs_200d, 1)}% vs 200-day average)` : ""}` }),
-      h("dt", { text: "Dividend trend" }), h("dd", { text: c.dividend_trend || NA }),
-      h("dt", { text: "Fundamentals trend" }), h("dd", { text: c.fundamentals_trend || NA }),
-      h("dt", { text: "Margin of safety trend" }), h("dd", { text: c.margin_of_safety_trend === null ? "needs 30 days of history" : `${fmt(c.margin_of_safety_trend, 1)} points over 30 days` }),
-      h("dt", { text: "Value-trap risk" }), h("dd", { text: c.trap_risk === "Y" ? "Yes" : "No" }),
-      h("dt", { text: "Data confidence" }), h("dd", { text: c.data_confidence || NA })),
+      withHelp(h("dt", { tabindex: 0, text: "Earnings quality" }), "Earnings quality"), h("dd", { text: `${c.earnings_quality || NA}${c.cash_conversion !== null ? ` (cash flow ${fmt(c.cash_conversion, 0)}% of profit)` : ""}` }),
+      withHelp(h("dt", { tabindex: 0, text: "Price signal" }), "Price signal"), h("dd", { text: `${c.price_signal || NA}${c.price_vs_200d !== null ? ` (${fmt(c.price_vs_200d, 1)}% vs 200-day average)` : ""}` }),
+      withHelp(h("dt", { tabindex: 0, text: "Dividend trend" }), "Dividend trend"), h("dd", { text: c.dividend_trend || NA }),
+      withHelp(h("dt", { tabindex: 0, text: "Fundamentals trend" }), "Fundamentals trend"), h("dd", { text: c.fundamentals_trend || NA }),
+      withHelp(h("dt", { tabindex: 0, text: "Margin of safety trend" }), "Margin of safety trend"), h("dd", { text: c.margin_of_safety_trend === null ? "needs 30 days of history" : `${fmt(c.margin_of_safety_trend, 1)} points over 30 days` }),
+      withHelp(h("dt", { tabindex: 0, text: "Value-trap risk" }), "Value-trap risk"), h("dd", { text: c.trap_risk === "Y" ? "Yes" : "No" }),
+      withHelp(h("dt", { tabindex: 0, text: "Data confidence" }), "Data confidence"), h("dd", { text: c.data_confidence || NA })),
     d.flags.length ? [h("p", { class: "hint", style: "margin-top:10px", text: "Red flags" }), h("ul", { class: "flags" }, d.flags.map((f) => h("li", { text: f })))] : null);
 
   const ratios = card("Key ratios", null, h("dl", { class: "kv" },
@@ -500,7 +556,7 @@ async function renderCompany(code) {
       ["EV/EBIT", fmt(c.ev_to_ebit, 1)], ["ROE", pct(c.roe)], ["ROIC", pct(c.roic)], ["Debt/equity", fmt(c.debt_to_equity, 2)],
       ["Cash dividend yield", pct(c.uncapped_dividend_yield)], ["Grossed-up yield", pct(c.grossed_up_dividend_yield)],
       ["Payout ratio", pct(c.payout_ratio, 0)], ["Country", c.country || NA]]
-      .flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: v })])));
+      .flatMap(([k, v]) => [withHelp(h("dt", { tabindex: 0, text: k }), k), h("dd", { text: v })])));
 
   // Price chart
   let priceCard;
