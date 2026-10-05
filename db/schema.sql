@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS companies (
 
 -- Migrations for databases created before these columns existed.
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS trading_currency VARCHAR(3);    -- share price currency (AUD on the ASX)
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS financial_currency VARCHAR(3);  -- currency the statements are published in
 
 -- 2. DAILY MARKET PRICE & VOLUMES
 CREATE TABLE IF NOT EXISTS daily_prices (
@@ -68,6 +70,9 @@ CREATE TABLE IF NOT EXISTS financial_reports (
     UNIQUE (company_id, fiscal_year, period_type)
 );
 ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS abnormal_distributions_per_share NUMERIC(10, 4);
+-- Statement figures are stored converted into the trading currency; these record from what, and at what rate.
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS reporting_currency VARCHAR(3);
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(14, 6);
 
 
 -- 4. VALUATION DERIVATIVES & VALUE INVESTING METRICS

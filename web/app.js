@@ -102,6 +102,7 @@ const FIELD_HELP = {
   "Cash dividend yield": () => "Cash dividend / share price, before franking credits. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
   "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
   "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
+  "Accounts currency": () => "The currency the company publishes its financial statements in. Statements in another currency (US dollars for most large miners, New Zealand dollars for NZ listings) are converted into the share price's currency at the exchange rate on each report's balance date, so earnings, book value, cash flow and every ratio built on them compare like with like. Dividends are already in the share price's currency and are not converted.",
   "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
   "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
 };
@@ -514,6 +515,16 @@ function movingAverage(points, window = 200) {
   return out;
 }
 
+/* "USD, converted to AUD at 1.5234 (30 Jun 2025)" for the latest report. */
+function accountsCurrency(c, reports) {
+  const latest = reports.length ? reports[reports.length - 1] : null;
+  const from = (latest && latest.reporting_currency) || c.financial_currency;
+  const to = c.trading_currency || "AUD";
+  if (!from) return NA;
+  if (from === to || !latest || !latest.fx_rate || latest.fx_rate === 1) return `${from} (no conversion needed)`;
+  return `${from}, converted to ${to} at ${fmt(latest.fx_rate, 4)} (${longDate(latest.report_date)})`;
+}
+
 function checklist(checks) {
   return h("ul", { class: "checklist" }, checks.map((ch) => {
     const cls = ch.passed === true ? "pass" : ch.passed === false ? "fail" : "na";
@@ -582,7 +593,7 @@ async function renderCompany(code) {
     [["P/E", fmt(c.pe_ratio, 1)], ["P/B", fmt(c.pb_ratio, 2)], ["Price to free cash flow", fmt(c.price_to_fcf, 1)],
       ["EV/EBIT", fmt(c.ev_to_ebit, 1)], ["ROE", pct(c.roe)], ["ROIC", pct(c.roic)], ["Debt/equity", fmt(c.debt_to_equity, 2)],
       ["Cash dividend yield", pct(c.uncapped_dividend_yield)], ["Grossed-up yield", pct(c.grossed_up_dividend_yield)],
-      ["Payout ratio", pct(c.payout_ratio, 0)], ["Country", c.country || NA]]
+      ["Payout ratio", pct(c.payout_ratio, 0)], ["Country", c.country || NA], ["Accounts currency", accountsCurrency(c, d.reports)]]
       .flatMap(([k, v]) => [withHelp(h("dt", { tabindex: 0, text: k }), k), h("dd", { text: v })])));
 
   // Price chart

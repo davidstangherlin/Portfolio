@@ -56,6 +56,8 @@ class FinancialReport(Base):
     # ASX dividend & franking context
     dividends_per_share: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     abnormal_distributions_per_share: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    reporting_currency: Mapped[str | None] = mapped_column(String(3))
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     franking_percentage: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), default=Decimal("100.0"))
     corporate_tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(4, 2), default=Decimal("30.0"))
 

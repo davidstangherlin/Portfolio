@@ -21,6 +21,7 @@ src/
     price_ingestion.py      upserts daily_prices from Yahoo Finance
     fundamentals_ingestion.py  upserts financial_reports from Yahoo Finance
     dividend_history.py     ordinary dividends per financial year, one-offs held out
+    currency.py             converts statements into the share price's currency
     run_ingestion.py        CLI entrypoint for both
   valuation/
     dividends.py            grossed-up (franked) dividend yield
@@ -162,6 +163,26 @@ for banks, insurers and REITs) uses **ordinary dividends per financial year**:
 The correction applies as fundamentals are re-ingested (nightly, or straight away with
 `python -m src.ingestion.run_ingestion --tickers-file allords.txt --fundamentals-only --delay 0.5`
 then `python -m src.valuation.run_valuation --all`).
+
+## Currency Conversion
+
+Yahoo publishes many companies' financial statements in their own reporting currency: US
+dollars for most large miners (BHP, RIO, S32), New Zealand dollars for NZ listings. ASX share
+prices are in Australian dollars. Every statement figure (revenue, profit, earnings per share,
+cash flow, assets, debt, equity) is converted into the share price's currency **at the exchange
+rate on that report's balance date** as it is collected, so P/E, P/B, estimated value, margin
+of safety and the Graham Number all compare like with like. Dividends are already recorded in
+the trading currency and are not converted.
+
+- If no exchange rate is available within 10 days of a balance date, that company's
+  fundamentals are skipped for the run (logged) rather than stored in the wrong currency.
+- The company page's Key ratios panel shows the accounts currency and the rate used, e.g.
+  "USD, converted to AUD at 1.5234 (30 June 2025)".
+- Because each year is converted at its own rate, revenue growth is measured in Australian
+  dollars, so it includes currency movements. That is what an Australian investor experiences.
+
+The correction applies on the next fundamentals ingestion (nightly, or straight away with
+`python -m src.apply_schema`, then the `--fundamentals-only` ingestion and `run_valuation --all`).
 
 ## Decision Markers
 
@@ -344,11 +365,6 @@ command yourself (no psql or password prompt needed).
   Ingestion defaults new records to fully franked (100%) at the standard 30%
   Australian corporate rate; correct by hand for anything known to pay
   partly-franked or unfranked dividends.
-- **Currency (open issue).** Yahoo reports some companies' financial statements in their
-  reporting currency (US dollars for many miners such as BHP and RIO, New Zealand dollars for
-  NZ listings) while share prices are in Australian dollars. Nothing converts between them yet,
-  so per-share earnings, P/E, P/B, estimated value and the Graham Number are distorted for those
-  companies by the exchange rate. See AS_BUILT known-issue #25.
 - **Shares outstanding** isn't a schema column. It's derived at valuation time
   from `daily_prices.market_cap / close_price`, falling back to
   `net_profit_after_tax / eps` when market cap is unavailable.

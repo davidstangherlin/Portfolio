@@ -14,14 +14,15 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from src.ingestion.common import ensure_country, get_or_create_company
+from src.ingestion.common import ensure_profile, get_or_create_company
+from src.ingestion.currency import apply_conversion
 from src.ingestion.dividend_history import dividends_for_fiscal_year
 from src.ingestion.yahoo_client import YahooClient
 from src.models import FinancialReport
@@ -41,7 +42,7 @@ _COALESCE_ON_UPDATE = (
     "free_cash_flow", "capital_expenditure", "eps",
     "total_assets", "total_liabilities", "total_equity", "total_debt",
     "cash_and_equivalents", "net_tangible_assets", "dividends_per_share",
-    "abnormal_distributions_per_share",
+    "abnormal_distributions_per_share", "reporting_currency", "fx_rate",
 )
 
 
@@ -78,6 +79,8 @@ def upsert_financial_report(session: Session, company_id, snapshot, country: str
         net_tangible_assets=snapshot.net_tangible_assets,
         dividends_per_share=snapshot.dividends_per_share,
         abnormal_distributions_per_share=snapshot.abnormal_distributions_per_share,
+        reporting_currency=snapshot.reporting_currency,
+        fx_rate=snapshot.fx_rate,
         franking_percentage=franking_percentage_for(snapshot, country),
         corporate_tax_rate=snapshot.corporate_tax_rate or DEFAULT_CORPORATE_TAX_RATE,
     )
@@ -96,6 +99,24 @@ def upsert_financial_report(session: Session, company_id, snapshot, country: str
         set_=set_,
     )
     session.execute(stmt)
+
+
+def convert_to_trading_currency(client, company, snapshots) -> None:
+    """Statements in another currency (US dollars for most big miners, NZ
+    dollars for NZ listings) are converted at each balance date's exchange
+    rate before storing, so every per-share figure is comparable with the
+    share price. Raises CurrencyConversionError if no rate is available,
+    which skips this company for the run rather than storing figures in
+    the wrong currency. See src/ingestion/currency.py."""
+    if not snapshots:
+        return
+    reporting = company.financial_currency or company.trading_currency or "AUD"
+    trading = company.trading_currency or "AUD"
+    closes = []
+    if reporting != trading:
+        dates = [s.report_date for s in snapshots]
+        closes = client.get_fx_history(reporting, trading, min(dates) - timedelta(days=15), max(dates) + timedelta(days=2))
+    apply_conversion(snapshots, reporting, trading, closes)
 
 
 def ingest_fundamentals(
@@ -119,8 +140,9 @@ def ingest_fundamentals(
         try:
             client = YahooClient(asx_code)
             company = get_or_create_company(session, asx_code, client=client)
-            ensure_country(company, client)
+            ensure_profile(company, client)
             snapshots = client.get_annual_fundamentals(max_years=max_years)
+            convert_to_trading_currency(client, company, snapshots)
             payments = client.get_dividend_payments() if snapshots else []
             for snapshot in snapshots:
                 if snapshot.dividends_per_share is None:

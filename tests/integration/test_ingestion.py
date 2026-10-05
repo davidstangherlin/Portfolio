@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.ingestion.common import ensure_country, get_or_create_company
+from src.ingestion.common import ensure_profile, get_or_create_company
 from src.ingestion.fundamentals_ingestion import upsert_financial_report
 from src.ingestion.yahoo_client import FundamentalsSnapshot
 from src.models import Company, FinancialReport
@@ -53,8 +53,8 @@ def test_new_company_captures_country(db_session):
 def test_existing_company_country_is_backfilled_once(db_session):
     company = _company(db_session)
     client = _FakeClient("United States")
-    ensure_country(company, client)
-    ensure_country(company, client)
+    ensure_profile(company, client)
+    ensure_profile(company, client)
     assert company.country == "United States"
     assert client.profile_calls == 1
 
@@ -124,3 +124,62 @@ def test_ingestion_replaces_an_inflated_dividend_and_records_the_abnormal_one(db
     report = db_session.execute(select(FinancialReport)).scalar_one()
     assert report.dividends_per_share == Decimal("0.2220")  # June 2025 interim + January 2026 final
     assert report.abnormal_distributions_per_share == Decimal("1.0777")
+
+
+class _StatementsYahoo:
+    """A US-dollar reporter trading in AUD, BHP-shaped."""
+    fx = [(date(2025, 6, 30), Decimal("1.5"))]
+
+    def __init__(self, code):
+        self.asx_code = code
+
+    def get_profile(self):
+        return {"company_name": "Big Miner Ltd", "country": "Australia", "trading_currency": "AUD", "financial_currency": "USD"}
+
+    def get_annual_fundamentals(self, max_years=4):
+        return [FundamentalsSnapshot(fiscal_year=2025, period_type="FY", report_date=date(2025, 6, 30),
+                                     eps=Decimal("2.00"), net_profit_after_tax=Decimal("1000"), total_equity=Decimal("5000"))]
+
+    def get_dividend_payments(self):
+        return []
+
+    def get_fx_history(self, from_currency, to_currency, start, end):
+        assert (from_currency, to_currency) == ("USD", "AUD")
+        return self.fx
+
+
+def test_us_dollar_statements_are_stored_in_aud_with_the_rate(db_session, monkeypatch):
+    from src.ingestion import fundamentals_ingestion
+
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", _StatementsYahoo)
+    assert fundamentals_ingestion.ingest_fundamentals(db_session, ["BIG"]) == {"BIG": 1}
+
+    db_session.expire_all()
+    company = db_session.execute(select(Company)).scalar_one()
+    report = db_session.execute(select(FinancialReport)).scalar_one()
+    assert (company.trading_currency, company.financial_currency) == ("AUD", "USD")
+    assert report.eps == Decimal("3.0000")  # US$2.00 x 1.5
+    assert report.net_profit_after_tax == Decimal("1500.00")
+    assert (report.reporting_currency, report.fx_rate) == ("USD", Decimal("1.500000"))
+
+
+def test_no_exchange_rate_skips_the_company_instead_of_storing_unconverted(db_session, monkeypatch):
+    from src.ingestion import fundamentals_ingestion
+
+    class NoRates(_StatementsYahoo):
+        fx = []
+
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", NoRates)
+    assert fundamentals_ingestion.ingest_fundamentals(db_session, ["BIG"]) == {"BIG": 0}
+    assert db_session.execute(select(FinancialReport)).first() is None
+
+
+def test_existing_company_gets_its_currencies_backfilled_once(db_session):
+    company = _company(db_session, "OLD", country="Australia")
+    client = _StatementsYahoo("OLD")
+    calls = []
+    client.get_profile = lambda: calls.append(1) or _StatementsYahoo.get_profile(client)
+    ensure_profile(company, client)
+    ensure_profile(company, client)
+    assert (company.trading_currency, company.financial_currency) == ("AUD", "USD")
+    assert len(calls) == 1

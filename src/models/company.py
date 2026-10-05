@@ -27,6 +27,8 @@ class Company(Base):
         DateTime(timezone=True), server_default=func.current_timestamp()
     )
     country: Mapped[str | None] = mapped_column(String(100))
+    trading_currency: Mapped[str | None] = mapped_column(String(3))
+    financial_currency: Mapped[str | None] = mapped_column(String(3))
 
     daily_prices: Mapped[list["DailyPrice"]] = relationship(
         back_populates="company", cascade="all, delete-orphan"

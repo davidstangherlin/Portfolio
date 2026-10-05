@@ -74,6 +74,8 @@ class FundamentalsSnapshot:
     net_tangible_assets: Decimal | None = None
     dividends_per_share: Decimal | None = None
     abnormal_distributions_per_share: Decimal | None = None  # excluded one-offs, see dividend_history.py
+    reporting_currency: str | None = None  # currency the statements were published in (see currency.py)
+    fx_rate: Decimal | None = None  # rate applied to convert them into the trading currency
     franking_percentage: Decimal | None = None  # Yahoo does not expose this - left None
     corporate_tax_rate: Decimal | None = None  # Yahoo does not expose this - left None
 
@@ -85,7 +87,7 @@ class YahooClient:
         self._ticker = yf.Ticker(self.symbol)
 
     def get_profile(self) -> dict:
-        """Company name / sector / industry / country, for populating `companies`."""
+        """Company name / sector / industry / country / currencies, for populating `companies`."""
         try:
             info = self._ticker.get_info()
         except Exception:  # yfinance raises a variety of network/parsing errors
@@ -96,6 +98,8 @@ class YahooClient:
             "sector": info.get("sector"),
             "industry": info.get("industry"),
             "country": info.get("country"),
+            "trading_currency": info.get("currency"),  # the share price's currency (AUD on the ASX)
+            "financial_currency": info.get("financialCurrency"),  # the statements' currency
         }
 
     def get_price_history(self, period: str = "1mo") -> list[PriceBar]:
@@ -199,6 +203,26 @@ class YahooClient:
                 )
             )
         return snapshots
+
+    @staticmethod
+    def get_fx_history(from_currency: str, to_currency: str, start: date, end: date) -> list[tuple[date, Decimal]]:
+        """Daily closing exchange rates (to_currency per from_currency), e.g.
+        USD->AUD from Yahoo's USDAUD=X. Empty on any failure; the caller
+        decides what an unavailable rate means."""
+        pair = f"{from_currency}{to_currency}=X"
+        try:
+            history = yf.Ticker(pair).history(start=start, end=end, interval="1d", auto_adjust=False)
+        except Exception:
+            logger.exception("Failed to fetch exchange rates for %s", pair)
+            return []
+        if history is None or history.empty or "Close" not in history.columns:
+            return []
+        out = []
+        for ts, value in history["Close"].items():
+            rate = _to_decimal(float(value))
+            if rate is not None and rate > 0:
+                out.append((ts.date() if hasattr(ts, "date") else ts, rate))
+        return out
 
     def get_dividend_payments(self) -> list[Payment]:
         """Every per-share dividend Yahoo has recorded, oldest first. Raw:

@@ -68,8 +68,9 @@ Portfolio/
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
 │   │   ├── yahoo_client.py             yfinance wrapper, all external I/O isolated here
-│   │   ├── common.py                   get_or_create_company(), ensure_country() shared helpers
+│   │   ├── common.py                   get_or_create_company(), ensure_profile() shared helpers
 │   │   ├── dividend_history.py         Ordinary dividends per financial year, abnormal one-offs held out (§7.6)
+│   │   ├── currency.py                 Converts statement figures into the share price's currency (§7.7)
 │   │   ├── price_ingestion.py          Upserts daily_prices
 │   │   ├── fundamentals_ingestion.py   Upserts financial_reports
 │   │   └── run_ingestion.py            CLI entrypoint
@@ -162,6 +163,8 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
         varchar country "Yahoo domicile; drives franking"
+        varchar trading_currency "share price currency, AUD on the ASX"
+        varchar financial_currency "currency statements are published in"
     }
     daily_prices {
         uuid price_id PK
@@ -193,6 +196,8 @@ erDiagram
         numeric net_tangible_assets
         numeric dividends_per_share "ordinary, per financial year"
         numeric abnormal_distributions_per_share "one-offs held out"
+        varchar reporting_currency "statements converted from this"
+        numeric fx_rate "rate applied at balance date"
         numeric franking_percentage "default 100.0"
         numeric corporate_tax_rate "default 30.0"
         timestamptz created_at
@@ -297,6 +302,7 @@ All Yahoo Finance / `yfinance` calls are isolated in this one module. Nothing el
 - `YahooClient.get_profile()` — company name / sector / industry / country (used when creating a new `Company` row, and once per existing company to backfill `country`)
 - `YahooClient.get_price_history(period)` — daily close/volume/market-cap bars; market cap is derived as `close_price × sharesOutstanding` (from `yfinance`'s `.info`) since Yahoo's history endpoint doesn't return market cap directly
 - `YahooClient.get_annual_fundamentals(max_years)` — pulls income statement, balance sheet, and cash flow statement (annual frequency), maps Yahoo's field names onto our schema's columns
+- `YahooClient.get_fx_history(from, to, start, end)` — daily exchange-rate closes (e.g. `USDAUD=X`) for currency conversion (§7.7); `get_profile()` also returns `trading_currency` (`info["currency"]`) and `financial_currency` (`info["financialCurrency"]`)
 - `YahooClient.get_dividend_payments()` — every per-share dividend payment from `ticker.dividends` (ex-date, amount), raw. Financial-year matching and abnormal-distribution exclusion happen in `dividend_history.py` (§7.6). Replaced `get_dividends_per_share(fiscal_year)`, which summed by calendar year (2026-10-05)
 
 **Every method here is defensive**: wrapped in `try/except Exception`, logs and returns `None`/`[]`/`{}` rather than raising, because Yahoo's field availability is inconsistent across companies and changes without notice. This was a deliberate design decision, not an oversight — see §8.2.
@@ -346,6 +352,16 @@ Pure functions that turn the raw payment list into `financial_reports.dividends_
 - **Zero versus missing.** A company with any dividend history that paid nothing in a year now gets 0, not NULL. Because `dividends_per_share` is in `_COALESCE_ON_UPDATE`, a NULL would have kept a stale stored figure; a 0 overwrites it. NULL now means no dividend history at all.
 - **Scope of the correction.** Applied on the next fundamentals ingestion to every year Yahoo returns (the latest four). An older stored fifth year keeps its calendar-year figure; it only feeds `dividend_trend`'s oldest point.
 - **Surfaced, not silent.** The web GUI's dividend card states any excluded amount and lists it in its data table.
+
+### 7.7 `currency.py` — statements in the share price's currency (added 2026-10-05, known-issue #25)
+
+- **The problem.** Yahoo returns each company's statements in its reporting currency (`info["financialCurrency"]`): USD for most large miners, NZD for NZ listings. Prices are in the trading currency (`info["currency"]`, AUD on the ASX). Nothing converted between them, so a US-dollar EPS or free cash flow was set against an Australian-dollar price.
+- **Where it's fixed.** At ingestion, so everything downstream (engine, view, screener, GUI) works in one currency without change. `ensure_profile()` (`common.py`, replacing `ensure_country()`) backfills `companies.trading_currency` and `financial_currency` once per company; a profile without a statements currency means statements in the trading currency. `fundamentals_ingestion.convert_to_trading_currency()` fetches the daily exchange-rate history once per company (`YahooClient.get_fx_history()`, e.g. `USDAUD=X`) and `currency.apply_conversion()` multiplies every statement field (`MONETARY_FIELDS`: revenue through net tangible assets, including EPS) by the rate on each report's own balance date: the last close on or before it, no more than 10 days old (balance dates often fall on weekends).
+- **Not converted.** `dividends_per_share` and `abnormal_distributions_per_share`: Yahoo's dividend feed is already per share in the trading currency.
+- **Recorded.** `financial_reports.reporting_currency` and `fx_rate` say what was done (rate 1 for same-currency companies). The GUI's Key ratios panel shows it.
+- **Failure is loud, not silent.** No usable rate raises `CurrencyConversionError`; per-ticker isolation logs it and skips that company's fundamentals for the run, rather than storing figures in the wrong currency.
+- **Scope.** Applied on the next fundamentals ingestion to the four years Yahoo returns. An older stored fifth year stays unconverted; only its dividend (already in AUD) is used, by `dividend_trend`.
+- **Residual effect.** Each year converts at its own rate, so `fundamentals_trend`'s revenue change is in AUD and includes currency movements. ROE, ROIC, cash conversion and debt/equity are ratios within one year and unaffected.
 
 ---
 
@@ -700,7 +716,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 22 | Pulling code that added a column broke the live database until `db\schema.sql` was reapplied by hand (happened three times) | Every company failed valuation; the screener and `portfolio.py` errored | Resolved 2026-10-05: `python -m src.apply_schema` applies the schema through `.env` (no psql/password), and `daily_refresh.ps1` runs it first every night (§16) |
 | 23 | Web GUI phone access uses HTTP Basic authentication over plain HTTP | On a shared or compromised network the password and holdings could be read in transit | Use `--lan` only on your own home Wi-Fi (network set to Private), never port-forward it; the default mode listens on this PC only |
 | 24 | Yahoo's dividend feed mixed in one-off distributions and was summed by calendar year | A capital return read as a dividend (TWR: 519% payout, 107% yield, inflated DDM value, false "cut"); dividends half a year out of step with earnings for September and December year-ends | Resolved 2026-10-05: `dividend_history.py` (§7.6) excludes abnormal distributions (shown, not hidden) and matches dividends to each financial year |
-| 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD. EPS, book value and free cash flow are compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Open. Fix: store Yahoo's `financialCurrency` per company and convert statement figures to AUD at each report date's exchange rate before valuation |
+| 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD; EPS, book value and free cash flow were compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Resolved 2026-10-05: statements converted into the trading currency at each balance date's rate during ingestion (§7.7). Residual: revenue trend is measured in AUD, so it includes currency movements |
 
 ---
 
@@ -816,6 +832,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for a hover explanation on each table heading in the web GUI. Added explanations to all 10 screener headings and all 18 company-page labels (markers and key ratios): hover or keyboard focus with a mouse, a tap-able "i" on touch screens. Thresholds in the text come from the live screener settings. Checked in headless Chromium at desktop and phone sizes: first version's "i" icons pushed the Action column off a 1280px screen, so they now show only on touch screens, with a dotted underline as the desktop cue |
 | 2026-10-05 | User asked for explanations on the estimated value and Graham Number bars, and for the Graham Number's definition. Added hover/tap explanations to all three valuation bar labels; the estimated value text states the company's model and its assumptions. Corrected the rules document (section 4.6), which still said the Graham Number fed nothing: it is one of the score wheel's Value checks |
 | 2026-10-05 | User asked whether TWR's "payout ratio 519%" with "dividend cut and not yet restored" meant a wrong formula. The formula was right; the input wasn't: Yahoo recorded Tower's March 2025 capital return (A$1.0777 per cancelled share) as a dividend on every share, and dividends were summed by calendar year. Added `src/ingestion/dividend_history.py` (§7.6): abnormal one-offs (over 2x the typical annual dividend) excluded and stored in new column `financial_reports.abnormal_distributions_per_share`, and dividends matched to each financial year (12 months of ex-dates ending 4 months after balance date). Web GUI shows excluded amounts; dividend help texts updated. Also found and logged known-issue #25 (no currency conversion for USD/NZD reporters). 12 new tests (206 total) |
+| 2026-10-05 | User asked to fix known-issue #25 (no currency conversion). Added `src/ingestion/currency.py` (§7.7): statements converted into the trading currency at each balance date's exchange rate during ingestion, dividends left as is; `companies.trading_currency`/`financial_currency` and `financial_reports.reporting_currency`/`fx_rate` added; `ensure_profile()` replaces `ensure_country()`; no rate means the company is skipped for the run, never stored unconverted. GUI Key ratios shows the accounts currency and rate. 11 new tests (217 total) |
 
 ---
 
@@ -879,6 +896,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 15. **Interactive web GUI.** *"How do I build an interactive HTML GUI to view this? I also want to be able to interact with it like Simply Wall Street."* Then chose a local web app, the screener table and company page, and phone access on home Wi-Fi. → Added `gui.py`, `web/` and the score wheel (§20).
 
 16. **Dividend data quality.** *"Check the payout ratio 519% suggests a one-off dividend; dividend cut and not yet restored. Is this an incorrect formula?"* Then *"Yes implement both"* (exclude abnormal distributions; match dividends to financial years). → §7.6, known-issues #24 and #25.
+
+17. **Currency conversion.** *"YES FIX THAT"* (known-issue #25: statements in USD/NZD compared with AUD prices). → §7.7.
 
 ---
 
