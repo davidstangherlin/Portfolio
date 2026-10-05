@@ -23,9 +23,9 @@ from sqlalchemy.orm import Session
 
 from src.ingestion.common import ensure_profile, get_or_create_company
 from src.ingestion.currency import apply_conversion
-from src.ingestion.dividend_history import dividends_for_fiscal_year
+from src.ingestion.dividend_history import dividends_for_fiscal_year, split_abnormal
 from src.ingestion.yahoo_client import YahooClient
-from src.models import FinancialReport
+from src.models import DividendPayment, FinancialReport
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,22 @@ def upsert_financial_report(session: Session, company_id, snapshot, country: str
     session.execute(stmt)
 
 
+def upsert_dividend_payments(session: Session, company_id, payments) -> None:
+    """Store each payment by ex-date, flagging abnormal one-offs with the
+    same rule the per-year figures use. Re-ingestion refreshes amount and
+    flag, so a reclassification is picked up."""
+    if not payments:
+        return
+    _, abnormal = split_abnormal(payments)
+    abnormal_dates = {p.ex_date for p in abnormal}
+    for p in payments:
+        stmt = insert(DividendPayment).values(company_id=company_id, ex_date=p.ex_date, amount=p.amount,
+                                              abnormal=p.ex_date in abnormal_dates)
+        stmt = stmt.on_conflict_do_update(index_elements=[DividendPayment.company_id, DividendPayment.ex_date],
+                                          set_={"amount": stmt.excluded.amount, "abnormal": stmt.excluded.abnormal})
+        session.execute(stmt)
+
+
 def convert_to_trading_currency(client, company, snapshots) -> None:
     """Statements in another currency (US dollars for most big miners, NZ
     dollars for NZ listings) are converted at each balance date's exchange
@@ -143,7 +159,8 @@ def ingest_fundamentals(
             ensure_profile(company, client)
             snapshots = client.get_annual_fundamentals(max_years=max_years)
             convert_to_trading_currency(client, company, snapshots)
-            payments = client.get_dividend_payments() if snapshots else []
+            payments = client.get_dividend_payments()
+            upsert_dividend_payments(session, company.company_id, payments)
             for snapshot in snapshots:
                 if snapshot.dividends_per_share is None:
                     fy = dividends_for_fiscal_year(payments, snapshot.report_date, date.today())

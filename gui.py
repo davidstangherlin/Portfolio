@@ -34,7 +34,7 @@ from sqlalchemy import select, text
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
-from src.models import Company, DailyPrice, FinancialReport, ValuationMetric
+from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
 from src.valuation import dcf as dcf_module, ddm as ddm_module
@@ -175,6 +175,11 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         .where(DailyPrice.company_id == company.company_id, DailyPrice.price_date >= since)
         .order_by(DailyPrice.price_date)
     ).all()
+    dividends = session.execute(
+        select(DividendPayment.ex_date, DividendPayment.amount, DividendPayment.abnormal)
+        .where(DividendPayment.company_id == company.company_id, DividendPayment.ex_date >= since)
+        .order_by(DividendPayment.ex_date)
+    ).all()
     mos_history = session.execute(
         select(ValuationMetric.as_of_date, ValuationMetric.margin_of_safety_percent)
         .where(ValuationMetric.company_id == company.company_id, ValuationMetric.as_of_date >= since)
@@ -216,6 +221,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
             "units_pending_discount": position.units_pending_discount,
         },
         "prices": [[d, c] for d, c in prices],
+        "dividends": [{"ex_date": d, "amount": a, "abnormal": ab} for d, a, ab in dividends],
         "mos_history": [[d, m] for d, m in mos_history if m is not None],
         "reports": [
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,

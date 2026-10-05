@@ -85,3 +85,17 @@ def test_company_api_states_the_model_assumptions_it_used(seeded):
 
 def test_page_is_branded_sift(seeded):
     assert "<title>Sift | ASX value screener</title>" in TestClient(gui.create_app()).get("/").text
+
+
+def test_company_api_lists_the_years_dividends_for_the_price_chart(seeded):
+    from src.models import Company, DividendPayment
+    from sqlalchemy import select
+
+    company = seeded.execute(select(Company).where(Company.asx_code == "GOOD")).scalar_one()
+    seeded.add_all([
+        DividendPayment(company_id=company.company_id, ex_date=date(2026, 3, 5), amount=Decimal("0.30"), abnormal=False),
+        DividendPayment(company_id=company.company_id, ex_date=date(2024, 3, 5), amount=Decimal("0.25"), abnormal=False),
+    ])
+    seeded.commit()
+    data = TestClient(gui.create_app()).get("/api/company/GOOD").json()
+    assert data["dividends"] == [{"ex_date": "2026-03-05", "amount": 0.3, "abnormal": False}]  # last 12 months only

@@ -183,3 +183,27 @@ def test_existing_company_gets_its_currencies_backfilled_once(db_session):
     ensure_profile(company, client)
     assert (company.trading_currency, company.financial_currency) == ("AUD", "USD")
     assert len(calls) == 1
+
+
+def test_dividend_payments_are_stored_with_one_offs_flagged(db_session, monkeypatch):
+    from src.ingestion import fundamentals_ingestion
+    from src.ingestion.dividend_history import Payment
+    from src.models import DividendPayment
+
+    payments = [Payment(date.fromisoformat(d), Decimal(a)) for d, a in (
+        ("2024-06-12", "0.030"), ("2025-01-15", "0.065"), ("2025-03-18", "1.0777"), ("2025-06-11", "0.072"))]
+
+    class FakeYahoo(_StatementsYahoo):
+        def get_profile(self):
+            return {"country": "New Zealand"}
+
+        def get_dividend_payments(self):
+            return payments
+
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", FakeYahoo)
+    fundamentals_ingestion.ingest_fundamentals(db_session, ["TWR"])
+    fundamentals_ingestion.ingest_fundamentals(db_session, ["TWR"])  # re-run updates, never duplicates
+
+    rows = db_session.execute(select(DividendPayment).order_by(DividendPayment.ex_date)).scalars().all()
+    assert [(r.ex_date.isoformat(), r.abnormal) for r in rows] == [
+        ("2024-06-12", False), ("2025-01-15", False), ("2025-03-18", True), ("2025-06-11", False)]

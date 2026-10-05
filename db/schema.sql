@@ -164,6 +164,18 @@ ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS range_position_52w NUMERI
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS dividend_trend VARCHAR(10);
 ALTER TABLE valuation_metrics ADD COLUMN IF NOT EXISTS data_confidence VARCHAR(6);
 
+-- 4b. DIVIDEND PAYMENTS (per ex-dividend date, trading currency)
+-- The individual payments behind financial_reports.dividends_per_share,
+-- kept so the web GUI can mark them on the price chart. `abnormal` marks a
+-- one-off held out of every dividend figure (dividend_history.py).
+CREATE TABLE IF NOT EXISTS dividend_payments (
+    company_id UUID NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
+    ex_date DATE NOT NULL,
+    amount NUMERIC(12, 4) NOT NULL,
+    abnormal BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (company_id, ex_date)
+);
+
 -- 5. PERSONAL HOLDINGS (CGT record keeping - see portfolio.py, docs/AS_BUILT.md §19)
 -- One row per parcel: every buy, DRP allocation or transfer-in is its own
 -- parcel with its own acquisition date, because Australian CGT (including

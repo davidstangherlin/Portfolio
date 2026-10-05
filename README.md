@@ -234,7 +234,9 @@ Press `Ctrl+C` to stop it.
   where each spoke collapses to one line showing its score; click the pink twisty, or
   "Expand all", to see the checks), price against estimated
   value and the Graham Number, the four value tests, quality markers and red flags, key
-  ratios, a 12-month price chart with the 200-day average, margin-of-safety history, and
+  ratios, a 12-month price chart with the 200-day average and a pink **D** on each
+  ex-dividend date (outlined if it was a one-off excluded from dividend figures; hover for the
+  amount; the chart's data table lists them too), margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or

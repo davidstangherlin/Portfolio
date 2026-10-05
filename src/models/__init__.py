@@ -9,6 +9,7 @@ been imported into SQLAlchemy's mapper registry, which happens here.
 from src.models.base import Base
 from src.models.company import Company
 from src.models.daily_price import DailyPrice
+from src.models.dividend_payment import DividendPayment
 from src.models.financial_report import FinancialReport
 from src.models.holding import Holding
 from src.models.valuation_metric import ValuationMetric
@@ -17,6 +18,7 @@ __all__ = [
     "Base",
     "Company",
     "DailyPrice",
+    "DividendPayment",
     "FinancialReport",
     "Holding",
     "ValuationMetric",

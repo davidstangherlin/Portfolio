@@ -63,6 +63,7 @@ Portfolio/
 │   │   ├── base.py                     Declarative Base
 │   │   ├── company.py                  Company model + relationships
 │   │   ├── daily_price.py              DailyPrice model
+│   │   ├── dividend_payment.py         DividendPayment model - one row per ex-dividend date (§20)
 │   │   ├── financial_report.py         FinancialReport model
 │   │   ├── holding.py                  Holding model - one share parcel (§19)
 │   │   └── valuation_metric.py         ValuationMetric model
@@ -151,6 +152,7 @@ erDiagram
     companies ||--o{ daily_prices : has
     companies ||--o{ financial_reports : has
     companies ||--o{ valuation_metrics : has
+    companies ||--o{ dividend_payments : has
 
     companies {
         uuid company_id PK
@@ -165,6 +167,12 @@ erDiagram
         varchar country "Yahoo domicile; drives franking"
         varchar trading_currency "share price currency, AUD on the ASX"
         varchar financial_currency "currency statements are published in"
+    }
+    dividend_payments {
+        uuid company_id PK,FK
+        date ex_date PK "ex-dividend date"
+        numeric amount "per share, trading currency"
+        boolean abnormal "one-off held out of dividend figures"
     }
     daily_prices {
         uuid price_id PK
@@ -836,6 +844,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked to review a Gemini UI mock-up and apply it if good. Reviewed and declined as-is (hard-coded sample valuations, misstated methodology, CDN/in-browser JSX dependencies, defects); rebuilt its ideas in the existing front end at the user's choice: renamed Sift, restyled (palette re-validated, separate UI accent), Light/Dark/System theme switch, valuation status pill, company summary strip with implied upside and the model's assumptions, responsive breakpoints. 2 new tests (219 total). §20 |
 | 2026-10-05 | User asked for the score breakdown to collapse, keeping each spoke's score visible, with a pink twisty. Each spoke is now a collapsible section, closed by default, plus Expand all / Collapse all. Checked in headless Chromium, light and dark. §20 |
 | 2026-10-05 | User asked for the 0% line in "Margin of safety over time" to be pink. The zero line now uses the pink `--twisty` token (1.5px, `.zero-line`), and the chart's hint explains it (0% = price equals estimated value). §20 |
+| 2026-10-05 | User asked for a pink "D" on the 12-month price chart when a dividend is paid, added to the legend and table. Added `dividend_payments` table and model (individual payments were not stored before, only yearly totals), filled during fundamentals ingestion with the abnormal flag; `/api/company` returns the last 12 months; chart markers at ex-dividend dates (Yahoo has no payment dates), outlined for one-offs, legend entries and a Dividend column in the data table. 2 new tests (221 total). §20 |
 
 ---
 
@@ -1022,6 +1031,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 - **Valuation status pill:** `valuationStatus()` - Undervalued above the live margin-of-safety threshold (20%), Fair value 0-20%, Overvalued below 0, No estimate when blank. Label plus tint, never colour alone.
 - **Summary strip:** share price, estimated value (with model), margin of safety, implied upside = (value - price) / price; then a model note built from `/api/company`'s new `model` field (the engines' default assumptions, which the nightly run uses).
 - **Collapsible score breakdown:** each spoke is a `<details>` section, closed by default, whose summary line keeps the spoke name and score (e.g. "Performance 5 / 6"); a pink twisty (`--twisty`, `#db2777` light / `#f472b6` dark) rotates when open, and an "Expand all / Collapse all" link toggles every spoke. Cuts the panel from about 1,160px to about 360px tall.
+- **Dividend markers on the price chart:** a pink "D" on the price line at each ex-dividend date in the last 12 months (placed on the first trading day on or after it), outlined when the payment was an abnormal one-off excluded from dividend figures. Hover or focus shows the date and amount; the legend explains both styles; the chart's data table adds a "Dividend (ex-date)" column and includes every ex-dividend day. Yahoo provides ex-dividend dates, not payment dates, so the marker shows the ex-date. Backed by the new `dividend_payments` table (company, ex-date, amount, abnormal flag), filled by `fundamentals_ingestion.upsert_dividend_payments()` on every fundamentals run (re-runs update, never duplicate), and returned by `/api/company` as `dividends`.
 - **Responsive table:** page width 1440px; Sector hides below 1360px, the valuation pill and Y/N marks below 1100px, ratios below 900px; checked to fit without horizontal scroll from 1920px down to 360px.
 
 **Run it.** See README, Web GUI: `python gui.py`, or `python gui.py --lan` with `GUI_PASSWORD` and a one-off firewall rule for phone access.

@@ -251,11 +251,22 @@ function niceTicks(min, max, count = 4) {
   return { lo, hi, ticks };
 }
 
-function legend(series, rect = false) {
-  if (series.length < 2) return null;
-  return h("div", { class: "legend" }, series.map((sr) =>
-    h("span", {}, h("span", { class: `key${rect ? " rect" : ""}`, style: `background:var(${sr.color})` }), sr.name)));
+function legend(series, rect = false, extras = []) {
+  if (series.length < 2 && !extras.length) return null;
+  return h("div", { class: "legend" },
+    series.map((sr) => h("span", {}, h("span", { class: `key${rect ? " rect" : ""}`, style: `background:var(${sr.color})` }), sr.name)),
+    extras.map((x) => h("span", {}, h("span", { class: `dkey${x.outline ? " outline" : ""}`, "aria-hidden": "true", text: x.symbol }), x.name)));
 }
+
+/* Ex-dividend dates on the price chart: each lands on the first trading
+   day on or after it (ex-dates can fall on a non-trading day). */
+function dividendMarkers(prices, dividends) {
+  return dividends.map((dv) => {
+    const at = prices.find((p) => p[0] >= dv.ex_date) || prices[prices.length - 1];
+    return { ...dv, date: at[0] };
+  }).filter((dv) => dv.ex_date >= prices[0][0]);
+}
+const dividendText = (dv) => `${money(dv.amount, 3)} per share${dv.abnormal ? ", one-off (excluded from dividend figures)" : ""}`;
 
 function tableView(headers, rows) {
   return h("details", { class: "table-view" }, h("summary", { text: "Show data table" }),
@@ -265,7 +276,7 @@ function tableView(headers, rows) {
 }
 
 /* Line chart with crosshair tooltip. series: [{name, color, points:[[iso, value]]}] */
-function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640 }) {
+function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640, markers = [] }) {
   const W = width, H = height, m = { l: 52, r: 14, t: 10, b: 24 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const base = series[0].points;
@@ -307,11 +318,30 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
     const iso = base[i][0];
     cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
     showTip(e, [h("div", { class: "t-head", text: longDate(iso) }),
-      ...series.map((sr, k) => lookups[k].has(iso) ? tipRow(yFmt(lookups[k].get(iso)), sr.name, sr.color) : null).filter(Boolean)]);
+      ...series.map((sr, k) => lookups[k].has(iso) ? tipRow(yFmt(lookups[k].get(iso)), sr.name, sr.color) : null).filter(Boolean),
+      ...markers.filter((mk) => mk.date === iso).map((mk) => h("div", { class: "t-row" }, h("span", { class: "dkey sm", text: "D" }), h("span", { text: `Dividend ${dividendText(mk)}` })))]);
   });
   hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
   svg.append(hit);
-  return h("div", {}, legend(series), svg);
+  // Dividend markers sit on the first series' line, above the hover layer so they can be hovered themselves.
+  for (const mk of markers) {
+    if (!lookups[0].has(mk.date)) continue;
+    const cx = X(toDate(mk.date).getTime()), cy = Y(lookups[0].get(mk.date));
+    const g = s("g", { class: `div-marker${mk.abnormal ? " abnormal" : ""}`, tabindex: 0,
+      "aria-label": `Dividend, ex-date ${longDate(mk.ex_date)}: ${dividendText(mk)}` },
+      s("circle", { cx, cy, r: 13, fill: "transparent" }),
+      s("circle", { class: "dot", cx, cy, r: 8 }),
+      s("text", { x: cx, y: cy + 3.5, "text-anchor": "middle", text: "D" }));
+    const nodes = () => [h("div", { class: "t-title", text: "Dividend" }), h("div", { text: `Ex-dividend date ${longDate(mk.ex_date)}` }), h("div", { text: dividendText(mk) })];
+    g.addEventListener("pointermove", (e) => showTip(e, nodes()));
+    g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("focus", () => placeTipBelow(g, nodes()));
+    g.addEventListener("blur", hideTip);
+    svg.append(g);
+  }
+  const extras = markers.length ? [{ symbol: "D", name: "Dividend (ex-dividend date)" }] : [];
+  if (markers.some((mk) => mk.abnormal)) extras.push({ symbol: "D", name: "One-off, excluded from dividend figures", outline: true });
+  return h("div", {}, legend(series, false, extras), svg);
 }
 
 /* Column chart, one baseline at zero, 4px rounded data-ends. */
@@ -655,10 +685,16 @@ async function renderCompany(code) {
     const ma = movingAverage(d.prices);
     const series = [{ name: "Close", color: "--s1", points: d.prices }];
     if (ma.length >= 2) series.push({ name: "200-day average", color: "--s2", points: ma });
+    const markers = dividendMarkers(d.prices, d.dividends || []);
+    // Data table: the last 30 trading days plus every ex-dividend day in the year.
+    const closeOn = new Map(d.prices.map((p) => [p[0], p[1]]));
+    const divOn = new Map(markers.map((mk) => [mk.date, mk]));
+    const rowDates = [...new Set([...d.prices.slice(-30).map((p) => p[0]), ...markers.map((mk) => mk.date)])].sort().reverse();
     priceCard = card("Share price, last 12 months",
       ma.length >= 2 ? null : `200-day average appears once 200 days of prices are stored (${d.prices.length} so far).`,
-      chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price`, width: w, height: 260 })),
-      tableView(["Date", "Close"], d.prices.slice(-30).reverse().map((p) => [longDate(p[0]), money(p[1])])));
+      chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price`, width: w, height: 260, markers })),
+      tableView(["Date", "Close", "Dividend (ex-date)"], rowDates.map((dt) => [longDate(dt), money(closeOn.get(dt)),
+        divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])));
   } else {
     priceCard = card("Share price, last 12 months", "Not enough price history yet.");
   }
