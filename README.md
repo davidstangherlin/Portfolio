@@ -159,7 +159,9 @@ prints them grouped, which is also what the daily log records.
   tests, getting cheaper fast, or a quality company waiting for a better price),
   `AVOID` (cheap, declining and profit not backed by cash), `IGNORE` (no signal, not listed).
 - **Shares you hold:** `SELL` (fundamentals declining plus overvalued, weak cash or a dividend
-  cut), `REVIEW` (any red flag, or well above estimated value), `HOLD`. If a parcel is within
+  cut), `REVIEW` (any red flag, or well above estimated value), `ACCUMULATE` (still passes
+  all four tests with no red flags: the same bar as `BUY`, so consider adding), `HOLD`
+  (no red flags, but fails a test, so not adding). On `SELL`/`REVIEW`, if a parcel is within
   90 days of the 12-month CGT discount, the reason says so, since waiting can halve the tax.
 
 Red flags: value-trap risk, payout ratio over 150%, weak earnings quality, dividend cut,

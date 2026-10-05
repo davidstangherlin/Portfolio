@@ -35,7 +35,7 @@ default (absolute margin of safety).
 Decision markers (earnings_quality, price_signal, dividend_trend,
 data_confidence - see src/valuation/markers.py) and a suggested `action`
 for every company (src/screening/actions.py) sit alongside. Shares you hold
-(portfolio.py) get HOLD / REVIEW / SELL; everything else BUY / INVESTIGATE /
+(portfolio.py) get SELL / REVIEW / ACCUMULATE / HOLD; everything else BUY / INVESTIGATE /
 WATCH / AVOID / IGNORE. --actions prints a grouped report with the reason
 behind each action instead of the full table.
 
@@ -65,7 +65,7 @@ from tabulate import tabulate
 
 from src.config import get_session
 from src.portfolio.holdings import PositionSummary, position_summaries
-from src.screening.actions import ACTION_ORDER, suggest_action
+from src.screening.actions import ACTION_ORDER, HELD_ACTIONS, suggest_action
 from src.valuation import markers
 from src.valuation.engine import DEFAULT_TREND_DAYS
 
@@ -222,7 +222,7 @@ def print_action_report(rows: list[dict], positions: dict[str, PositionSummary],
         group = [r for r in rows if r["action"] == action]
         if not group or action == "IGNORE":
             continue
-        held_group = action in ("SELL", "REVIEW", "HOLD")
+        held_group = action in HELD_ACTIONS
         table = []
         for r in group:
             line = {"asx_code": r["asx_code"], "company": _short_name(r["company_name"]),

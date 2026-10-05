@@ -134,8 +134,8 @@ def test_held_position_gets_held_action_and_unheld_gets_buy_side_action(db_sessi
 
     # Identical companies: the held one gets a held-side action, the other a buy-side one
     assert rows["OWND"]["held"] == Decimal("200")
-    assert rows["OWND"]["action"] == "HOLD"
-    assert rows["OWND"]["action_reason"] == "still passes all four value tests, could add"
+    assert rows["OWND"]["action"] == "ACCUMULATE"
+    assert rows["OWND"]["action_reason"] == "still passes all four value tests with no red flags, consider adding"
     assert rows["NOWN"]["held"] is None
     assert rows["NOWN"]["action"] == "BUY"
 

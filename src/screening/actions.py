@@ -5,7 +5,7 @@ output teaches the reasoning rather than just issuing a verdict. These are
 research prompts, not financial advice.
 
 Not held:  BUY / INVESTIGATE / WATCH / AVOID / IGNORE
-Held:      SELL / REVIEW / HOLD
+Held:      SELL / REVIEW / ACCUMULATE / HOLD
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ PAYOUT_WARNING_THRESHOLD = Decimal("150")
 OVERVALUED_MARGIN_OF_SAFETY = Decimal("-50")
 CGT_TIMING_WINDOW_DAYS = 90
 
-ACTION_ORDER = ("SELL", "REVIEW", "HOLD", "BUY", "INVESTIGATE", "WATCH", "AVOID", "IGNORE")
+ACTION_ORDER = ("SELL", "REVIEW", "ACCUMULATE", "HOLD", "BUY", "INVESTIGATE", "WATCH", "AVOID", "IGNORE")
+HELD_ACTIONS = ("SELL", "REVIEW", "ACCUMULATE", "HOLD")
 
 _CORE_TESTS = (
     ("mos_ok", "margin of safety"),
@@ -58,7 +59,7 @@ def suggest_action(row: dict, position: PositionSummary | None = None, today: da
     fails = [label for key, label in _CORE_TESTS if row.get(key) != "Y"]
     flags = red_flags(row)
     if position is not None and position.units > 0:
-        return _held_action(row, position, passes, flags, today or date.today())
+        return _held_action(row, position, passes, fails, flags, today or date.today())
     return _not_held_action(row, passes, fails, flags)
 
 
@@ -94,7 +95,9 @@ def _not_held_action(row: dict, passes: list[str], fails: list[str], flags: list
     return "WATCH", reason
 
 
-def _held_action(row: dict, position: PositionSummary, passes: list[str], flags: list[str], today: date) -> tuple[str, str]:
+def _held_action(
+    row: dict, position: PositionSummary, passes: list[str], fails: list[str], flags: list[str], today: date
+) -> tuple[str, str]:
     mos = row.get("margin_of_safety_percent")
 
     sell_reasons = []
@@ -115,9 +118,13 @@ def _held_action(row: dict, position: PositionSummary, passes: list[str], flags:
         if review:
             action, reason = "REVIEW", "; ".join(review)
         elif len(passes) == 4:
-            action, reason = "HOLD", "still passes all four value tests, could add"
+            # The same bar as BUY for a share you don't own: all four tests,
+            # no red flags (any flag has already routed to REVIEW above).
+            action, reason = "ACCUMULATE", "still passes all four value tests with no red flags, consider adding"
+            if row.get("momentum_ok") == "Y":
+                reason += ", and getting cheaper"
         else:
-            action, reason = "HOLD", "no red flags"
+            action, reason = "HOLD", f"no red flags, but fails {', '.join(fails)}, so not adding"
 
     if action in ("SELL", "REVIEW"):
         note = cgt_timing_note(position, today)

@@ -14,7 +14,7 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 4. **Tracks trend, not just snapshot** - whether a company's margin of safety is improving over time (price-driven momentum) and whether its underlying fundamentals (ROE, revenue) are improving or declining, independent of price.
 5. **Screens and flags** - shows every company against the four classic value criteria, with visible pass/fail indicators rather than silently hiding anything, plus two explicit risk flags: a payout-ratio warning (likely one-off dividend) and a value-trap warning (looks cheap, but the business is deteriorating).
 6. **Checks the quality behind the numbers** - whether profit is turning into cash, whether the price is stabilising or still falling, whether the dividend has been held or cut, and how complete the underlying data is.
-7. **Suggests a next step, with the reasoning** - BUY, INVESTIGATE, WATCH or AVOID for shares you don't own; HOLD, REVIEW or SELL for ones you do, each with a plain-English reason naming the tests and flags behind it.
+7. **Suggests a next step, with the reasoning** - BUY, INVESTIGATE, WATCH or AVOID for shares you don't own; ACCUMULATE, HOLD, REVIEW or SELL for ones you do, each with a plain-English reason naming the tests and flags behind it.
 8. **Keeps your CGT records** - every parcel you buy or sell, with brokerage, dates and the 12-month discount tracked, a financial-year capital gains summary, and a prompt when waiting a few weeks before selling would halve the tax.
 9. **Runs unattended** - a scheduled job refreshes the whole dataset daily, so the research is always current without manual effort.
 

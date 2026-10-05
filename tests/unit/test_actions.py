@@ -94,10 +94,27 @@ def test_nothing_going_for_it_is_ignore():
 
 # --- held --------------------------------------------------------------------
 
-def test_held_clean_pass_is_hold_could_add():
+def test_held_clean_pass_is_accumulate():
+    # Same bar as BUY for a share you don't own: all four tests, no red flags
     action, reason = suggest_action(_row(), _position(), TODAY)
+    assert action == "ACCUMULATE"
+    assert reason == "still passes all four value tests with no red flags, consider adding"
+
+
+def test_accumulate_mentions_momentum():
+    _, reason = suggest_action(_row(momentum_ok="Y"), _position(), TODAY)
+    assert reason.endswith("consider adding, and getting cheaper")
+
+
+def test_held_with_red_flag_is_review_not_accumulate():
+    action, _ = suggest_action(_row(payout_ratio=Decimal("520")), _position(), TODAY)
+    assert action == "REVIEW"
+
+
+def test_held_failing_a_test_is_hold_naming_it():
+    action, reason = suggest_action(_row(mos_ok="N", overall="N", margin_of_safety_percent=Decimal("5")), _position(), TODAY)
     assert action == "HOLD"
-    assert "could add" in reason
+    assert reason == "no red flags, but fails margin of safety, so not adding"
 
 
 def test_held_declining_and_overvalued_is_sell():
@@ -132,7 +149,10 @@ def test_cgt_note_omitted_when_discount_is_months_away():
     assert "CGT" not in reason
 
 
-def test_hold_never_carries_the_cgt_note():
+def test_hold_and_accumulate_never_carry_the_cgt_note():
+    # The note is about timing a sale; neither action suggests selling.
     position = _position(next_discount_date=date(2026, 10, 30), pending="40")
-    _, reason = suggest_action(_row(), position, TODAY)
-    assert "CGT" not in reason
+    for row in (_row(), _row(roe_ok="N", overall="N")):
+        action, reason = suggest_action(row, position, TODAY)
+        assert action in ("ACCUMULATE", "HOLD")
+        assert "CGT" not in reason
