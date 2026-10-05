@@ -230,7 +230,9 @@ Press `Ctrl+C` to stop it.
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or
   "held only", and click a column header to sort. Click a row to open the company.
-- **Company page:** the score wheel and the 30 checks behind it, price against estimated
+- **Company page:** the score wheel and the 30 checks behind it (in a "Score breakdown" panel
+  where each spoke collapses to one line showing its score; click the pink twisty, or
+  "Expand all", to see the checks), price against estimated
   value and the Graham Number, the four value tests, quality markers and red flags, key
   ratios, a 12-month price chart with the 200-day average, margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.

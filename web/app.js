@@ -609,10 +609,23 @@ async function renderCompany(code) {
   const wheelCard = card("Score", `${total} of ${d.checks_per_axis * d.axes.length} checks passed. Hover a spoke to see its checks.`,
     chartSlot((w) => wheel(scores, d.axes, d.checks_per_axis, { size: Math.min(300, w - 160), details: d.scores })));
 
-  const breakdown = card("Score breakdown", "Six yes/no checks per spoke. No data never counts as a pass.",
-    d.axes.map((a) => h("div", { class: "axis-block" },
-      h("h3", {}, h("span", { text: a }), h("span", { text: `${d.scores[a].score} / ${d.checks_per_axis}` })),
-      checklist(d.scores[a].checks))));
+  // Each spoke collapses to one line that keeps its score; closed by default.
+  const axisBlocks = d.axes.map((a) => h("details", { class: "axis-block" },
+    h("summary", {},
+      h("span", { class: "twisty", "aria-hidden": "true" }),
+      h("span", { class: "axis-name", text: a }),
+      h("span", { class: "axis-score", text: `${d.scores[a].score} / ${d.checks_per_axis}` })),
+    checklist(d.scores[a].checks)));
+  const toggleAll = h("button", { type: "button", class: "link-btn", text: "Expand all" });
+  toggleAll.addEventListener("click", () => {
+    const open = !axisBlocks.every((b) => b.open);
+    axisBlocks.forEach((b) => { b.open = open; });
+  });
+  axisBlocks.forEach((b) => b.addEventListener("toggle", () => {
+    toggleAll.textContent = axisBlocks.every((x) => x.open) ? "Collapse all" : "Expand all";
+  }));
+  const breakdown = card("Score breakdown", "Six yes/no checks per spoke. No data never counts as a pass. Click a spoke to see its checks.",
+    toggleAll, axisBlocks);
 
   const tests = card("Four value tests", "The core screen. All four must pass for an overall pass.",
     checklist(d.tests.map((t) => ({ passed: t.passed,
