@@ -34,8 +34,11 @@ src/
     holdings.py               parcel records: add, sell (with splitting), positions
   screening/
     actions.py                suggested action + reason for each company
+    scores.py                 score wheel checks for the web GUI
 screen_asx.py               CLI value screener
 portfolio.py                CLI for your holdings and CGT records
+gui.py                      web GUI server (see Web GUI below)
+web/                        web GUI page, styles and script (no build step)
 requirements.txt
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
 pytest.ini
@@ -167,6 +170,46 @@ prints them grouped, which is also what the daily log records.
 Red flags: value-trap risk, payout ratio over 150%, weak earnings quality, dividend cut,
 price making new lows, low data confidence. These are rule-based research prompts, not
 financial advice: read the reason, then check the numbers behind it.
+
+## Web GUI
+
+`gui.py` is a local web app over the same database and the same rules as
+`screen_asx.py` (it calls the screener's own row loader, so the two never
+disagree). It is read-only.
+
+```
+python gui.py           # this PC: open http://localhost:8000
+python gui.py --lan     # also your phone on home Wi-Fi (see below)
+```
+Press `Ctrl+C` to stop it.
+
+- **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
+  debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
+  action chips to filter, search by code or name, filter by sector, "passes all four" or
+  "held only", and click a column header to sort. Click a row to open the company.
+- **Company page:** the score wheel and the 30 checks behind it, price against estimated
+  value and the Graham Number, the four value tests, quality markers and red flags, key
+  ratios, a 12-month price chart with the 200-day average, margin-of-safety history, and
+  revenue, profit and dividends by year. Hover a chart for values; each has a data table.
+- **Score wheel:** five spokes (Value, Performance, Health, Dividend, Momentum), each a count
+  of six yes/no checks, so every score traces to named rules. Missing data never counts as a
+  pass. The checks are listed in `src/screening/scores.py` and the rules document.
+
+**Phone access (`--lan`).**
+1. Add `GUI_PASSWORD=choose-something-long` to `.env`. `--lan` refuses to start without it,
+   so others on your network can't see your holdings. Once set, every device is asked for it.
+2. Allow the port through Windows Firewall, once, from an administrator Command Prompt:
+   `netsh advfirewall firewall add rule name="ASX Value Screener GUI" dir=in action=allow protocol=TCP localport=8000 profile=private`
+   (your home network must be set to Private in Windows).
+3. Run `python gui.py --lan`. It prints the address to open on your phone, for example
+   `http://192.168.1.20:8000`. Log in with any username and the password.
+
+The connection is plain HTTP, which is fine on home Wi-Fi. Never forward the port on your
+router to expose it to the internet.
+
+**Start it automatically.** In Task Scheduler, create a task triggered "At log on" that runs
+`C:\Users\mrdav\Portfolio\.venv\Scripts\python.exe` with arguments `gui.py --lan` and
+"Start in" set to `C:\Users\mrdav\Portfolio`.
 
 ## Recording Your Holdings (CGT)
 

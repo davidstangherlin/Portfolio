@@ -83,10 +83,14 @@ Portfolio/
 │   ├── portfolio/                      Your holdings (§19)
 │   │   ├── cgt.py                      Australian CGT arithmetic: cost base, 12-month discount, FY summary
 │   │   └── holdings.py                 Parcel add/sell (with splitting)/delete, position summaries
+│   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
 │   └── screening/
-│       └── actions.py                  Suggested action + reason per company (§9.1)
+│       ├── actions.py                  Suggested action + reason per company (§9.1)
+│       └── scores.py                   Score wheel: 5 axes x 6 yes/no checks (§20)
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── portfolio.py                        Root-level CLI: record parcels, list positions, CGT report (§19)
+├── gui.py                              Root-level web GUI server: FastAPI over the screener's own loader (§20)
+├── web/                                index.html, style.css, app.js - the GUI front end, no build step (§20)
 ├── requirements.txt                    Pinned dependency versions
 ├── requirements-dev.txt                requirements.txt + pytest (§10.12)
 ├── pytest.ini                          Test discovery config (testpaths, pythonpath, integration marker)
@@ -106,9 +110,13 @@ Portfolio/
 │       ├── test_schema.py              Idempotent apply, view column coverage
 │       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
 │       ├── test_screener.py            build_query()/annotate_row() against the real view, held vs not-held actions
-│       └── test_portfolio.py           Parcel splitting, brokerage apportionment, sell order, guards
+│       ├── test_portfolio.py           Parcel splitting, brokerage apportionment, sell order, guards
+│       ├── test_ingestion.py           Franking by domicile, country backfill
+│       └── test_gui.py                 Web API payloads and the password guard (§20)
 └── docs/
-    └── AS_BUILT.md                     This document
+    ├── AS_BUILT.md                     This document
+    ├── OVERVIEW.md                     Plain-English summary: what, why, who
+    └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
 **Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 156-test suite (§10.12, §10.13).
@@ -678,6 +686,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 20 | Price markers need 200+ stored daily prices; the daily refresh only fetches 1 month | `price_signal`/`price_vs_200d` blank until history accumulates (~10 months) | One-off backfill: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 1y --delay 0.5` (§8.7) |
 | 21 | Suggested actions are rule-based, with fixed thresholds | The rules can't know context the data doesn't hold (a takeover bid, a one-off write-down, management change) and treat every sector with the same thresholds | By design - each action carries its reason so it can be checked, and every flag is a prompt to read the underlying numbers. Not financial advice |
 | 22 | Pulling code that added a column broke the live database until `db\schema.sql` was reapplied by hand (happened three times) | Every company failed valuation; the screener and `portfolio.py` errored | Resolved 2026-10-05: `python -m src.apply_schema` applies the schema through `.env` (no psql/password), and `daily_refresh.ps1` runs it first every night (§16) |
+| 23 | Web GUI phone access uses HTTP Basic authentication over plain HTTP | On a shared or compromised network the password and holdings could be read in transit | Use `--lan` only on your own home Wi-Fi (network set to Private), never port-forward it; the default mode listens on this PC only |
 
 ---
 
@@ -728,6 +737,7 @@ psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, va
 |---|---|---|
 | `ModuleNotFoundError: No module named 'src'` | Running a script from outside the repo root, or `PYTHONPATH` not set | Always run `python -m src.x.y` or `python screen_asx.py` **from the repo root** with the venv active |
 | `UndefinedColumn: column ... does not exist` or `relation "holdings" does not exist` | The code is newer than the database schema (known-issue #22) | `python -m src.apply_schema`, then re-run the command. The nightly job does this automatically |
+| Phone can't open the GUI, or the browser keeps asking for a password | `--lan` not used, the firewall rule is missing, the Wi-Fi network is set to Public, or the wrong `GUI_PASSWORD` | Run `python gui.py --lan`, add the `netsh` rule (README, Web GUI), set the network to Private; any username plus the `.env` password |
 | `sqlalchemy.exc.OperationalError: could not connect to server` | Postgres not running, or wrong `DATABASE_URL` | `pg_isready`, confirm the container/service is up, re-check `.env` |
 | `psycopg2.errors.UniqueViolation: duplicate key ... companies_ticker_key` | Attempting to insert a `Company` that already exists via raw insert instead of `get_or_create_company()` | Use `src.ingestion.common.get_or_create_company()`, or query-then-update if scripting manually |
 | Ingestion logs `Cookie/crumb fetch failed` repeatedly, then `possibly delisted; no price data found` | `yfinance` couldn't reach Yahoo at all (network/firewall/proxy block) | Test with `curl -I https://query2.finance.yahoo.com` from the same machine; if that fails, it's network policy, not code |
@@ -788,6 +798,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-02 | User asked for more decision points "to level me up as an investor", a suggested-action field (watch, investigate, buy, sell, hold), and a holdings table with tax-relevant fields. Added: four decision markers (earnings quality, price position, dividend reliability, data confidence - §8.7) as six new `valuation_metrics` columns; `src/screening/actions.py` giving every company an action and a plain-English reason (§9.1), with `--actions` and `--held` on the screener and the daily log switched to the action report; a parcel-level `holdings` table and `portfolio.py` CLI (add, sell with automatic partial-parcel splitting and `fifo`/`min-tax`/specific-parcel ordering, list, CGT report per financial year, delete) with Australian CGT arithmetic: cost base including brokerage, the 12-month discount test, losses applied to non-discountable gains first (§19). Held companies get SELL/REVIEW/HOLD, with a note when a parcel is within 90 days of the CGT discount. 77 new tests (156 total); schema migration verified over an old-schema database holding data; end-to-end CLI run found and fixed a `WATCH` reason omitting red flags (§10.13). Known issues #19-21 added |
 | 2026-10-05 | After the first live action report, two rules were producing noise. (1) `dividend_trend` flagged any year-on-year drop over 5 years, which caught nearly every miner and energy producer and alone pushed a held BHP to REVIEW; revised to flag only a cut that still stands (latest >10% below last year or the earlier-years median), wording changed to "dividend cut and not yet restored" (§8.7). (2) Foreign-domiciled listings (SKT, GQG, SPK and others) were grossed up as fully franked; added `companies.country` from Yahoo, backfilled once per company, and set foreign companies to 0% franked, correcting already-stored years (§7.4, known-issue #2). Also added `python -m src.apply_schema` and made it step 0 of the nightly job, after the same missing-column failure hit the live database a third time (known-issue #22, §16). 21 new tests (177 total); migration verified over an old-schema database holding data |
 | 2026-10-05 | User asked for a buy-more action for shares already held, as more useful than SELL/HOLD/REVIEW alone. Added `ACCUMULATE`: a held share that still passes all four value tests with no red flags (the same bar as `BUY`). `HOLD` now means no red flags but failing a test, and names the failed tests. Report order SELL, REVIEW, ACCUMULATE, HOLD. 3 new tests (180 total); rules document updated |
+| 2026-10-05 | User asked for an interactive HTML GUI, Simply Wall St style. Chose: local web app, screener table and company page, phone access on home Wi-Fi. Added `gui.py` (FastAPI, read-only, reusing the screener's own row loader via a new `load_annotated_rows()`), a no-build-step front end in `web/` drawing every chart as inline SVG, and `src/screening/scores.py`: a score wheel of 5 axes x 6 named yes/no checks. `--lan` requires `GUI_PASSWORD` (HTTP Basic on every route, static files included). Validated against a seeded disposable database in headless Chromium at desktop and phone widths, light and dark: fixed a hidden button showing, chart text scaling with card width (charts now draw at their real pixel width), a stray `null`, and phone column overflow. 14 new tests (194 total). Known issue #23 |
 
 ---
 
@@ -847,6 +858,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 13. **Rule tuning after the first live run.** Asked to review the first live action report, then chose (A) judging only recent dividends so a cut since restored stops counting, and (yes) 0% franking for companies whose Yahoo-reported country isn't Australia. → Revised `dividend_trend` to standing cuts only; added `companies.country` and 0% franking for foreign listings; added `src.apply_schema` as the nightly job's first step.
 
 14. **Accumulate for held shares.** *"With the shares I hold that should also include BUY more or an Accumulate. That would be better than Sell, Hold, Review."* → Added `ACCUMULATE` for held shares passing all four tests with no red flags; `HOLD` now names the failed tests.
+
+15. **Interactive web GUI.** *"How do I build an interactive HTML GUI to view this? I also want to be able to interact with it like Simply Wall Street."* Then chose a local web app, the screener table and company page, and phone access on home Wi-Fi. → Added `gui.py`, `web/` and the score wheel (§20).
 
 ---
 
@@ -928,3 +941,33 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 **Limits (known-issue #19).** Not tracked: dividend income and franking credits, losses carried forward from earlier years, and cost base adjustments from corporate actions (returns of capital, bonus/rights issues, consolidations, demergers). A record-keeping aid to reconcile against broker statements, not tax advice.
 
 **Back it up.** Unlike market data, holdings can't be re-downloaded. The teardown command in §12 deliberately leaves the table alone, and a periodic `pg_dump -t holdings asx_value > holdings_backup.sql` keeps a copy outside the database.
+
+---
+
+## 20. Web GUI (`gui.py`, `web/`, `src/screening/scores.py`, added 2026-10-05)
+
+**Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Read-only.
+
+**Architecture.**
+- `gui.py`: FastAPI app run by uvicorn. `GET /api/screener` (every row, trimmed to the fields the table needs, plus five axis scores) and `GET /api/company/{code}` (the full row, the 30 checks, the four tests with thresholds, red flags, position, 365 days of prices, margin-of-safety history and up to 5 FY reports). `/` and `/static/*` serve `web/`.
+- Both endpoints call `screen_asx.load_annotated_rows()`, the same loader the CLI uses, so the browser and `screen_asx.py` can never disagree on a test, flag or action. Two extra `DISTINCT ON` queries add `roic`, `graham_number` and the latest FY report for the score wheel without a per-company query.
+- `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` screener, `#/company/BHP`.
+- Charts follow the dataviz method: validated categorical palette (blue/orange, checked light and dark), 2px lines, hairline grid, one axis per chart, legend only for two or more series, crosshair or per-bar tooltips, a data table under every chart, and light and dark themes.
+
+**Score wheel (`scores.py`).** Five axes, six yes/no checks each; the score per axis is the count passed (0-6). A check is True, False or None (no data), and None never counts as a pass. Thresholds reuse the screener's own where one exists.
+
+| Axis | Checks |
+|---|---|
+| Value | margin of safety > 0; > 20%; > 40%; P/E between 0 and 15; P/B between 0 and 1.5; price below Graham Number |
+| Performance | ROE > 12%; ROE > 20%; ROIC > 10%; fundamentals not DECLINING; earnings quality STRONG or ADEQUATE; earnings quality STRONG |
+| Health | debt/equity < 0.8; < 0.4; cash ≥ total debt; positive equity; positive free cash flow; positive net profit |
+| Dividend | pays a dividend; grossed-up yield > 4.5%; > 6%; payout ratio ≤ 100%; dividend trend STEADY or GROWING; GROWING |
+| Momentum | price signal UPTREND; not NEW LOWS; in upper half of 52-week range; margin-of-safety trend > 0; momentum_ok; fundamentals IMPROVING |
+
+The wheel describes; it does not decide. The suggested action still comes only from §9.1's rules.
+
+**Security.** Default host `127.0.0.1` (this PC only). `--lan` binds `0.0.0.0` and refuses to start unless `GUI_PASSWORD` is set. When set, middleware requires HTTP Basic auth (any username, constant-time password compare) on every route including static files; a malformed header is a 401, not an error. No route writes to the database. Known-issue #23 covers plain HTTP on the LAN.
+
+**Validation (2026-10-05).** Seeded a disposable database with eight synthetic companies built to hit specific paths (a clean pass held, a held falling knife, a bank on DDM, a foreign listing, a REIT, an overvalued tech stock, a loss-maker), ran the server and drove it in headless Chromium at 1280px and 390px, light and dark, plus search, sort, row navigation and chart hover. Fixed four defects found on screen: the "Show more" button visible when it should be hidden (CSS overrode `[hidden]`), chart text scaling with card width, a `null` printed by the native `replaceChildren`, and table overflow on a phone. `tests/unit/test_scores.py` and `tests/integration/test_gui.py` cover the checks, both payloads, the 404, and the password guard on API, page and static files.
+
+**Run it.** See README, Web GUI: `python gui.py`, or `python gui.py --lan` with `GUI_PASSWORD` and a one-off firewall rule for phone access.

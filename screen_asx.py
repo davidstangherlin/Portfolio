@@ -245,16 +245,23 @@ def print_action_report(rows: list[dict], positions: dict[str, PositionSummary],
     print("\nSuggested actions are rule-based research prompts, not financial advice.")
 
 
+def load_annotated_rows(session, args: argparse.Namespace, today: date) -> tuple[list[dict], dict[str, PositionSummary]]:
+    """Every screened company with its Y/N indicators, markers and suggested
+    action - the single source both this CLI and the web GUI (gui.py) read,
+    so the two can never disagree."""
+    query, params = build_query(args)
+    rows = session.execute(text(query), params).mappings().all()
+    positions = position_summaries(session, today)
+    return [annotate_row(row, args, positions.get(row["asx_code"]), today) for row in rows], positions
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    query, params = build_query(args)
     today = date.today()
 
     with get_session() as session:
-        rows = session.execute(text(query), params).mappings().all()
-        positions = position_summaries(session, today)
+        annotated_rows, positions = load_annotated_rows(session, args, today)
 
-    annotated_rows = [annotate_row(row, args, positions.get(row["asx_code"]), today) for row in rows]
     if args.passing_only:
         annotated_rows = [r for r in annotated_rows if r["overall"] == "Y"]
     if args.held:

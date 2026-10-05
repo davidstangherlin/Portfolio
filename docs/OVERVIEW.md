@@ -17,6 +17,7 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 7. **Suggests a next step, with the reasoning** - BUY, INVESTIGATE, WATCH or AVOID for shares you don't own; ACCUMULATE, HOLD, REVIEW or SELL for ones you do, each with a plain-English reason naming the tests and flags behind it.
 8. **Keeps your CGT records** - every parcel you buy or sell, with brokerage, dates and the 12-month discount tracked, a financial-year capital gains summary, and a prompt when waiting a few weeks before selling would halve the tax.
 9. **Runs unattended** - a scheduled job refreshes the whole dataset daily, so the research is always current without manual effort.
+10. **Shows it all in a browser** - a local web app, usable on your phone at home, with a filterable screener and a page per company: a score wheel built from 30 named checks, price against estimated value, charts of price, value and financial history, and every rule's result in plain English.
 
 ## Why It's Helpful to Investing
 
