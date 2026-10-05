@@ -14,7 +14,7 @@ const ACTION_STATUS = {
 const PAGE_SIZE = 100;
 
 const state = {
-  q: "", sector: "", actions: new Set(), passing: false, held: false,
+  q: "", sector: "", actions: new Set(), passing: false, held: false, watchlist: "",
   sort: { key: "action", dir: "asc" }, shown: PAGE_SIZE,
 };
 const cache = { screener: null, thresholds: null, status: null, portfolios: null };
@@ -457,8 +457,12 @@ function filteredRows() {
     (!state.sector || r.sector === state.sector) &&
     (state.actions.size === 0 || state.actions.has(r.action)) &&
     (!state.passing || r.overall === "Y") &&
-    (!state.held || r.held !== null));
+    (!state.held || r.held !== null) &&
+    (!state.watchlist || (state.watchlist === "*" ? r.watchlists.length > 0 : r.watchlists.includes(state.watchlist))));
 }
+/* A star after the code for companies on a watchlist, naming the lists. */
+const watchStar = (lists) => (lists && lists.length
+  ? h("span", { class: "watch-star", title: `On watchlist: ${lists.join(", ")}`, "aria-label": `On watchlist ${lists.join(", ")}`, text: "★" }) : null);
 
 function sortedRows(rows) {
   const col = COLUMNS.find((c) => c.key === state.sort.key);
@@ -478,7 +482,7 @@ function screenerRow(r) {
   const d = cache.screener;
   return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } },
     h("td", {}, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
-    h("td", {}, h("span", { class: "code", text: r.asx_code }), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
+    h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
       h("div", { class: "name", text: r.company_name || "" })),
     h("td", { class: "opt opt3", text: r.sector || NA }),
     h("td", { class: "num opt2", text: money(r.current_price) }),
@@ -544,11 +548,16 @@ async function renderScreener() {
   const toggle = (key, text) => h("label", {}, h("input", { type: "checkbox", checked: state[key],
     onchange: (e) => { state[key] = e.target.checked; state.shown = PAGE_SIZE; refresh(); } }), text);
   more.addEventListener("click", () => { state.shown += PAGE_SIZE; refresh(); });
+  if (state.watchlist && state.watchlist !== "*" && !d.watchlists.some((w) => w.name === state.watchlist)) state.watchlist = "";
+  const watchFilter = d.watchlists.length ? h("select", { "aria-label": "Watchlist",
+    onchange: (e) => { state.watchlist = e.target.value; state.shown = PAGE_SIZE; refresh(); } },
+    h("option", { value: "", text: "All companies" }), h("option", { value: "*", selected: state.watchlist === "*", text: "On any watchlist" }),
+    d.watchlists.map((w) => h("option", { value: w.name, selected: w.name === state.watchlist, text: `Watchlist: ${w.name}` }))) : null;
 
   app.replaceChildren(
     pageHead("Screener", `${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
     chips,
-    h("div", { class: "controls" }, search, sector, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
+    h("div", { class: "controls" }, search, sector, watchFilter, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
     h("div", { class: "table-wrap" }, h("table", { class: "grid" }, h("thead", {}, headRow), tbody)),
     more);
   refresh();
@@ -746,12 +755,14 @@ async function renderCompany(code) {
       h("h1", { text: c.company_name || c.asx_code }),
       h("span", { class: "ticker mono", text: c.asx_code }),
       valuationPill(mos, true),
-      badge(c.action)),
+      badge(c.action),
+      watchButton(c.asx_code, d.watchlists)),
     h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
     h("p", { class: "reason", text: c.action_reason }),
     summaryStrip(c, d.model),
     modelNote(d.model),
     held,
+    watchNote(d.watchlists),
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
@@ -763,7 +774,7 @@ function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
 const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
-  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"]];
+  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"]];
 function backLink() {
   const target = previousPage || "#/screener";
   const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
@@ -775,6 +786,7 @@ function presetScreener(query) {
   if (query === undefined) return;
   const params = new URLSearchParams(query);
   Object.assign(state, { q: "", sector: "", passing: false, held: params.get("held") === "1", shown: PAGE_SIZE,
+    watchlist: params.get("watchlist") || "",
     actions: new Set((params.get("action") || "").split(",").filter(Boolean)) });
 }
 const signed = (v, fmtFn) => (v === null || v === undefined ? NA : (v > 0 ? "+" : v < 0 ? "-" : "") + fmtFn(Math.abs(v)));
@@ -910,6 +922,7 @@ function initNav() {
   initSearch();
   loadStatus();
   loadPortfolioMenu();
+  loadWatchlistMenu();
 }
 
 /* ---------- dashboard ---------- */
@@ -944,11 +957,16 @@ function attentionCard(d) {
       companyLink(c.asx_code, null), h("span", { text: `CGT discount from ${longDate(c.date)}` }),
       h("span", { class: "detail", text: `${fmt(c.units, 0)} units, ${plural(c.days, "day")} away. A sale before then gets no CGT discount on these units.` })))),
     d.not_screened.length ? h("li", {}, h("div", { class: "main" }, h("span", { text: `Held but not screened: ${d.not_screened.join(", ")}` }),
-      h("span", { class: "detail", text: "Add them to your watchlist file (allords.txt) so they are valued each night." }))) : null,
+      h("span", { class: "detail", text: "Add them to the nightly ticker file (allords.txt) so they are valued each night." }))) : null,
+    ...d.triggered.map((t) => h("li", {}, h("div", { class: "main" },
+      companyLink(t.asx_code, null), h("span", { class: "watch-star", "aria-hidden": "true", text: "★" }),
+      h("span", { text: t.triggers.map((x) => x.label).join("; ") }),
+      h("span", { class: "detail" }, "Watchlist trigger met on ", h("a", { href: `#/watchlist/${t.watchlist_id}`, text: t.watchlist }),
+        t.note ? `. Note: ${t.note}` : "")))),
   ].filter(Boolean);
-  return card("Needs attention", items.length ? "Held shares flagged SELL or REVIEW, and parcels reaching the CGT discount soon." : null,
+  return card("Needs attention", items.length ? "Held shares flagged SELL or REVIEW, parcels reaching the CGT discount soon, and watchlist triggers met." : null,
     items.length ? h("ul", { class: "items" }, items)
-      : h("p", { class: "empty", text: `Nothing needs attention: no held shares are flagged SELL or REVIEW, and no parcel reaches the CGT discount in the next ${d.cgt_soon_days} days.` }));
+      : h("p", { class: "empty", text: `Nothing needs attention: no held shares are flagged SELL or REVIEW, no parcel reaches the CGT discount in the next ${d.cgt_soon_days} days, and no watchlist trigger is met.` }));
 }
 
 const MAX_CHANGES = 12;
@@ -964,10 +982,10 @@ function changesCard(d) {
     return card("What changed", null, h("p", { class: "empty", text: `No suggested action changed between ${longDate(ch.from_date)} and ${longDate(ch.to_date)}.` }));
   }
   const shown = ch.changes.slice(0, MAX_CHANGES);
-  return card("What changed", `${longDate(ch.from_date)} to ${longDate(ch.to_date)}: suggested actions that moved, better first.`,
+  return card("What changed", `${longDate(ch.from_date)} to ${longDate(ch.to_date)}: suggested actions that moved, watchlist companies (★) first, then better moves first.`,
     h("ul", { class: "items" }, shown.map((c) => h("li", {},
       h("span", { class: `move ${c.direction}`, "aria-label": c.direction === "up" ? "Better" : "Worse", text: c.direction === "up" ? "▲" : "▼" }),
-      h("div", { class: "main" }, companyLink(c.asx_code, null), c.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
+      h("div", { class: "main" }, companyLink(c.asx_code, null), watchStar(c.watchlists), c.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
         h("span", { class: "detail", text: `${c.company_name || ""}${c.margin_of_safety_percent !== null ? `, margin of safety ${pct(c.margin_of_safety_percent, 0)}` : ""}` })),
       h("div", { class: "side" }, badge(c.previous), h("span", { class: "arrow", "aria-label": "to", text: "→" }), badge(c.action))))),
     ch.changes.length > MAX_CHANGES ? h("p", { class: "card-foot", text: `and ${ch.changes.length - MAX_CHANGES} more.` }) : null);
@@ -1050,7 +1068,7 @@ async function send(method, url, body) {
   return data;
 }
 /* After a trade, held flags and actions change: refetch the screener and the menu next time. */
-function afterChange() { cache.screener = null; loadPortfolioMenu(); }
+function afterChange() { cache.screener = null; loadPortfolioMenu(); loadWatchlistMenu(); }
 
 const discountText = (rate) => (rate > 0 ? `${fmt(rate * 100, rate * 100 % 1 ? 1 : 0)}% CGT discount` : "no CGT discount");
 const taxTag = (p) => h("span", { class: "tag", text: `${p.tax_type_label}, ${discountText(p.discount_rate)}` });
@@ -1356,11 +1374,199 @@ async function renderTrackRecord() {
   window.scrollTo(0, 0);
 }
 
-/* ---------- watchlists (coming) ---------- */
-async function renderWatchlists() {
-  app.replaceChildren(pageHead("Watchlists", null), h("div", { class: "cards" }, card("Coming soon", null, h("div", { class: "prose" },
-    h("p", { text: "Several named watchlists, each company with a note and optional triggers such as margin of safety above a set level or price below a set amount. Watchlist companies will be listed first in What changed on the dashboard." }),
-    h("p", {}, "Until then, use the ", h("a", { href: "#/screener", text: "screener" }), " filters.")))));
+/* ---------- watchlists: named lists to follow, with notes and triggers ---------- */
+const watchlistHref = (w) => `#/watchlist/${w.watchlist_id}`;
+
+async function loadWatchlistMenu() {
+  const slot = document.getElementById("watchlist-menu-items");
+  try {
+    const d = await getJSON("/api/watchlists?brief=1");
+    slot.replaceChildren(...d.watchlists.map((w) => h("a", { href: watchlistHref(w), text: w.name })));
+  } catch (e) { /* the menu keeps its last list */ }
+}
+
+/* Each trigger with a tick when met now, or a dash when not. */
+function triggerList(triggers) {
+  if (!triggers || !triggers.length) return h("span", { class: "hint", text: "none" });
+  return h("span", { class: "trigs" }, triggers.map((t) => h("span", { class: `trig ${t.met ? "met" : ""}`,
+    "aria-label": `${t.label}: ${t.met ? "met" : "not met"}` },
+    h("span", { class: "mark", "aria-hidden": "true", text: t.met ? "✓" : "–" }), t.label)));
+}
+
+/* Company page: which watchlists it's on, with a menu to change that. */
+function watchNote(lists) {
+  const on = lists.filter((l) => l.member);
+  const el = h("p", { class: "hint watch-note", id: "watch-note" });
+  if (!on.length) { el.hidden = true; return el; }
+  add(el, ["On ", on.map((l, i) => [i ? ", " : "", h("a", { href: watchlistHref(l), text: l.name }),
+    l.triggered ? " (trigger met)" : l.triggers && l.triggers.length ? " (triggers set)" : ""]), "."]);
+  return el;
+}
+function watchButton(code, lists) {
+  const wrap = h("div", { class: "watch-wrap" });
+  const btn = h("button", { type: "button", class: "btn small watch-btn", "aria-haspopup": "true", "aria-expanded": "false" });
+  const panel = h("div", { class: "watch-panel", role: "dialog", "aria-label": "Watchlists" });
+  panel.hidden = true;
+  const msg = formMessage();
+  const paint = () => {
+    const on = lists.filter((l) => l.member).length;
+    btn.textContent = on ? "★ On watchlist" : "☆ Add to watchlist";
+    btn.classList.toggle("on", on > 0);
+    const note = document.getElementById("watch-note");
+    if (note) note.replaceWith(watchNote(lists));
+  };
+  const draw = () => {
+    const name = h("input", { maxlength: 60, placeholder: "New watchlist name", autocomplete: "off", "aria-label": "New watchlist name" });
+    const create = h("form", { class: "watch-new" }, name, h("button", { type: "submit", class: "btn small", text: "Add" }));
+    create.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const w = await send("POST", "/api/watchlists", { name: name.value, asx_code: code });
+        lists.push({ ...w, member: true });
+        afterChange(); paint(); draw();
+      } catch (err) { showMessage(msg, err.message, false); }
+    });
+    panel.replaceChildren(h("h3", { text: "Watchlists" }),
+      lists.length ? h("div", { class: "watch-options" }, lists.map((l) => {
+        const box = h("input", { type: "checkbox", checked: l.member });
+        box.addEventListener("change", async () => {
+          try {
+            if (box.checked) {
+              await send("PUT", `/api/watchlists/${l.watchlist_id}/items/${code}`, {});
+              Object.assign(l, { member: true, triggers: [], triggered: false, note: null });
+            } else {
+              const extra = l.note || (l.triggers && l.triggers.length) ? " Its note and triggers will be deleted." : "";
+              if (!confirm(`Remove ${code} from ${l.name}?${extra}`)) { box.checked = true; return; }
+              await send("DELETE", `/api/watchlists/${l.watchlist_id}/items/${code}`);
+              l.member = false;
+            }
+            afterChange(); paint();
+          } catch (err) { box.checked = !box.checked; showMessage(msg, err.message, false); }
+        });
+        return h("label", {}, box, l.name);
+      })) : h("p", { class: "hint", text: "No watchlists yet. Name one to start it with this company." }),
+      create, msg,
+      h("p", { class: "hint", style: "margin:8px 0 0" }, "Notes and triggers: open the list from ", h("a", { href: "#/watchlists", text: "Watchlists" }), "."));
+  };
+  const setOpen = (open) => { panel.hidden = !open; btn.setAttribute("aria-expanded", open); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(panel.hidden); });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => setOpen(false));
+  draw(); paint();
+  add(wrap, [btn, panel]);
+  return wrap;
+}
+
+async function renderWatchlists(query) {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading watchlists..." }));
+  const d = await getJSON("/api/watchlists");
+  const wantNew = new URLSearchParams(query || "").get("new") === "1";
+  const name = h("input", { name: "name", maxlength: 60, placeholder: "e.g. Dividend ideas", autocomplete: "off" });
+  const msg = formMessage();
+  const form = h("form", { class: "form-grid", novalidate: true }, field("Name", name),
+    h("div", { class: "form-actions" }, h("button", { class: "btn primary", type: "submit", text: "Create watchlist" })), msg);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { const w = await send("POST", "/api/watchlists", { name: name.value }); afterChange(); location.hash = watchlistHref(w); }
+    catch (err) { showMessage(msg, err.message, false); }
+  });
+  const create = card("New watchlist", "Companies to follow without owning them. Add them here or with ☆ Add to watchlist on any company page.", form);
+  app.replaceChildren(...[
+    pageHead("Watchlists", d.watchlists.length ? plural(d.watchlists.length, "watchlist") : null),
+    d.watchlists.length ? h("div", { class: "cards" }, d.watchlists.map((w) => h("a", { class: "card pf-card", href: watchlistHref(w) },
+      h("div", { class: "pf-head" }, h("h2", { text: w.name })),
+      h("p", { class: "hint", text: w.companies ? plural(w.companies, "company", "companies") : "No companies yet" }),
+      w.triggered ? h("span", { class: "tag", text: `${plural(w.triggered, "trigger")} met` }) : null)))
+      : h("p", { class: "empty", text: "No watchlists yet. Create one below." }),
+    h("div", { class: "cards", style: "margin-top:16px" }, create),
+  ].filter(Boolean));
+  if (wantNew) setTimeout(() => { create.scrollIntoView({ block: "center" }); name.focus(); }, 0); else window.scrollTo(0, 0);
+}
+
+async function renderWatchlist(id, note) {
+  if (!note) app.replaceChildren(h("p", { class: "loading", text: "Loading watchlist..." }));
+  const d = await getJSON(`/api/watchlists/${encodeURIComponent(id)}`);
+  const reload = (text) => renderWatchlist(id, text);
+  const notice = formMessage();
+  if (note) showMessage(notice, note, true);
+
+  // Add or edit an entry: the same form, since saving a company already on the list updates it.
+  const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "BHP", style: "text-transform:uppercase" });
+  const noteIn = h("input", { name: "note", maxlength: 500, autocomplete: "off", placeholder: "Why you're watching it" });
+  const mos = h("input", { name: "mos_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 25" });
+  const price = h("input", { name: "price_below", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 38.50" });
+  const submit = h("button", { class: "btn primary", type: "submit", text: "Add to watchlist" });
+  const cancel = h("button", { class: "btn", type: "button", text: "Cancel", hidden: true });
+  const formMsg = formMessage();
+  const form = h("form", { class: "form-grid", novalidate: true },
+    field("Company", code), field("Note", noteIn),
+    field("Trigger: margin of safety above (%)", mos, "Met while the share is at least this far below estimated value."),
+    field("Trigger: price at or below ($)", price, "Met while the latest close is at or under this price."),
+    h("div", { class: "form-actions" }, submit, cancel), formMsg);
+  const formCard = card("Add a company", "Both triggers are optional; leave them blank to just follow the company.", form);
+  const editing = (e) => {
+    code.value = e.asx_code; code.readOnly = true; noteIn.value = e.note || "";
+    mos.value = e.mos_above ?? ""; price.value = e.price_below ?? "";
+    formCard.querySelector("h2").textContent = `Edit ${e.asx_code}`;
+    submit.textContent = "Save changes"; cancel.hidden = false;
+    formCard.scrollIntoView({ block: "center" }); noteIn.focus();
+  };
+  cancel.addEventListener("click", () => reload(null));
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const c = code.value.trim().toUpperCase();
+    if (!c) { showMessage(formMsg, "Enter an ASX code, such as BHP.", false); return; }
+    try {
+      await send("PUT", `/api/watchlists/${d.watchlist_id}/items/${encodeURIComponent(c)}`, { note: noteIn.value, mos_above: mos.value, price_below: price.value });
+      afterChange();
+      await reload(code.readOnly ? `Saved ${c}.` : `Added ${c}.`);
+    } catch (err) { showMessage(formMsg, err.message, false); }
+  });
+
+  const remove = async (e) => {
+    if (!confirm(`Remove ${e.asx_code} from ${d.name}?${e.note || e.triggers.length ? " Its note and triggers will be deleted." : ""}`)) return;
+    try { await send("DELETE", `/api/watchlists/${d.watchlist_id}/items/${e.asx_code}`); afterChange(); await reload(`Removed ${e.asx_code}.`); }
+    catch (err) { showMessage(notice, err.message, false); }
+  };
+  const heads = ["Score", "Company", "Price", "Margin of safety", "Valuation", "Action", "Triggers", "Note", ""];
+  const table = d.items.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, heads.map((x, i) => {
+      const cls = [i === 2 || i === 3 ? "num" : "", i === 0 ? "opt3" : "", i === 4 ? "opt4" : "", i === 2 || i === 7 ? "opt" : ""].join(" ").trim() || null;
+      return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
+    }))),
+    h("tbody", {}, d.items.map((e) => clickableRow(e.asx_code,
+      h("td", { class: "opt3" }, e.scores ? [wheel(e.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(e.scores) })] : null),
+      h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
+      h("td", { class: "num opt", text: money(e.price) }),
+      h("td", { class: `num ${signClass(e.margin_of_safety_percent) || ""}`.trim(), text: pct(e.margin_of_safety_percent, 0) }),
+      h("td", { class: "opt4" }, valuationPill(e.margin_of_safety_percent)),
+      h("td", {}, e.action ? badge(e.action) : h("span", { class: "hint", text: "not valued" })),
+      h("td", {}, triggerList(e.triggers)),
+      h("td", { class: "opt" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
+      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e)))))))) : null;
+
+  const rename = h("input", { name: "name", value: d.name, maxlength: 60, autocomplete: "off" });
+  const setMsg = formMessage();
+  const settings = h("form", { class: "form-grid", novalidate: true }, field("Name", rename),
+    h("div", { class: "form-actions" }, h("button", { class: "btn", type: "submit", text: "Rename" }),
+      h("button", { class: "btn danger", type: "button", text: "Delete watchlist", onclick: async () => {
+        if (!confirm(`Delete ${d.name}${d.items.length ? ` and its ${plural(d.items.length, "company", "companies")}, notes and triggers` : ""}? This can't be undone.`)) return;
+        try { await send("DELETE", `/api/watchlists/${d.watchlist_id}`); afterChange(); location.hash = "#/watchlists"; }
+        catch (err) { showMessage(setMsg, err.message, false); } } })), setMsg);
+  settings.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try { await send("PATCH", `/api/watchlists/${d.watchlist_id}`, { name: rename.value }); afterChange(); await reload("Renamed."); }
+    catch (err) { showMessage(setMsg, err.message, false); }
+  });
+  const met = d.items.filter((e) => e.triggered).length;
+  app.replaceChildren(...[
+    h("a", { class: "back", href: "#/watchlists", text: "← Watchlists" }),
+    pageHead(d.name, d.items.length ? `${plural(d.items.length, "company", "companies")}${met ? `, ${plural(met, "trigger")} met` : ""}` : null),
+    notice,
+    table || h("p", { class: "empty", text: "No companies yet. Add one below, or use ☆ Add to watchlist on any company page." }),
+    h("div", { class: "cards dash", style: "margin-top:16px" }, formCard, card("Settings", null, settings)),
+  ]);
+  if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
 /* ---------- settings: theme ---------- */
@@ -1392,7 +1598,8 @@ const ROUTES = [
   [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => renderCompany(m[1].toUpperCase())],
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
-  [/^#\/watchlists$/, "watchlists", () => renderWatchlists()],
+  [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
+  [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
   [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
   [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => renderPortfolio(m[1])],
   [/^(#\/?)?$/, "dashboard", () => renderDashboard()],

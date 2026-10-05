@@ -15,6 +15,7 @@ from src.models.holding import Holding
 from src.models.portfolio import Portfolio
 from src.models.signal_snapshot import SignalSnapshot
 from src.models.valuation_metric import ValuationMetric
+from src.models.watchlist import Watchlist, WatchlistItem
 
 __all__ = [
     "Base",
@@ -26,4 +27,6 @@ __all__ = [
     "Portfolio",
     "SignalSnapshot",
     "ValuationMetric",
+    "Watchlist",
+    "WatchlistItem",
 ]

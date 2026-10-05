@@ -18,7 +18,8 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 8. **Keeps your CGT records** - every parcel you buy or sell, entered in the browser or at the command line, across several portfolios (yours, a family trust, a super fund) each with its own tax treatment; brokerage, dates and the 12-month discount tracked, a financial-year capital gains summary per portfolio, and a prompt when waiting a few weeks before selling would cut the tax.
 9. **Runs unattended** - a scheduled job refreshes the whole dataset daily, so the research is always current without manual effort.
 10. **Shows it all in a browser** - Sift, a local web app, usable on your phone at home, opening on a dashboard of what needs attention, what changed overnight and the top opportunities, with a filterable screener and a page per company: a score wheel built from 30 named checks, price against estimated value, charts of price, value and financial history, and every rule's result in plain English.
-11. **Keeps score on itself** - every night it records what it said about every company, so its suggestions can later be checked against what the share price actually did.
+11. **Watches for you** - named watchlists with a note and triggers per company (margin of safety above a level, price at or below a level), flagged on the dashboard the day they're met.
+12. **Keeps score on itself** - every night it records what it said about every company, so its suggestions can later be checked against what the share price actually did.
 
 ## Why It's Helpful to Investing
 

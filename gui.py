@@ -50,6 +50,8 @@ from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
 from src.tracking.signals import signal_changes, tracking_status
+from src.watchlist import lists as watchlists
+from src.watchlist.lists import WatchlistError
 from src.valuation import dcf as dcf_module, ddm as ddm_module
 
 REPO_DIR = Path(__file__).resolve().parent
@@ -162,12 +164,15 @@ def _card_payload(card) -> dict:
 def screener_payload(session, today: date) -> dict:
     universe = load_universe(session, today)
     args = universe.args
+    watched = watchlists.watched_codes(session)
     out = []
     for row in universe.rows:
         item = {f: row.get(f) for f in _SCREENER_FIELDS}
         item["scores"] = score_list(row)
+        item["watchlists"] = watched.get(row["asx_code"], [])
         out.append(item)
     return {
+        "watchlists": [{"watchlist_id": str(w.watchlist_id), "name": w.name} for w in watchlists.list_watchlists(session)],
         "as_of": universe.as_of,
         "axes": list(AXES),
         "checks_per_axis": CHECKS_PER_AXIS,
@@ -257,6 +262,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         ],
         "flags": red_flags(row),
         "model": _model_assumptions(row.get("valuation_method")),
+        "watchlists": company_watchlists(session, company.company_id, row),
         "position": None if position is None else {
             "units": position.units, "cost_base": position.cost_base,
             "next_discount_date": position.next_discount_date,
@@ -361,7 +367,14 @@ def _brief(row: dict) -> dict:
 def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR) -> dict:
     universe = load_universe(session, today)
     rows = universe.rows
+    rows_by = {r["asx_code"]: r for r in rows}
     portfolio = portfolio_payload(session, universe, today)
+    # What changed: companies on a watchlist first, keeping the better-first order within each group.
+    watched = watchlists.watched_codes(session)
+    changes = signal_changes(session)
+    for c in changes["changes"]:
+        c["watchlists"] = watched.get(c["asx_code"], [])
+    changes["changes"].sort(key=lambda c: not c["watchlists"])
 
     attention = [_brief(r) for r in rows if r["held"] is not None and r["action"] in ATTENTION_ACTIONS]
     attention.sort(key=lambda b: (ATTENTION_ACTIONS.index(b["action"]), b["asx_code"]))
@@ -387,11 +400,12 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "companies": len(rows),
         "action_counts": {a: sum(1 for r in rows if r["action"] == a) for a in ACTION_ORDER},
         "attention": attention,
+        "triggered": triggered_entries(session, rows_by),
         "not_screened": sorted(set(universe.positions) - screened),
         "cgt_soon": cgt_soon,
         "cgt_soon_days": CGT_SOON_DAYS,
         "portfolio": portfolio,
-        "changes": signal_changes(session),
+        "changes": changes,
         "tracking": tracking_status(session),
         "top": top,
         "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
@@ -403,6 +417,66 @@ def companies_index(session) -> list[dict]:
     """Code and name of every screened company, for the menu bar search."""
     rows = session.execute(text("SELECT asx_code, company_name FROM asx_value_screener ORDER BY asx_code")).all()
     return [{"code": code, "name": name} for code, name in rows]
+
+
+# ---------- watchlists (§22) ----------
+
+def _entry(item, code: str, row: dict | None) -> dict:
+    found = watchlists.triggers(item, row)
+    return {
+        "asx_code": code, "company_name": row["company_name"] if row else None,
+        "note": item.note, "mos_above": item.mos_above, "price_below": item.price_below, "added_at": item.added_at,
+        "triggers": found, "triggered": any(t["met"] for t in found),
+        "price": row["current_price"] if row else None,
+        "margin_of_safety_percent": row["margin_of_safety_percent"] if row else None,
+        "valuation_status": row["valuation_status"] if row else None,
+        "action": row["action"] if row else None, "action_reason": row["action_reason"] if row else None,
+        "held": row["held"] is not None if row else False,
+        "scores": score_list(row) if row else None,
+    }
+
+
+def company_watchlists(session, company_id, row: dict) -> list[dict]:
+    """Every watchlist, and this company's entry on each one it's on."""
+    mine = {i.watchlist_id: i for i in session.execute(
+        select(watchlists.WatchlistItem).where(watchlists.WatchlistItem.company_id == company_id)).scalars()}
+    out = []
+    for w in watchlists.list_watchlists(session):
+        item = mine.get(w.watchlist_id)
+        entry = {"watchlist_id": str(w.watchlist_id), "name": w.name, "member": item is not None}
+        if item is not None:
+            found = watchlists.triggers(item, row)
+            entry |= {"note": item.note, "mos_above": item.mos_above, "price_below": item.price_below,
+                      "triggers": found, "triggered": any(t["met"] for t in found)}
+        out.append(entry)
+    return out
+
+
+def watchlist_summaries(session, rows: dict[str, dict]) -> list[dict]:
+    counts: dict = {}
+    for item, code, _ in watchlists.entries(session):
+        n, hit = counts.get(item.watchlist_id, (0, 0))
+        counts[item.watchlist_id] = (n + 1, hit + any(t["met"] for t in watchlists.triggers(item, rows.get(code))))
+    return [{"watchlist_id": str(w.watchlist_id), "name": w.name, "companies": counts.get(w.watchlist_id, (0, 0))[0],
+             "triggered": counts.get(w.watchlist_id, (0, 0))[1]} for w in watchlists.list_watchlists(session)]
+
+
+def watchlist_detail(session, watchlist, rows: dict[str, dict]) -> dict:
+    items = [_entry(item, code, rows.get(code)) for item, code, _ in watchlists.entries(session, watchlist.watchlist_id)]
+    items.sort(key=lambda e: (not e["triggered"], e["asx_code"]))
+    return {"watchlist_id": str(watchlist.watchlist_id), "name": watchlist.name, "items": items,
+            "axes": list(AXES), "checks_per_axis": CHECKS_PER_AXIS}
+
+
+def triggered_entries(session, rows: dict[str, dict]) -> list[dict]:
+    """Every watchlist entry whose trigger is met now, for the dashboard."""
+    out = []
+    for item, code, name in watchlists.entries(session):
+        met = [t for t in watchlists.triggers(item, rows.get(code)) if t["met"]]
+        if met:
+            out.append({"asx_code": code, "watchlist": name, "watchlist_id": str(item.watchlist_id),
+                        "triggers": met, "note": item.note})
+    return out
 
 
 def create_app(password: str | None = None) -> FastAPI:
@@ -480,7 +554,7 @@ def create_app(password: str | None = None) -> FastAPI:
             try:
                 result = action(session)
                 session.commit()
-            except HoldingsError as exc:
+            except (HoldingsError, WatchlistError) as exc:
                 session.rollback()
                 raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
         return JSONResponse(_json_ready(result))
@@ -570,6 +644,69 @@ def create_app(password: str | None = None) -> FastAPI:
             parcel_or_404(session, holding_id)
             parcel = parcels_module.undo_sale(session, holding_id)
             return {"holding_id": str(parcel.holding_id), "units": parcel.units}
+        return change(action)
+
+    # ---------- watchlists (§22) ----------
+    def watchlist_or_404(session, watchlist_id: str):
+        found = watchlists.get_watchlist(session, watchlist_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such watchlist")
+        return found
+
+    @app.get("/api/watchlists")
+    def api_watchlists(brief: bool = False):
+        """Every watchlist with its counts; ?brief=1 gives names only, for the menu."""
+        with get_session() as session:
+            if brief:
+                lists = [{"watchlist_id": str(w.watchlist_id), "name": w.name} for w in watchlists.list_watchlists(session)]
+            else:
+                lists = watchlist_summaries(session, rows_by_code(session))
+            return JSONResponse(_json_ready({"watchlists": lists}))
+
+    @app.post("/api/watchlists")
+    def api_create_watchlist(body: dict = Body(...)):
+        def action(session):
+            w = watchlists.create_watchlist(session, body.get("name"))
+            if body.get("asx_code"):  # created from a company page: add that company straight away
+                watchlists.save_entry(session, w, body["asx_code"], watchlists.entry_fields({}))
+            return {"watchlist_id": str(w.watchlist_id), "name": w.name}
+        return change(action)
+
+    @app.get("/api/watchlists/{watchlist_id}")
+    def api_watchlist(watchlist_id: str):
+        with get_session() as session:
+            w = watchlist_or_404(session, watchlist_id)
+            return JSONResponse(_json_ready(watchlist_detail(session, w, rows_by_code(session))))
+
+    @app.patch("/api/watchlists/{watchlist_id}")
+    def api_rename_watchlist(watchlist_id: str, body: dict = Body(...)):
+        def action(session):
+            w = watchlists.rename_watchlist(session, watchlist_or_404(session, watchlist_id), body.get("name"))
+            return {"watchlist_id": str(w.watchlist_id), "name": w.name}
+        return change(action)
+
+    @app.delete("/api/watchlists/{watchlist_id}")
+    def api_delete_watchlist(watchlist_id: str):
+        def action(session):
+            w = watchlist_or_404(session, watchlist_id)
+            name = w.name
+            return {"deleted": name, "companies": watchlists.delete_watchlist(session, w)}
+        return change(action)
+
+    @app.put("/api/watchlists/{watchlist_id}/items/{asx_code}")
+    def api_save_entry(watchlist_id: str, asx_code: str, body: dict = Body(default={})):
+        def action(session):
+            w = watchlist_or_404(session, watchlist_id)
+            item = watchlists.save_entry(session, w, asx_code, watchlists.entry_fields(body))
+            return {"watchlist": w.name, "asx_code": asx_code.strip().upper(), "note": item.note,
+                    "mos_above": item.mos_above, "price_below": item.price_below}
+        return change(action)
+
+    @app.delete("/api/watchlists/{watchlist_id}/items/{asx_code}")
+    def api_remove_entry(watchlist_id: str, asx_code: str):
+        def action(session):
+            w = watchlist_or_404(session, watchlist_id)
+            return {"removed": watchlists.remove_entry(session, w, asx_code)}
         return change(action)
 
     @app.get("/")

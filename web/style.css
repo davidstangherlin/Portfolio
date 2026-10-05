@@ -447,7 +447,7 @@ details.archived > summary { display: flex; align-items: center; gap: 8px; curso
 details.archived > summary::-webkit-details-marker { display: none; }
 details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .dd-menu a.dd-new { color: var(--accent); }
-#portfolio-menu-items a { padding-left: 20px; }
+#portfolio-menu-items a, #watchlist-menu-items a { padding-left: 20px; }
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin-top: 10px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -480,3 +480,24 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .grid td.act { text-align: right; width: 1%; }
 @media (max-width: 560px) { .form-grid { grid-template-columns: minmax(0, 1fr); } }
 .field input::placeholder { text-transform: none; }
+
+/* ---------- watchlists ---------- */
+.watch-star { color: var(--twisty); margin-left: 5px; font-size: 12px; }
+.watch-wrap { position: relative; }
+.watch-btn.on { color: var(--twisty); border-color: var(--twisty); }
+.watch-panel {
+  position: absolute; left: 0; top: calc(100% + 6px); width: 280px; z-index: 30; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+.watch-panel h3 { margin: 0 0 8px; font-size: 13px; }
+.watch-options { display: grid; gap: 6px; margin-bottom: 10px; max-height: 220px; overflow: auto; }
+.watch-options label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.watch-new { display: flex; gap: 6px; }
+.watch-new input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.watch-note { margin: 0 0 12px; }
+.trigs { display: grid; gap: 2px; }
+.trig { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.trig .mark { display: inline-block; width: 14px; font-weight: 700; }
+.trig.met { color: var(--good-text); font-weight: 600; }
+.note-cell { max-width: 220px; }
+@media (max-width: 560px) { .watch-panel { position: fixed; left: 16px; right: 16px; top: 72px; width: auto; } }

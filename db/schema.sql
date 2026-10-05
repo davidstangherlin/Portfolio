@@ -233,6 +233,28 @@ UPDATE holdings SET portfolio_id = (SELECT portfolio_id FROM portfolios ORDER BY
     WHERE portfolio_id IS NULL;
 ALTER TABLE holdings ALTER COLUMN portfolio_id SET NOT NULL;
 
+-- 5c. WATCHLISTS (docs/AS_BUILT.md §22)
+-- Named lists of companies to follow without owning them, kept from the
+-- web GUI. Each entry can carry a note and up to two triggers; an entry is
+-- "triggered" while the company's margin of safety is above mos_above, or
+-- its price is at or below price_below. Separate from the nightly ticker
+-- file (allords.txt), which decides which companies are valued at all.
+CREATE TABLE IF NOT EXISTS watchlists (
+    watchlist_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(60) NOT NULL UNIQUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS watchlist_items (
+    watchlist_id UUID NOT NULL REFERENCES watchlists(watchlist_id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
+    note TEXT,
+    mos_above NUMERIC(6, 2),                     -- trigger: margin of safety above this %
+    price_below NUMERIC(12, 4) CHECK (price_below > 0),  -- trigger: price at or below this
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (watchlist_id, company_id)
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that
@@ -311,3 +333,4 @@ CREATE INDEX IF NOT EXISTS idx_financials_year ON financial_reports(company_id, 
 CREATE INDEX IF NOT EXISTS idx_holdings_asx ON holdings(asx_code);
 CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_signal_snapshots_date ON signal_snapshots(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_company ON watchlist_items(company_id);

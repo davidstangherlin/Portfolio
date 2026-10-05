@@ -230,8 +230,8 @@ nightly job runs first), so restarting it after a `git pull` is enough.
 - **Menu bar:** Dashboard, Screener, Watchlists, Portfolios, Track record and Markets (links
   to the ASX, the ASX's exchange traded funds (ETFs) list, the New York Stock Exchange (NYSE)
   and Nasdaq, opening in a new tab). The pink underline shows where you are. On a phone or
-  narrow window the menu folds behind the ☰ button. Watchlists and multiple portfolios
-  arrive in later updates; the menus say so for now.
+  narrow window the menu folds behind the ☰ button. The Watchlists and Portfolios menus list
+  yours, with a link to create a new one.
 - **Find a company:** type a code or part of a name in the search box and pick from the list,
   or press Enter, to jump straight to that company's page.
 - **Data chip:** next to the search box, the date of the latest prices and valuations. Green
@@ -240,11 +240,21 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   didn't finish. Hover it for the details, including when the last run started and finished
   and how many companies it couldn't update.
 - **Dashboard (home page):** your portfolio's value, today's change, unrealised gain and cost
-  base; **Needs attention** (held shares flagged SELL or REVIEW, and parcels reaching the
-  capital gains tax (CGT) discount within 90 days); **What changed** (companies whose suggested
-  action moved since the previous night, better first); **Top opportunities** (BUY, then
+  base; **Needs attention** (held shares flagged SELL or REVIEW, parcels reaching the
+  capital gains tax (CGT) discount within 90 days, and watchlist triggers met); **What changed**
+  (companies whose suggested action moved since the previous night, watchlist companies first,
+  then better moves first); **Top opportunities** (BUY, then
   INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
   it); and how far the track record has got.
+- **Watchlists:** named lists of companies to follow without owning them (for example
+  "Dividend ideas" or "Wait for a dip"). Add a company with **☆ Add to watchlist** on its page
+  (tick the lists, or name a new one), or from the watchlist's own page. Each entry can have a
+  note and up to two triggers: **margin of safety above X%** and **price at or below $Y**. A
+  trigger met shows a tick on the watchlist page and appears under Needs attention on the
+  dashboard until it stops being true. Watched companies carry a pink ★ in the screener, which
+  can also be filtered to one watchlist or to any. Removing a company or deleting a list asks
+  first. Only companies Sift values can be watched: these lists are separate from the nightly
+  ticker file (`allords.txt`), which decides which companies are valued at all.
 - **Portfolios:** keep several portfolios (for example your own shares, a family trust and a
   self-managed super fund), each with its owner's tax type, which sets its capital gains tax
   (CGT) discount: individual or trust 50%, SMSF 33⅓%, company none. The Portfolios menu lists

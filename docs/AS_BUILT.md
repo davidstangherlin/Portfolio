@@ -67,6 +67,7 @@ Portfolio/
 │   │   ├── financial_report.py         FinancialReport model
 │   │   ├── holding.py                  Holding model - one share parcel (§19)
 │   │   ├── portfolio.py                Portfolio model - a named owner with a tax type (§19.1)
+│   │   ├── watchlist.py                Watchlist and WatchlistItem models (§22)
 │   │   ├── signal_snapshot.py          SignalSnapshot model - what Sift said each night (§21)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
@@ -95,6 +96,8 @@ Portfolio/
 │   │   ├── actions.py                  Suggested action + reason per company (§9.1)
 │   │   ├── enriched.py                 Screener rows + scores + valuation status, shared by GUI and tracking (§21)
 │   │   └── scores.py                   Score wheel: 5 axes x 6 yes/no checks (§20)
+│   ├── watchlist/
+│   │   └── lists.py                    Watchlists: names, entries with notes and triggers, trigger checks (§22)
 │   └── tracking/                       Prediction track record (§21)
 │       ├── signals.py                  Nightly signal snapshots, action changes, recording status
 │       └── record_signals.py           CLI entrypoint; nightly step 3 (§16)
@@ -119,6 +122,7 @@ Portfolio/
 │   │   ├── test_markers.py, test_cgt.py, test_actions.py
 │   │   ├── test_dashboard.py           Nightly-log reading, stale-data weekday rule, valuation status
 │   │   ├── test_trade_input.py         Browser input checks, CGT discount by tax type, the cross-site write guard
+│   │   ├── test_watchlist_triggers.py  Trigger thresholds and entry checks (§22)
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
 │       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
@@ -126,14 +130,15 @@ Portfolio/
 │       ├── test_portfolio.py           Parcel splitting, brokerage apportionment, sell order, guards
 │       ├── test_ingestion.py           Franking by domicile, country backfill
 │       ├── test_gui.py                 Web API payloads, dashboard and the password guard (§20)
-│       └── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
+│       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
+│       └── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
 └── docs/
     ├── AS_BUILT.md                     This document
     ├── OVERVIEW.md                     Plain-English summary: what, why, who
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 283-test suite (§10.12, §10.13).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 301-test suite (§10.12, §10.13).
 
 ---
 
@@ -166,6 +171,8 @@ erDiagram
     companies ||--o{ dividend_payments : has
     companies ||--o{ signal_snapshots : has
     portfolios ||--o{ holdings : holds
+    watchlists ||--o{ watchlist_items : lists
+    companies ||--o{ watchlist_items : "watched as"
 
     companies {
         uuid company_id PK
@@ -267,6 +274,13 @@ erDiagram
         text notes
         uuid split_from_id FK "self-reference for partial sales"
         uuid portfolio_id FK "NOT NULL, ON DELETE RESTRICT"
+    }
+    watchlist_items {
+        uuid watchlist_id PK,FK "ON DELETE CASCADE"
+        uuid company_id PK,FK "ON DELETE CASCADE"
+        text note
+        numeric mos_above "trigger"
+        numeric price_below "trigger, > 0"
     }
     portfolios {
         uuid portfolio_id PK
@@ -763,6 +777,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD; EPS, book value and free cash flow were compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Resolved 2026-10-05: statements converted into the trading currency at each balance date's rate during ingestion (§7.7). Residual: revenue trend is measured in AUD, so it includes currency movements |
 | 26 | The track record starts from the night signal recording first runs (stage 1, 2026-10-05) and can't be backfilled | No accuracy results until a month after the first recording; 12-month results take a year. Reconstructing past signals from today's data would use information the rules didn't have at the time, flattering the results | By design. The dashboard and Track record page show when each horizon's first results are due |
 | 27 | Parcels can't be moved between portfolios, and changing a portfolio's tax type re-rates its past sales | An off-market transfer (for example shares moved into an SMSF) has to be entered as a sale in one portfolio and a buy in the other, which is also how the ATO treats it; a tax type changed by mistake changes the CGT report until changed back | By design for now. A transfer feature would need to record the change of ownership date and value |
+| 28 | Watchlist triggers are a state, not an alert | A trigger shows while it's true (dashboard, watchlist page) and disappears when it stops being true; nothing is sent, and a trigger met and lost between two visits isn't recorded | By design for now. The nightly signal record (§21) could later keep trigger history if wanted |
 
 ---
 
@@ -887,6 +902,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for a way to track prediction accuracy, finalised the design over two rounds (benchmark against the screened universe; 1, 3, 6 and 12 months; from today only; 14 months of detail plus monthly summaries; a verdict panel, missed opportunities and still-actionable lists) and added a menu bar, multiple watchlists and portfolios, Markets links and a dashboard home page. Built in four stages. **Stage 1** (this change): menu bar with search and a data-date chip, dashboard, holdings page, the screener moved to `#/screener`, and nightly signal recording (`signal_snapshots`, `src/tracking/`, nightly step 3) so the record starts as early as possible. Shared the GUI's row enrichment as `src/screening/enriched.py` so the GUI and the recorder judge identical rows. 239 tests pass (18 new). Checked in headless Chromium at 1280px, 1000px and 390px, light and dark, against a seeded database with two nights of signals |
 | 2026-10-05 | **Stage 2:** multiple portfolios, each with a tax type setting its CGT discount (individual and trust 50%, SMSF 33⅓%, company none), and trade entry in the browser (§19.1). `portfolios` table; `holdings.portfolio_id` with existing parcels migrated into "My portfolio"; archive (all sold) and delete (no sales) rules; undo sale; `portfolio.py --portfolio` and `portfolios` and `undo-sale` commands; per-portfolio CGT reports. Browser changes need the password and must come from Sift's own pages (custom header, Sec-Fetch-Site and Origin checks). 280 tests pass (41 new). Checked in headless Chromium: create, buy, sell (oldest first and smallest tax first), a refused future date, undo, delete, archive and delete rules, at 1280px and 390px |
 | 2026-10-05 | User reported the Track record page showing "Could not load: Request failed (500)" after pulling stage 2. Reproduced on a database with the previous schema: every page failed with `relation "portfolios" does not exist`, because the GUI was restarted before the schema step had run (known-issue #22 again, this time in the GUI). Fixes: `python gui.py` now applies the schema on start (`prepare_database()`, the same idempotent step as nightly step 0, reported on the console and never blocking the server), and an unexpected server error now returns its cause to the page (`error_message()`), with the exact command when the database is behind the code. 283 tests pass (3 new) |
+| 2026-10-05 | **Stage 3:** multiple watchlists (§22): `watchlists` and `watchlist_items` (note, margin-of-safety and price triggers), a Watchlists overview and page per list, "Add to watchlist" on company pages, a watchlist filter and ★ in the screener, triggered entries under Needs attention, and watchlist companies first in What changed. Caught by the new tests before release: the company page failed for a company already on a list (it read a field only the screener's rows carry). 301 tests pass (18 new). Checked in headless Chromium at 1280px and 390px |
 
 ---
 
@@ -960,6 +976,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 19. **Track record, menu bar and dashboard.** *"I want a way to track the accuracy of our predictions over time... Let's finalise the design before building."* Then a 14-month retention limit with monthly summaries, a verdict panel, missed opportunities and still-actionable lists, *"we also need to add a top line banner for menu selection"* with multiple watchlists and portfolios, Markets links and a dashboard home page, and *"yes start on stage 1"*. → §20, §21.
 
 20. **Multiple portfolios.** *"start on stage 2"* (agreed earlier: a tax type per portfolio, all editing in the browser, archive a portfolio with sales, the existing parcel into "My portfolio"). → §19.1.
+
+21. **Multiple watchlists.** *"start on stage 3"* (agreed earlier: several named lists, a note and triggers per company, "Add to watchlist" on company pages, watchlist companies first in What changed). → §22.
 
 ---
 
@@ -1110,7 +1128,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 **Run it.** See README, Web GUI: `python gui.py`, or `python gui.py --lan` with `GUI_PASSWORD` and a one-off firewall rule for phone access.
 
 **Menu bar and dashboard (stage 1, 2026-10-05).**
-- **Menu bar:** Dashboard | Screener | Watchlists ▾ | Portfolios ▾ | Track record | Markets ↗ ▾, then a company search, the data chip and the settings gear. The current page has a pink (`--twisty`) underline; a company page highlights nothing. Dropdowns open on click (so they work on touch), close on Escape, an outside click or navigation, and only one is open at a time. Below 1060px the menu folds behind a ☰ button into a vertical panel (current page marked with a pink left bar). Markets links open in a new tab with `rel="noopener noreferrer"`: ASX, the ASX exchange traded products directory, NYSE and Nasdaq. Watchlists and Portfolios carry "coming soon" entries until stages 2 and 3.
+- **Menu bar:** Dashboard | Screener | Watchlists ▾ | Portfolios ▾ | Track record | Markets ↗ ▾, then a company search, the data chip and the settings gear. The current page has a pink (`--twisty`) underline; a company page highlights nothing. Dropdowns open on click (so they work on touch), close on Escape, an outside click or navigation, and only one is open at a time. Below 1060px the menu folds behind a ☰ button into a vertical panel (current page marked with a pink left bar). Markets links open in a new tab with `rel="noopener noreferrer"`: ASX, the ASX exchange traded products directory, NYSE and Nasdaq. Watchlists and Portfolios list each watchlist and portfolio, with All and + New links (§19.1, §22).
 - **Search:** a `<datalist>` of every screened code and name from `/api/companies`. Picking an entry, or pressing Enter, opens the company: exact code first, then code prefix, then name contains. No match shows a short tooltip.
 - **Data chip (`/api/status`):** newest `valuation_metrics.as_of_date`, newest price date, and the latest `logs/refresh_*.log` parsed by `last_refresh()`. Stale when the newest valuation is older than the previous weekday (so Friday's data is current all weekend; a public holiday shows amber harmlessly). The log reader handles UTF-8 and UTF-16 (PowerShell) files and classifies a run as `ok`, `errors` (one or more ERROR lines: individual companies that failed, normal on most nights), `crashed` (a traceback with no ERROR line before it: a whole step died), `running` (unfinished and under 3 hours old) or `incomplete`. Amber, with a "!", only for stale data, `crashed` or `incomplete`, so routine Yahoo gaps don't train you to ignore it.
 - **Dashboard (`/api/dashboard`):** one `load_universe()` call feeds: a portfolio strip (value at the latest close, today's change from the two latest closes, unrealised gain, cost base); Needs attention (held SELL/REVIEW with reasons, parcels reaching the CGT discount within 90 days, holdings not on the watchlist file); What changed (§21); Top opportunities (up to six, BUY then INVESTIGATE, by score total then margin of safety; shares you hold are excluded because their actions are the held set); action counts linking to the pre-filtered screener; recording status; and a footer repeating the data status in full.
@@ -1138,6 +1156,25 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 **Still to come (agreed design).**
 - **Stage 2:** done 2026-10-05, see §19.1.
-- **Stage 3:** multiple watchlists with notes and triggers (margin of safety above X%, price below $Y), "Add to watchlist" on company pages, and watchlist companies listed first in What changed.
+- **Stage 3:** done 2026-10-05, see §22.
 - **Stage 4:** `signal_outcomes` (total return including dividends, universe-average benchmark, excess return, valuation gap closed, delisted companies at their last price), monthly summaries kept permanently, detail rows deleted after 14 months, and the Track record page: verdict panel with confidence (under 30 signals too early, 30 to 100 moderate, over 100 solid), Missed opportunities, and Still actionable (new, open, moved on), filterable by rules version.
 - **Browser editing safeguards (stages 2 and 3):** the same password as viewing, changes accepted only from Sift's own pages, and a confirmation before anything is deleted.
+
+---
+
+## 22. Watchlists (`src/watchlist/lists.py`, stage 3 added 2026-10-05)
+
+**Purpose.** Follow companies without owning them, in as many named lists as you like, with a reason and a price or value level for each, so the dashboard says when one gets there.
+
+**Model.** `watchlists` (name, unique ignoring case and repeated spaces) and `watchlist_items` keyed `(watchlist_id, company_id)`: optional `note` (up to 500 characters), `mos_above` (percent, may be negative) and `price_below` (above zero). Both foreign keys cascade, so deleting a list deletes its entries and nothing else. Entries reference `companies`, so only companies Sift values can be watched; adding any other code is refused with a pointer to the nightly ticker file (`allords.txt`). That file and these lists are different things: the file decides what gets valued, a list decides what you follow.
+
+**Triggers (`triggers()`).** Judged against the screener's own row for the company: margin of safety **strictly above** `mos_above`, latest close **at or below** `price_below`. A company with no current value or price meets neither. An entry is "triggered" while any trigger is met; it's a live state, not a stored event (known-issue #28).
+
+**Where watchlists show.**
+- **Watchlists pages:** `#/watchlists` (a card per list with company and trigger counts, and a create form; `?new=1` jumps to it) and `#/watchlist/{id}` (entries, triggered first, with score, price, margin of safety, valuation, action, each trigger ticked or not, and the note; one form adds a company or, via Edit, updates its note and triggers; rename and delete).
+- **Company page:** "☆ Add to watchlist" opens a panel ticking every list the company is on; ticking adds, unticking removes (asking first, and saying when a note or triggers will go), and naming a new list creates it with the company on it. A line under the strip names the lists and whether a trigger is met.
+- **Screener:** a pink ★ after the code (hover for the list names) and a filter: any watchlist, or one by name (`#/screener?watchlist=NAME` presets it).
+- **Dashboard:** triggered entries join Needs attention with the list, the trigger and the note; What changed lists watchlist companies first, then better moves first.
+- **Menu:** the Watchlists dropdown lists every watchlist, plus All watchlists and + New watchlist.
+
+**API.** `GET /api/watchlists` (counts; `?brief=1` names only), `POST /api/watchlists` (optionally with `asx_code` to start it with that company), `GET|PATCH|DELETE /api/watchlists/{id}`, `PUT /api/watchlists/{id}/items/{code}` (add or update: the same call), `DELETE /api/watchlists/{id}/items/{code}`. The screener rows carry `watchlists` (list names), the company payload carries every list with membership, note and triggers, and the dashboard carries `triggered`. Writes go through the same password, same-page guard and one-transaction `change()` as portfolios (§19.1); rule breaks return a 400 with a plain-English message.
