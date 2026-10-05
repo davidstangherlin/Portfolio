@@ -226,6 +226,30 @@ python gui.py --lan     # also your phone on home Wi-Fi (see below)
 ```
 Press `Ctrl+C` to stop it.
 
+- **Menu bar:** Dashboard, Screener, Watchlists, Portfolios, Track record and Markets (links
+  to the ASX, the ASX's exchange traded funds (ETFs) list, the New York Stock Exchange (NYSE)
+  and Nasdaq, opening in a new tab). The pink underline shows where you are. On a phone or
+  narrow window the menu folds behind the ☰ button. Watchlists and multiple portfolios
+  arrive in later updates; the menus say so for now.
+- **Find a company:** type a code or part of a name in the search box and pick from the list,
+  or press Enter, to jump straight to that company's page.
+- **Data chip:** next to the search box, the date of the latest prices and valuations. Green
+  when current; amber with a "!" when the data is behind the last weekday's close (the
+  nightly job didn't run, or it was a public holiday) or the last nightly run crashed or
+  didn't finish. Hover it for the details, including when the last run started and finished
+  and how many companies it couldn't update.
+- **Dashboard (home page):** your portfolio's value, today's change, unrealised gain and cost
+  base; **Needs attention** (held shares flagged SELL or REVIEW, and parcels reaching the
+  capital gains tax (CGT) discount within 90 days); **What changed** (companies whose suggested
+  action moved since the previous night, better first); **Top opportunities** (BUY, then
+  INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
+  it); and how far the track record has got.
+- **My holdings (Portfolios menu):** every open holding with units, cost base, price, value,
+  gain, today's change, suggested action and the CGT discount date.
+- **Track record:** Sift records every company's suggested action, valuation and score each
+  night, never editing them afterwards, so they can be checked against what the share price
+  did next. Results start one month after recording begins; until then the page shows
+  what's been recorded and when each set of results is due.
 - **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or
@@ -324,7 +348,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → valuation → screener, logging everything to a timestamped file
+schema update → ingestion → valuation → signal record (for the track record) → screener, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step runs even if
 a previous one hit problems, so a transient Yahoo Finance network error
 during ingestion doesn't block valuation/screener from running against
@@ -365,8 +389,9 @@ command yourself (no psql or password prompt needed).
      start is missed" so a missed run (machine off at 6pm) catches up next
      time it's on.
 4. Run the task once manually (right-click → Run) to confirm it works, then
-   check `logs\refresh_<timestamp>.log` for the three phase headers and no
-   unexpected errors.
+   check `logs\refresh_<timestamp>.log` for the phase headers and no
+   unexpected errors. The Sift dashboard's data chip and footer also show how the last run
+   went.
 
 ## Known Data Model Limitations
 

@@ -66,6 +66,7 @@ Portfolio/
 │   │   ├── dividend_payment.py         DividendPayment model - one row per ex-dividend date (§20)
 │   │   ├── financial_report.py         FinancialReport model
 │   │   ├── holding.py                  Holding model - one share parcel (§19)
+│   │   ├── signal_snapshot.py          SignalSnapshot model - what Sift said each night (§21)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
 │   │   ├── yahoo_client.py             yfinance wrapper, all external I/O isolated here
@@ -87,9 +88,13 @@ Portfolio/
 │   │   ├── cgt.py                      Australian CGT arithmetic: cost base, 12-month discount, FY summary
 │   │   └── holdings.py                 Parcel add/sell (with splitting)/delete, position summaries
 │   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
-│   └── screening/
-│       ├── actions.py                  Suggested action + reason per company (§9.1)
-│       └── scores.py                   Score wheel: 5 axes x 6 yes/no checks (§20)
+│   ├── screening/
+│   │   ├── actions.py                  Suggested action + reason per company (§9.1)
+│   │   ├── enriched.py                 Screener rows + scores + valuation status, shared by GUI and tracking (§21)
+│   │   └── scores.py                   Score wheel: 5 axes x 6 yes/no checks (§20)
+│   └── tracking/                       Prediction track record (§21)
+│       ├── signals.py                  Nightly signal snapshots, action changes, recording status
+│       └── record_signals.py           CLI entrypoint; nightly step 3 (§16)
 ├── screen_asx.py                       Root-level CLI: the value screener
 ├── portfolio.py                        Root-level CLI: record parcels, list positions, CGT report (§19)
 ├── gui.py                              Root-level web GUI server: FastAPI over the screener's own loader (§20)
@@ -109,20 +114,22 @@ Portfolio/
 │   │   ├── test_dividends.py, test_graham.py, test_dcf.py, test_ddm.py
 │   │   ├── test_engine.py              Sector routing, overflow clamping, trend fields - real historical regressions
 │   │   ├── test_markers.py, test_cgt.py, test_actions.py
+│   │   ├── test_dashboard.py           Nightly-log reading, stale-data weekday rule, valuation status
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
 │       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
 │       ├── test_screener.py            build_query()/annotate_row() against the real view, held vs not-held actions
 │       ├── test_portfolio.py           Parcel splitting, brokerage apportionment, sell order, guards
 │       ├── test_ingestion.py           Franking by domicile, country backfill
-│       └── test_gui.py                 Web API payloads and the password guard (§20)
+│       ├── test_gui.py                 Web API payloads, dashboard and the password guard (§20)
+│       └── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
 └── docs/
     ├── AS_BUILT.md                     This document
     ├── OVERVIEW.md                     Plain-English summary: what, why, who
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 156-test suite (§10.12, §10.13).
+**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 239-test suite (§10.12, §10.13).
 
 ---
 
@@ -153,6 +160,7 @@ erDiagram
     companies ||--o{ financial_reports : has
     companies ||--o{ valuation_metrics : has
     companies ||--o{ dividend_payments : has
+    companies ||--o{ signal_snapshots : has
 
     companies {
         uuid company_id PK
@@ -254,11 +262,26 @@ erDiagram
         text notes
         uuid split_from_id FK "self-reference for partial sales"
     }
+    signal_snapshots {
+        uuid company_id PK,FK
+        date snapshot_date PK "the price date the valuation used"
+        numeric price
+        varchar action
+        boolean held
+        varchar valuation_status
+        numeric margin_of_safety_percent
+        numeric estimated_value
+        smallint score_total "plus one column per spoke"
+        boolean mos_ok "plus roe_ok, de_ok, yield_ok"
+        text_array red_flags
+        varchar rules_version
+    }
 ```
 
 ### 4.2 Constraints of Note
 
 - `companies.ticker` and `companies.asx_code` are both `UNIQUE`
+- `signal_snapshots` has `PRIMARY KEY (company_id, snapshot_date)`, and the recorder inserts with `ON CONFLICT DO NOTHING`: a date once recorded is never rewritten (§21)
 - `daily_prices` has a `UNIQUE (company_id, price_date)` constraint — one price per company per day, and the upsert logic in `price_ingestion.py` relies on this as its conflict target
 - `financial_reports` has a `UNIQUE (company_id, fiscal_year, period_type)` constraint and a `CHECK (period_type IN ('FY', 'H1', 'H2'))`
 - `valuation_metrics` has `UNIQUE (company_id, as_of_date)` — one valuation snapshot per company per day
@@ -725,6 +748,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 23 | Web GUI phone access uses HTTP Basic authentication over plain HTTP | On a shared or compromised network the password and holdings could be read in transit | Use `--lan` only on your own home Wi-Fi (network set to Private), never port-forward it; the default mode listens on this PC only |
 | 24 | Yahoo's dividend feed mixed in one-off distributions and was summed by calendar year | A capital return read as a dividend (TWR: 519% payout, 107% yield, inflated DDM value, false "cut"); dividends half a year out of step with earnings for September and December year-ends | Resolved 2026-10-05: `dividend_history.py` (§7.6) excludes abnormal distributions (shown, not hidden) and matches dividends to each financial year |
 | 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD; EPS, book value and free cash flow were compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Resolved 2026-10-05: statements converted into the trading currency at each balance date's rate during ingestion (§7.7). Residual: revenue trend is measured in AUD, so it includes currency movements |
+| 26 | The track record starts from the night signal recording first runs (stage 1, 2026-10-05) and can't be backfilled | No accuracy results until a month after the first recording; 12-month results take a year. Reconstructing past signals from today's data would use information the rules didn't have at the time, flattering the results | By design. The dashboard and Track record page show when each horizon's first results are due |
 
 ---
 
@@ -845,10 +869,13 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for the score breakdown to collapse, keeping each spoke's score visible, with a pink twisty. Each spoke is now a collapsible section, closed by default, plus Expand all / Collapse all. Checked in headless Chromium, light and dark. §20 |
 | 2026-10-05 | User asked for the 0% line in "Margin of safety over time" to be pink. The zero line now uses the pink `--twisty` token (1.5px, `.zero-line`), and the chart's hint explains it (0% = price equals estimated value). §20 |
 | 2026-10-05 | User asked for a pink "D" on the 12-month price chart when a dividend is paid, added to the legend and table. Added `dividend_payments` table and model (individual payments were not stored before, only yearly totals), filled during fundamentals ingestion with the abnormal flag; `/api/company` returns the last 12 months; chart markers at ex-dividend dates (Yahoo has no payment dates), outlined for one-offs, legend entries and a Dividend column in the data table. 2 new tests (221 total). §20 |
+| 2026-10-05 | User asked for a way to track prediction accuracy, finalised the design over two rounds (benchmark against the screened universe; 1, 3, 6 and 12 months; from today only; 14 months of detail plus monthly summaries; a verdict panel, missed opportunities and still-actionable lists) and added a menu bar, multiple watchlists and portfolios, Markets links and a dashboard home page. Built in four stages. **Stage 1** (this change): menu bar with search and a data-date chip, dashboard, holdings page, the screener moved to `#/screener`, and nightly signal recording (`signal_snapshots`, `src/tracking/`, nightly step 3) so the record starts as early as possible. Shared the GUI's row enrichment as `src/screening/enriched.py` so the GUI and the recorder judge identical rows. 239 tests pass (18 new). Checked in headless Chromium at 1280px, 1000px and 390px, light and dark, against a seeded database with two nights of signals |
 
 ---
 
 ## 16. Automation (`scripts/daily_refresh.ps1`)
+
+**Step 3, Signal Record (added 2026-10-05):** `python -m src.tracking.record_signals` runs straight after valuation and writes tonight's `signal_snapshots` (§21). Re-running it the same night changes nothing. A company whose valuation failed tonight is skipped and listed as a WARNING rather than recorded with a stale estimate. Suggested Actions is now step 4.
 
 **Step 0 (added 2026-10-05):** `python -m src.apply_schema` runs before ingestion, so a `git pull` that changes the schema can't leave the night's run failing on every company (known-issue #22). The schema runs in one transaction: if it fails, nothing changes and the later steps still run against the existing schema.
 
@@ -912,6 +939,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 17. **Currency conversion.** *"YES FIX THAT"* (known-issue #25: statements in USD/NZD compared with AUD prices). → §7.7.
 
 18. **Sift restyle.** *"Gemini did some work for the UI. Can you check the code and if it looks good apply it"*, then chose the light/dark switch, company summary strip, valuation status pill and visual restyle, and the name *"Sift"*. → §20.
+
+19. **Track record, menu bar and dashboard.** *"I want a way to track the accuracy of our predictions over time... Let's finalise the design before building."* Then a 14-month retention limit with monthly summaries, a verdict panel, missed opportunities and still-actionable lists, *"we also need to add a top line banner for menu selection"* with multiple watchlists and portfolios, Markets links and a dashboard home page, and *"yes start on stage 1"*. → §20, §21.
 
 ---
 
@@ -1002,8 +1031,9 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 
 **Architecture.**
 - `gui.py`: FastAPI app run by uvicorn. `GET /api/screener` (every row, trimmed to the fields the table needs, plus five axis scores) and `GET /api/company/{code}` (the full row, the 30 checks, the four tests with thresholds, red flags, position, 365 days of prices, margin-of-safety history and up to 5 FY reports). `/` and `/static/*` serve `web/`.
-- Both endpoints call `screen_asx.load_annotated_rows()`, the same loader the CLI uses, so the browser and `screen_asx.py` can never disagree on a test, flag or action. Two extra `DISTINCT ON` queries add `roic`, `graham_number` and the latest FY report for the score wheel without a per-company query.
-- `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` screener, `#/company/BHP`.
+- Added with the dashboard (stage 1): `GET /api/dashboard`, `GET /api/status` (the data chip) and `GET /api/companies` (the search list); see "Menu bar and dashboard" below.
+- Both endpoints call `screen_asx.load_annotated_rows()`, the same loader the CLI uses, so the browser and `screen_asx.py` can never disagree on a test, flag or action. Two extra `DISTINCT ON` queries add `roic`, `graham_number` and the latest FY report for the score wheel without a per-company query. Since stage 1 this enrichment lives in `src/screening/enriched.py` (`load_universe()`), shared with the signal recorder (§21).
+- `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` dashboard, `#/screener` (optionally `?action=BUY,INVESTIGATE` or `?held=1` to open it pre-filtered), `#/company/BHP`, `#/portfolios`, `#/track-record`, `#/watchlists`; anything else goes to the dashboard.
 - Charts follow the dataviz method: validated categorical palette (blue/orange, checked light and dark), 2px lines, hairline grid, one axis per chart, legend only for two or more series, crosshair or per-bar tooltips, a data table under every chart, and light and dark themes.
 
 **Field explanations.** Every screener column heading, every label in the company page's markers and key-ratios panels, and the three bar labels in "Price against estimated value" (share price, estimated value, Graham Number) carries a plain-English explanation (what it measures, the formula, and the pass threshold, read from the live thresholds so it can't drift from the rules). `withHelp()` in `app.js` shows it on mouse hover and keyboard focus; on touch screens a small "i" button shows it on tap without triggering the column sort. With a mouse the "i" buttons are hidden and headings get a dotted underline instead, which keeps the table within a 1280px screen. The estimated value explanation follows the company's model (DCF or DDM, with its growth, terminal and discount rates); labels inside SVG charts use `svgLabelHelp()`, with an SVG "i" for touch screens.
@@ -1035,3 +1065,36 @@ The wheel describes; it does not decide. The suggested action still comes only f
 - **Responsive table:** page width 1440px; Sector hides below 1360px, the valuation pill and Y/N marks below 1100px, ratios below 900px; checked to fit without horizontal scroll from 1920px down to 360px.
 
 **Run it.** See README, Web GUI: `python gui.py`, or `python gui.py --lan` with `GUI_PASSWORD` and a one-off firewall rule for phone access.
+
+**Menu bar and dashboard (stage 1, 2026-10-05).**
+- **Menu bar:** Dashboard | Screener | Watchlists ▾ | Portfolios ▾ | Track record | Markets ↗ ▾, then a company search, the data chip and the settings gear. The current page has a pink (`--twisty`) underline; a company page highlights nothing. Dropdowns open on click (so they work on touch), close on Escape, an outside click or navigation, and only one is open at a time. Below 1060px the menu folds behind a ☰ button into a vertical panel (current page marked with a pink left bar). Markets links open in a new tab with `rel="noopener noreferrer"`: ASX, the ASX exchange traded products directory, NYSE and Nasdaq. Watchlists and Portfolios carry "coming soon" entries until stages 2 and 3.
+- **Search:** a `<datalist>` of every screened code and name from `/api/companies`. Picking an entry, or pressing Enter, opens the company: exact code first, then code prefix, then name contains. No match shows a short tooltip.
+- **Data chip (`/api/status`):** newest `valuation_metrics.as_of_date`, newest price date, and the latest `logs/refresh_*.log` parsed by `last_refresh()`. Stale when the newest valuation is older than the previous weekday (so Friday's data is current all weekend; a public holiday shows amber harmlessly). The log reader handles UTF-8 and UTF-16 (PowerShell) files and classifies a run as `ok`, `errors` (one or more ERROR lines: individual companies that failed, normal on most nights), `crashed` (a traceback with no ERROR line before it: a whole step died), `running` (unfinished and under 3 hours old) or `incomplete`. Amber, with a "!", only for stale data, `crashed` or `incomplete`, so routine Yahoo gaps don't train you to ignore it.
+- **Dashboard (`/api/dashboard`):** one `load_universe()` call feeds: a portfolio strip (value at the latest close, today's change from the two latest closes, unrealised gain, cost base); Needs attention (held SELL/REVIEW with reasons, parcels reaching the CGT discount within 90 days, holdings not on the watchlist file); What changed (§21); Top opportunities (up to six, BUY then INVESTIGATE, by score total then margin of safety; shares you hold are excluded because their actions are the held set); action counts linking to the pre-filtered screener; recording status; and a footer repeating the data status in full.
+- **My holdings (`#/portfolios`):** the same portfolio payload as a table, until stage 2 brings multiple portfolios and trade entry in the browser.
+- **Back link:** a company page's back link returns to the page you came from (dashboard, screener with its filters, holdings or track record), defaulting to the screener.
+
+---
+
+## 21. Track Record: Signal Recording (`src/tracking/`, stage 1 added 2026-10-05)
+
+**Purpose.** Answer "is Sift right?" with evidence: record what Sift said about every company each night, then (from stage 4) compare it with what the share price did over the following 1, 3, 6 and 12 months against the average of every screened company. Recording starts first, because results can only ever be measured forward from the first night recorded (known-issue #26).
+
+**What is recorded (`signal_snapshots`, §4).** One row per screened company per valuation date: closing price on that date, suggested action and reason, whether it was held, valuation status, margin of safety, estimated value and model, score total and per spoke, the four value tests, red flags and `rules_version`. Written by `record_signals()` straight after valuation (nightly step 3, §16).
+
+**Rules.**
+- **Never edited.** `INSERT ... ON CONFLICT DO NOTHING` on `(company_id, snapshot_date)`. A second run the same night, or a later rule change, can't rewrite what was said at the time.
+- **Dated by the valuation, not the run.** `snapshot_date` is the company's latest `valuation_metrics.as_of_date`, which is the price date the valuation used.
+- **Stale valuations are skipped.** If a company's newest price is newer than its newest valuation (its valuation failed tonight), it is not recorded and is logged as a WARNING, rather than pairing yesterday's estimate with today's price.
+- **`RULES_VERSION`** (`src/tracking/signals.py`, currently `2026-10-05`) is the date the screening rules last changed. Bump it whenever thresholds, actions, scores or valuation models change, so each rule set is judged on its own results.
+- **Same rows as the GUI.** The recorder uses `load_universe()` (`src/screening/enriched.py`), the loader the dashboard and screener use, so the record holds exactly what was on screen.
+
+**What changed (dashboard).** `signal_changes()` compares the latest two snapshot dates. Each action has a rank (BUY and ACCUMULATE 1, INVESTIGATE 2, WATCH and HOLD 3, REVIEW and IGNORE 4, AVOID and SELL 5). A move between equal ranks is not a change (BUY to ACCUMULATE after buying), and neither is any move where the held flag changed, because buying or selling, not the market, caused it. Better moves are listed first.
+
+**Recording status.** `tracking_status()` gives first and latest dates, nights recorded, signals recorded, companies on the latest night and the date each horizon's first results are due (first date plus 1, 3, 6 and 12 months).
+
+**Still to come (agreed design).**
+- **Stage 2:** multiple portfolios with a tax type each (individual or trust 50% CGT discount, SMSF 33⅓%, company 0%), archived rather than deleted once they have sales (records kept five years), trade entry in the browser, and `portfolio.py --portfolio`.
+- **Stage 3:** multiple watchlists with notes and triggers (margin of safety above X%, price below $Y), "Add to watchlist" on company pages, and watchlist companies listed first in What changed.
+- **Stage 4:** `signal_outcomes` (total return including dividends, universe-average benchmark, excess return, valuation gap closed, delisted companies at their last price), monthly summaries kept permanently, detail rows deleted after 14 months, and the Track record page: verdict panel with confidence (under 30 signals too early, 30 to 100 moderate, over 100 solid), Missed opportunities, and Still actionable (new, open, moved on), filterable by rules version.
+- **Browser editing safeguards (stages 2 and 3):** the same password as viewing, changes accepted only from Sift's own pages, and a confirmation before anything is deleted.

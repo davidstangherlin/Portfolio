@@ -6,10 +6,12 @@
 
 A small local web server over the same database and the same rules as
 screen_asx.py - it calls the screener's own row loader, so the browser
-and the command line can never disagree. Two screens: a filterable,
-sortable screener table, and a company page with a score wheel (see
-src/screening/scores.py), price against estimated value, price and
-margin-of-safety history, and five years of financials.
+and the command line can never disagree. Screens: a dashboard (what needs
+attention, what changed, top opportunities, how the track record is
+coming along), a filterable, sortable screener table, a company page with
+a score wheel (see src/screening/scores.py), price against estimated
+value, price and margin-of-safety history and five years of financials,
+and a holdings page.
 
 Read-only: it never writes to the database.
 """
@@ -20,29 +22,37 @@ import argparse
 import base64
 import binascii
 import os
+import re
 import secrets
 import socket
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
 from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
 from src.screening.actions import ACTION_ORDER, red_flags
+from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
+from src.tracking.signals import signal_changes, tracking_status
 from src.valuation import dcf as dcf_module, ddm as ddm_module
 
-WEB_DIR = Path(__file__).resolve().parent / "web"
+REPO_DIR = Path(__file__).resolve().parent
+WEB_DIR = REPO_DIR / "web"
+LOG_DIR = REPO_DIR / "logs"
 DEFAULT_PORT = 8000
 PRICE_HISTORY_DAYS = 365
 REPORT_HISTORY_YEARS = 5
+CGT_SOON_DAYS = 90  # dashboard: parcels reaching the CGT discount within this many days
+TOP_OPPORTUNITIES = 6
+ATTENTION_ACTIONS = ("SELL", "REVIEW")
 
 # Screener table payload - everything the table, filters and mini score
 # wheel need, and nothing else, to keep ~500 rows light on a phone.
@@ -79,33 +89,6 @@ def _authorised(header: str | None, password: str) -> bool:
     return secrets.compare_digest(supplied.encode("utf-8"), password.encode("utf-8"))
 
 
-def _latest_extras(session) -> tuple[dict[str, dict], dict[str, FinancialReport], date | None]:
-    """Per company: the valuation_metrics columns the screener view doesn't
-    carry (roic, graham_number), and the latest FY report for the health
-    checks. Two DISTINCT ON queries rather than one per company."""
-    metrics = session.execute(text("""
-        SELECT DISTINCT ON (v.company_id) c.asx_code, v.roic, v.graham_number, v.as_of_date
-        FROM valuation_metrics v JOIN companies c ON c.company_id = v.company_id
-        ORDER BY v.company_id, v.as_of_date DESC
-    """)).mappings().all()
-    reports = session.execute(
-        select(Company.asx_code, FinancialReport)
-        .join(FinancialReport, FinancialReport.company_id == Company.company_id)
-        .where(FinancialReport.period_type == "FY")
-        .distinct(FinancialReport.company_id)
-        .order_by(FinancialReport.company_id, FinancialReport.fiscal_year.desc())
-    ).all()
-    as_of = max((m["as_of_date"] for m in metrics), default=None)
-    return {m["asx_code"]: dict(m) for m in metrics}, {code: report for code, report in reports}, as_of
-
-
-def _with_extras(row: dict, extras: dict | None) -> dict:
-    row = dict(row)
-    row["roic"] = (extras or {}).get("roic")
-    row["graham_number"] = (extras or {}).get("graham_number")
-    return row
-
-
 def _card_payload(card) -> dict:
     scores = axis_scores(card)
     return {
@@ -115,18 +98,15 @@ def _card_payload(card) -> dict:
 
 
 def screener_payload(session, today: date) -> dict:
-    args = screener_defaults([])
-    rows, _ = load_annotated_rows(session, args, today)
-    extras, reports, as_of = _latest_extras(session)
+    universe = load_universe(session, today)
+    args = universe.args
     out = []
-    for r in rows:
-        row = _with_extras(r, extras.get(r["asx_code"]))
-        scores = axis_scores(score_card(row, reports.get(r["asx_code"])))
+    for row in universe.rows:
         item = {f: row.get(f) for f in _SCREENER_FIELDS}
-        item["scores"] = [scores[a] for a in AXES]
+        item["scores"] = score_list(row)
         out.append(item)
     return {
-        "as_of": as_of,
+        "as_of": universe.as_of,
         "axes": list(AXES),
         "checks_per_axis": CHECKS_PER_AXIS,
         "actions": [a for a in ACTION_ORDER],
@@ -186,7 +166,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         .order_by(ValuationMetric.as_of_date)
     ).all()
 
-    row = _with_extras(row, {"roic": metric.roic, "graham_number": metric.graham_number})
+    row = with_extras(row, {"roic": metric.roic, "graham_number": metric.graham_number})
     for field in ("dcf_intrinsic_value", "uncapped_dividend_yield", "price_to_fcf", "ev_to_ebit",
                   "cash_conversion", "price_vs_200d", "range_position_52w", "margin_of_safety_trend", "pb_ratio"):
         row[field] = getattr(metric, field)
@@ -236,6 +216,177 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
     }
 
 
+# ---------- dashboard ----------
+
+_LOG_STARTED = re.compile(r"Daily Refresh Started: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+_LOG_FINISHED = re.compile(r"Daily Refresh Finished: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+_LOG_ERROR = " ERROR "  # logging's level field; each company that fails logs one of these
+_TRACEBACK = "Traceback (most recent call last)"
+RUN_STILL_GOING_HOURS = 3  # an unfinished log younger than this is a run in progress, not a crash
+
+
+def _previous_weekday(d: date) -> date:
+    d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def last_refresh(log_dir: Path, now: datetime) -> dict | None:
+    """The newest nightly log (scripts/daily_refresh.ps1): when it ran,
+    whether it finished, how many errors it logged, and whether a whole
+    step crashed.
+
+    A company that fails is logged as one ERROR line followed by its
+    traceback, and the run carries on: a few of these most nights are
+    normal (Yahoo has gaps). A traceback with no ERROR line before it is a
+    step that crashed outright, which is what turns the status to
+    "crashed"."""
+    logs = sorted(log_dir.glob("refresh_*.log"))
+    if not logs:
+        return None
+    raw = logs[-1].read_bytes()
+    body = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8", errors="replace")
+    started, finished = _LOG_STARTED.search(body), _LOG_FINISHED.search(body)
+    started_at = datetime.strptime(started.group(1), "%Y-%m-%d %H:%M:%S") if started else None
+    finished_at = datetime.strptime(finished.group(1), "%Y-%m-%d %H:%M:%S") if finished else None
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    errors = [line for line in lines if _LOG_ERROR in line]
+    crashes = sum(1 for i, line in enumerate(lines) if _TRACEBACK in line and (i == 0 or _LOG_ERROR not in lines[i - 1]))
+    if not finished_at:
+        recent = started_at and now - started_at < timedelta(hours=RUN_STILL_GOING_HOURS)
+        status = "running" if recent else "incomplete"
+    else:
+        status = "crashed" if crashes else "errors" if errors else "ok"
+    return {"file": logs[-1].name, "started": started_at, "finished": finished_at, "status": status,
+            "errors": len(errors), "crashes": crashes, "first_error": errors[0][:300] if errors else None}
+
+
+def status_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR) -> dict:
+    """The data-date chip in the menu bar: how fresh the prices and
+    valuations are, and how the last nightly run went."""
+    as_of = session.execute(select(func.max(ValuationMetric.as_of_date))).scalar_one()
+    prices = session.execute(select(func.max(DailyPrice.price_date))).scalar_one()
+    expected = _previous_weekday(today)
+    return {
+        "as_of": as_of,
+        "latest_price_date": prices,
+        "expected": expected,
+        # Amber when the newest valuation is older than the last weekday's
+        # close (a public holiday also shows amber, harmlessly).
+        "stale": as_of is None or as_of < expected,
+        "last_run": last_refresh(log_dir, now),
+    }
+
+
+def _two_latest_closes(session, codes: set[str]) -> dict[str, list]:
+    if not codes:
+        return {}
+    rows = session.execute(text("""
+        SELECT asx_code, close_price, price_date FROM (
+            SELECT c.asx_code, p.close_price, p.price_date,
+                   ROW_NUMBER() OVER (PARTITION BY p.company_id ORDER BY p.price_date DESC) AS n
+            FROM daily_prices p JOIN companies c ON c.company_id = p.company_id
+            WHERE c.asx_code = ANY(:codes)
+        ) ranked WHERE n <= 2 ORDER BY asx_code, price_date DESC
+    """), {"codes": sorted(codes)}).all()
+    out: dict[str, list] = {}
+    for code, close, _ in rows:
+        out.setdefault(code, []).append(close)
+    return out
+
+
+def portfolio_payload(session, universe, today: date) -> dict:
+    """Every open holding valued at the latest close, with the day's move
+    and the screener's suggested action."""
+    rows = {r["asx_code"]: r for r in universe.rows}
+    closes = _two_latest_closes(session, set(universe.positions))
+    names = dict(session.execute(
+        select(Company.asx_code, Company.company_name).where(Company.asx_code.in_(universe.positions))
+    ).all()) if universe.positions else {}
+    holdings = []
+    for code, pos in sorted(universe.positions.items()):
+        row = rows.get(code)
+        last = closes.get(code, [])
+        price = last[0] if last else None
+        value = pos.units * price if price is not None else None
+        holdings.append({
+            "asx_code": code, "company_name": names.get(code), "units": pos.units, "cost_base": pos.cost_base,
+            "price": price, "value": value,
+            "gain": value - pos.cost_base if value is not None else None,
+            "day_change": pos.units * (last[0] - last[1]) if len(last) == 2 else None,
+            "action": row["action"] if row else None, "action_reason": row["action_reason"] if row else None,
+            "valuation_status": row["valuation_status"] if row else None,
+            "next_discount_date": pos.next_discount_date, "units_pending_discount": pos.units_pending_discount,
+        })
+    priced = [h for h in holdings if h["value"] is not None]
+    value = sum((h["value"] for h in priced), Decimal("0"))
+    cost = sum((h["cost_base"] for h in priced), Decimal("0"))
+    day = [h["day_change"] for h in priced if h["day_change"] is not None]
+    return {
+        "holdings": holdings,
+        "value": value if priced else None,
+        "cost_base": cost if priced else None,
+        "gain": value - cost if priced else None,
+        "day_change": sum(day, Decimal("0")) if day else None,
+        "unpriced": [h["asx_code"] for h in holdings if h["value"] is None],
+    }
+
+
+def _brief(row: dict) -> dict:
+    return {"asx_code": row["asx_code"], "company_name": row["company_name"], "sector": row["sector"],
+            "action": row["action"], "action_reason": row["action_reason"], "price": row["current_price"],
+            "margin_of_safety_percent": row["margin_of_safety_percent"],
+            "valuation_status": row["valuation_status"], "scores": score_list(row)}
+
+
+def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR) -> dict:
+    universe = load_universe(session, today)
+    rows = universe.rows
+    portfolio = portfolio_payload(session, universe, today)
+
+    attention = [_brief(r) for r in rows if r["held"] is not None and r["action"] in ATTENTION_ACTIONS]
+    attention.sort(key=lambda b: (ATTENTION_ACTIONS.index(b["action"]), b["asx_code"]))
+    screened = {r["asx_code"] for r in rows}
+    cgt_soon = [
+        {"asx_code": h["asx_code"], "date": h["next_discount_date"], "units": h["units_pending_discount"],
+         "days": (h["next_discount_date"] - today).days}
+        for h in portfolio["holdings"]
+        if h["next_discount_date"] and 0 <= (h["next_discount_date"] - today).days <= CGT_SOON_DAYS
+    ]
+    cgt_soon.sort(key=lambda c: c["date"])
+
+    def rank(r):
+        return (-sum(r["axis_scores"].values()), -(r["margin_of_safety_percent"] or 0), r["asx_code"])
+    buys = sorted((r for r in rows if r["action"] == "BUY"), key=rank)
+    investigate = sorted((r for r in rows if r["action"] == "INVESTIGATE"), key=rank)
+    top = [_brief(r) for r in (buys + investigate)[:TOP_OPPORTUNITIES]]
+
+    return {
+        "status": status_payload(session, today, now, log_dir),
+        "axes": list(AXES),
+        "checks_per_axis": CHECKS_PER_AXIS,
+        "companies": len(rows),
+        "action_counts": {a: sum(1 for r in rows if r["action"] == a) for a in ACTION_ORDER},
+        "attention": attention,
+        "not_screened": sorted(set(universe.positions) - screened),
+        "cgt_soon": cgt_soon,
+        "cgt_soon_days": CGT_SOON_DAYS,
+        "portfolio": portfolio,
+        "changes": signal_changes(session),
+        "tracking": tracking_status(session),
+        "top": top,
+        "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
+                       "debt_to_equity": universe.args.max_debt_equity, "yield": universe.args.min_yield},
+    }
+
+
+def companies_index(session) -> list[dict]:
+    """Code and name of every screened company, for the menu bar search."""
+    rows = session.execute(text("SELECT asx_code, company_name FROM asx_value_screener ORDER BY asx_code")).all()
+    return [{"code": code, "name": name} for code, name in rows]
+
+
 def create_app(password: str | None = None) -> FastAPI:
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -247,6 +398,21 @@ def create_app(password: str | None = None) -> FastAPI:
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @app.get("/api/status")
+    def api_status():
+        with get_session() as session:
+            return JSONResponse(_json_ready(status_payload(session, date.today(), datetime.now())))
+
+    @app.get("/api/dashboard")
+    def api_dashboard():
+        with get_session() as session:
+            return JSONResponse(_json_ready(dashboard_payload(session, date.today(), datetime.now())))
+
+    @app.get("/api/companies")
+    def api_companies():
+        with get_session() as session:
+            return JSONResponse(companies_index(session))
 
     @app.get("/api/screener")
     def api_screener():

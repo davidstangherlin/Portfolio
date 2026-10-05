@@ -19,23 +19,60 @@
       <a class="brand" href="#/" aria-label="Sift home">
         <span class="logo" aria-hidden="true">S</span>
         <span class="brand-name">Sift</span>
-        <span class="brand-tag">ASX value screener</span>
       </a>
-      <span class="asof" id="asof"></span>
-      <div class="settings-wrap">
-        <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </button>
-        <div class="settings" id="settings" role="dialog" aria-label="Settings" hidden>
-          <h3>Settings</h3>
-          <div class="label">Theme</div>
-          <div class="segmented" role="group" aria-label="Theme">
-            <button type="button" data-theme-choice="light">Light</button>
-            <button type="button" data-theme-choice="dark">Dark</button>
-            <button type="button" data-theme-choice="system">System</button>
+      <button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mainnav">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav class="mainnav" id="mainnav" aria-label="Main">
+        <a href="#/" data-nav="dashboard">Dashboard</a>
+        <a href="#/screener" data-nav="screener">Screener</a>
+        <div class="dd" data-nav="watchlists">
+          <button type="button" class="dd-btn" aria-expanded="false" aria-haspopup="true">Watchlists <svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="dd-menu" hidden>
+            <a href="#/watchlists">All watchlists</a>
+            <span class="dd-soon">New watchlist (coming soon)</span>
+          </div>
+        </div>
+        <div class="dd" data-nav="portfolios">
+          <button type="button" class="dd-btn" aria-expanded="false" aria-haspopup="true">Portfolios <svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="dd-menu" hidden>
+            <a href="#/portfolios">My holdings</a>
+            <span class="dd-soon">New portfolio (coming soon)</span>
+          </div>
+        </div>
+        <a href="#/track-record" data-nav="track-record">Track record</a>
+        <div class="dd" data-nav="markets">
+          <button type="button" class="dd-btn" aria-expanded="false" aria-haspopup="true">Markets <svg class="ext" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5 5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg> <svg class="caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="dd-menu" hidden>
+            <a href="https://www.asx.com.au" target="_blank" rel="noopener noreferrer">ASX (Australian Securities Exchange) <svg class="ext" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5 5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+            <a href="https://asx.com.au/markets/trade-our-cash-market/asx-investment-products-directory/etps" target="_blank" rel="noopener noreferrer">ASX exchange traded funds (ETFs) <svg class="ext" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5 5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+            <a href="https://www.nyse.com" target="_blank" rel="noopener noreferrer">NYSE (New York Stock Exchange) <svg class="ext" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5 5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+            <a href="https://www.nasdaq.com" target="_blank" rel="noopener noreferrer">Nasdaq <svg class="ext" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5 5.5 6.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+      </nav>
+      <div class="nav-tools">
+        <form class="nav-search" id="nav-search" role="search" autocomplete="off">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="nav-search-input" list="company-list" placeholder="Find a company" aria-label="Find a company by code or name">
+          <datalist id="company-list"></datalist>
+        </form>
+        <a class="data-chip" id="data-chip" href="#/" hidden></a>
+        <div class="settings-wrap">
+          <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+          <div class="settings" id="settings" role="dialog" aria-label="Settings" hidden>
+            <h3>Settings</h3>
+            <div class="label">Theme</div>
+            <div class="segmented" role="group" aria-label="Theme">
+              <button type="button" data-theme-choice="light">Light</button>
+              <button type="button" data-theme-choice="dark">Dark</button>
+              <button type="button" data-theme-choice="system">System</button>
+            </div>
           </div>
         </div>
       </div>

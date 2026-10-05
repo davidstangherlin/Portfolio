@@ -206,6 +206,41 @@ CREATE TABLE IF NOT EXISTS holdings (
     CHECK (sell_date IS NULL OR sell_date >= buy_date)
 );
 
+-- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
+-- What Sift said about each company on each valuation date: the suggested
+-- action, valuation status, estimate and scores, exactly as shown that
+-- night. Written once by the nightly job and never edited (ON CONFLICT DO
+-- NOTHING), so later rule changes can't rewrite history: rules_version
+-- records which rules produced each row. The track record compares these
+-- against what the price did next. Kept for 14 months; monthly summaries
+-- are kept for good (both from the track-record release).
+CREATE TABLE IF NOT EXISTS signal_snapshots (
+    company_id UUID NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
+    snapshot_date DATE NOT NULL,                 -- the price date the valuation used
+    price NUMERIC(12, 4) NOT NULL,               -- close on snapshot_date: the starting point for outcomes
+    action VARCHAR(12) NOT NULL,
+    action_reason TEXT,
+    held BOOLEAN NOT NULL DEFAULT FALSE,         -- held actions (SELL/REVIEW/ACCUMULATE/HOLD) differ from the rest
+    valuation_status VARCHAR(12) NOT NULL,       -- Undervalued / Fair value / Overvalued / No estimate
+    margin_of_safety_percent NUMERIC(6, 2),
+    estimated_value NUMERIC(12, 4),
+    valuation_method VARCHAR(4),
+    score_total SMALLINT NOT NULL,               -- score wheel, out of 30
+    score_value SMALLINT NOT NULL,
+    score_performance SMALLINT NOT NULL,
+    score_health SMALLINT NOT NULL,
+    score_dividend SMALLINT NOT NULL,
+    score_momentum SMALLINT NOT NULL,
+    mos_ok BOOLEAN NOT NULL,                     -- the four value tests
+    roe_ok BOOLEAN NOT NULL,
+    de_ok BOOLEAN NOT NULL,
+    yield_ok BOOLEAN NOT NULL,
+    red_flags TEXT[] NOT NULL DEFAULT '{}',
+    rules_version VARCHAR(10) NOT NULL,          -- date the screening rules last changed
+    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (company_id, snapshot_date)
+);
+
 -- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
 SELECT
@@ -247,3 +282,4 @@ CREATE INDEX IF NOT EXISTS idx_companies_asx ON companies(asx_code);
 CREATE INDEX IF NOT EXISTS idx_daily_prices_date ON daily_prices(company_id, price_date DESC);
 CREATE INDEX IF NOT EXISTS idx_financials_year ON financial_reports(company_id, fiscal_year DESC);
 CREATE INDEX IF NOT EXISTS idx_holdings_asx ON holdings(asx_code);
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_date ON signal_snapshots(snapshot_date);

@@ -99,3 +99,53 @@ def test_company_api_lists_the_years_dividends_for_the_price_chart(seeded):
     seeded.commit()
     data = TestClient(gui.create_app()).get("/api/company/GOOD").json()
     assert data["dividends"] == [{"ex_date": "2026-03-05", "amount": 0.3, "abnormal": False}]  # last 12 months only
+
+
+def test_dashboard_lists_holdings_attention_and_opportunities(seeded, tmp_path):
+    from datetime import datetime
+
+    from src.tracking.signals import record_signals
+
+    record_signals(seeded, date(2026, 10, 2))
+    seeded.commit()
+    data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0), log_dir=tmp_path))
+
+    assert data["companies"] == 2 and data["action_counts"]["ACCUMULATE"] == 1
+    holding = data["portfolio"]["holdings"][0]
+    assert holding["asx_code"] == "GOOD" and holding["value"] == 1000.0 and holding["action"] == "ACCUMULATE"
+    assert data["portfolio"]["gain"] == 190.05  # 100 x $10 less $800 + $9.95 brokerage
+    assert data["portfolio"]["day_change"] is None  # only one close stored
+    assert data["attention"] == [] and data["not_screened"] == []
+    assert [t["asx_code"] for t in data["top"]] == []  # GOOD is held, DEAR is not a buy
+    assert data["tracking"]["signals_recorded"] == 2
+    assert data["changes"]["changes"] == []
+    assert data["status"]["as_of"] == "2026-10-02" and data["status"]["stale"] is False
+    assert data["status"]["last_run"] is None
+
+
+def test_cgt_discount_dates_within_90_days_need_attention(seeded):
+    from datetime import datetime
+
+    add_parcel(seeded, "DEAR", Decimal("10"), Decimal("50.00"), date(2025, 12, 1))
+    seeded.commit()
+    data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0)))
+    assert data["cgt_soon"] == [{"asx_code": "DEAR", "date": "2026-12-02", "units": 10.0, "days": 58}]
+
+
+def test_status_api_flags_stale_data(seeded):
+    from datetime import datetime
+
+    fresh = gui.status_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0))  # Monday: Friday's data is current
+    stale = gui.status_payload(seeded, date(2026, 10, 7), datetime(2026, 10, 7, 9, 0))  # Wednesday: Tuesday's is missing
+    assert fresh["stale"] is False and stale["stale"] is True
+    assert TestClient(gui.create_app()).get("/api/status").status_code == 200
+
+
+def test_companies_api_feeds_the_search_box(seeded):
+    assert TestClient(gui.create_app()).get("/api/companies").json() == [
+        {"code": "DEAR", "name": "DEAR Ltd"}, {"code": "GOOD", "name": "GOOD Ltd"}]
+
+
+def test_dashboard_api_responds(seeded):
+    data = TestClient(gui.create_app()).get("/api/dashboard").json()
+    assert {"status", "attention", "portfolio", "changes", "tracking", "top"} <= set(data)

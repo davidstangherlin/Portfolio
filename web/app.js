@@ -17,7 +17,7 @@ const state = {
   q: "", sector: "", actions: new Set(), passing: false, held: false,
   sort: { key: "action", dir: "asc" }, shown: PAGE_SIZE,
 };
-const cache = { screener: null };
+const cache = { screener: null, thresholds: null, status: null };
 
 /* ---------- DOM helpers (text always via textContent) ---------- */
 function setAttrs(el, attrs) {
@@ -74,7 +74,7 @@ const tipRow = (value, label, color) =>
 
 /* ---------- field explanations (hover, keyboard focus, or tap the "i") ---------- */
 const DEFAULT_THRESHOLDS = { margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 };
-const thresholds = () => (cache.screener && cache.screener.thresholds) || DEFAULT_THRESHOLDS;
+const thresholds = () => (cache.screener && cache.screener.thresholds) || cache.thresholds || DEFAULT_THRESHOLDS;
 const FIELD_HELP = {
   "Score": () => "Score wheel total out of 30. Five spokes (Value, Performance, Health, Dividend, Momentum), each counting six yes/no checks. Higher is better. Open a company to see every check.",
   "Company": () => "ASX code and company name. HELD marks shares you own.",
@@ -107,6 +107,11 @@ const FIELD_HELP = {
   "Implied upside": () => "How much the price would rise to reach estimated value: (value - price) / price. Not the same as margin of safety, which divides by value: a 40% margin of safety is a 67% implied upside.",
   "Estimated value": () => "Intrinsic value per share from the company's valuation model. Hover the bar label in the chart below for the model's full assumptions.",
   "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
+  "Portfolio value": () => "Units held x latest closing price, across every open parcel recorded with portfolio.py.",
+  "Today": () => "Change in the portfolio's value from the previous close to the latest close. Blank until two days of prices are stored.",
+  "Unrealised gain": () => "Portfolio value less the cost base (purchase price plus brokerage) of the shares still held. Before tax; no CGT discount applied.",
+  "Cost base": () => "What the shares still held cost: purchase price plus brokerage, the starting point for capital gains tax (CGT).",
+  "CGT discount from": () => "The first date a sale qualifies for the capital gains tax (CGT) discount: the day after the parcel has been held for 12 months.",
   "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
 };
 const ESTIMATED_VALUE_HELP = {
@@ -180,7 +185,7 @@ function valuationPill(mos, large = false) {
   const st = valuationStatus(mos);
   return h("span", { class: `pill ${st.cls}${large ? " lg" : ""}`, text: st.label });
 }
-const signClass = (v) => (v === null || v === undefined ? null : v >= 0 ? "pos" : "neg");
+const signClass = (v) => (v === null || v === undefined || v === 0 ? null : v > 0 ? "pos" : "neg");
 function badge(action) {
   return h("span", { class: `badge ${ACTION_STATUS[action] || "neutral"}`, text: action });
 }
@@ -492,8 +497,6 @@ async function renderScreener() {
     cache.screener = await getJSON("/api/screener");
   }
   const d = cache.screener;
-  document.getElementById("asof").textContent =
-    `${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`;
 
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by action" });
   const tbody = h("tbody");
@@ -543,6 +546,7 @@ async function renderScreener() {
   more.addEventListener("click", () => { state.shown += PAGE_SIZE; refresh(); });
 
   app.replaceChildren(
+    pageHead("Screener", `${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
     chips,
     h("div", { class: "controls" }, search, sector, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
     h("div", { class: "table-wrap" }, h("table", { class: "grid" }, h("thead", {}, headRow), tbody)),
@@ -572,16 +576,21 @@ function accountsCurrency(c, reports) {
   return `${from}, converted to ${to} at ${fmt(latest.fx_rate, 4)} (${longDate(latest.report_date)})`;
 }
 
+/* One headline figure: label (with its explanation), value, small note. */
+function statTile(label, valueText, cls, note) {
+  return h("div", { class: "stat" },
+    withHelp(h("div", { class: "stat-label", tabindex: 0, text: label }), label),
+    h("div", { class: `stat-value ${cls || ""}`.trim(), text: valueText }),
+    note ? h("div", { class: "stat-note", text: note }) : null);
+}
+
 /* The four headline figures at the top of a company page. */
 function summaryStrip(c, model) {
   const mos = c.margin_of_safety_percent;
   const value = c.dcf_intrinsic_value;
   const upside = value && value > 0 && c.current_price ? ((value - c.current_price) / c.current_price) * 100 : null;
   const signed = (v, dp) => (v === null || v === undefined ? NA : `${v > 0 ? "+" : ""}${fmt(v, dp)}%`);
-  const tile = (label, valueText, cls, note) => h("div", { class: "stat" },
-    withHelp(h("div", { class: "stat-label", tabindex: 0, text: label }), label),
-    h("div", { class: `stat-value ${cls || ""}`.trim(), text: valueText }),
-    note ? h("div", { class: "stat-note", text: note }) : null);
+  const tile = statTile;
   return h("div", { class: "stats" },
     tile("Share price", money(c.current_price), null, `as at ${longDate(c.as_of_date)}`),
     tile("Estimated value", value && value > 0 ? money(value) : NA, "accent", model ? `${model.method} model` : "no model could run"),
@@ -618,7 +627,7 @@ async function renderCompany(code) {
   try {
     d = await getJSON(`/api/company/${encodeURIComponent(code)}`);
   } catch (err) {
-    app.replaceChildren(h("a", { class: "back", href: "#/", text: "← All companies" }), h("p", { class: "error", text: err.message }));
+    app.replaceChildren(backLink(), h("p", { class: "error", text: err.message }));
     return;
   }
   const c = d.company;
@@ -731,9 +740,8 @@ async function renderCompany(code) {
     `You hold ${fmt(d.position.units, 0)} units, cost base ${money(d.position.cost_base)}.` +
     (d.position.next_discount_date ? ` ${fmt(d.position.units_pending_discount, 0)} units qualify for the CGT discount from ${longDate(d.position.next_discount_date)}.` : "") }) : null;
 
-  document.getElementById("asof").textContent = `Valuation as at ${longDate(c.as_of_date)}`;
   app.replaceChildren(...[
-    h("a", { class: "back", href: "#/", text: "← All companies" }),
+    backLink(),
     h("div", { class: "co-head" },
       h("h1", { text: c.company_name || c.asx_code }),
       h("span", { class: "ticker mono", text: c.asx_code }),
@@ -748,6 +756,332 @@ async function renderCompany(code) {
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
+}
+
+/* ---------- page furniture ---------- */
+function pageHead(title, sub, ...extra) {
+  return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
+}
+const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "My holdings"],
+  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"]];
+function backLink() {
+  const target = previousPage || "#/screener";
+  const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
+  return h("a", { class: "back", href: target, text: `← ${label}` });
+}
+/* A link such as #/screener?action=BUY,INVESTIGATE opens the screener with
+   just that filter; a plain #/screener keeps whatever was set last. */
+function presetScreener(query) {
+  if (query === undefined) return;
+  const params = new URLSearchParams(query);
+  Object.assign(state, { q: "", sector: "", passing: false, held: params.get("held") === "1", shown: PAGE_SIZE,
+    actions: new Set((params.get("action") || "").split(",").filter(Boolean)) });
+}
+const signed = (v, fmtFn) => (v === null || v === undefined ? NA : (v > 0 ? "+" : v < 0 ? "-" : "") + fmtFn(Math.abs(v)));
+const dateTime = (iso) => new Date(iso).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const timeOnly = (iso) => new Date(iso).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+const plural = (n, word, many = word + "s") => `${fmt(n, 0)} ${n === 1 ? word : many}`;
+function companyLink(code, name, ...extra) {
+  return h("a", { class: "row-link", href: `#/company/${code}` }, h("span", { class: "code", text: code }), name ? h("span", { class: "name-inline", text: name }) : null, extra);
+}
+function clickableRow(code, ...cells) {
+  const open = () => { location.hash = `#/company/${code}`; };
+  return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } }, cells);
+}
+
+/* ---------- menu bar ---------- */
+const nav = document.getElementById("mainnav");
+const menuBtn = document.getElementById("menu-btn");
+function closeDropdowns(except = null) {
+  for (const dd of document.querySelectorAll(".dd")) {
+    if (dd === except) continue;
+    dd.querySelector(".dd-btn").setAttribute("aria-expanded", "false");
+    dd.querySelector(".dd-menu").hidden = true;
+  }
+}
+function closeSettings() {
+  document.getElementById("settings").hidden = true;
+  document.getElementById("settings-btn").setAttribute("aria-expanded", "false");
+}
+/* Everything that pops up from the menu bar, e.g. after moving to another page. */
+function closeMenus() {
+  closeDropdowns();
+  closeSettings();
+  nav.classList.remove("open");
+  menuBtn.setAttribute("aria-expanded", "false");
+}
+function markCurrent(page) {
+  for (const a of nav.querySelectorAll(":scope > a")) {
+    if (a.dataset.nav === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+  for (const dd of nav.querySelectorAll(".dd")) dd.classList.toggle("current", dd.dataset.nav === page);
+}
+
+/* Data-date chip: green when the latest valuations are current, amber (with
+   a "!") when the nightly data is behind or the last run had problems. */
+function statusLines(st) {
+  const lines = [];
+  lines.push(st.as_of ? `Prices and valuations as at ${longDate(st.as_of)}.` : "No valuations yet.");
+  if (st.stale) lines.push(`Expected data for ${longDate(st.expected)}. Check the nightly job ran (or it was a public holiday).`);
+  const run = st.last_run;
+  if (!run) lines.push("No nightly run log found in the logs folder on this PC.");
+  else if (run.status === "ok") lines.push(`Last nightly run ${dateTime(run.started)}, finished ${timeOnly(run.finished)} with no errors.`);
+  else if (run.status === "errors") lines.push(`Last nightly run ${dateTime(run.started)}, finished ${timeOnly(run.finished)}. ${plural(run.errors, "company", "companies")} could not be updated (usually gaps in Yahoo's data). See logs\\${run.file}.`);
+  else if (run.status === "crashed") lines.push(`Last nightly run ${dateTime(run.started)}: a step crashed, so some data may not have updated. See logs\\${run.file}.`);
+  else if (run.status === "running") lines.push(`Nightly run in progress, started ${dateTime(run.started)}.`);
+  else lines.push(`Last nightly run${run.started ? " " + dateTime(run.started) : ""} did not finish. See logs\\${run.file}.`);
+  return lines;
+}
+function paintChip(st) {
+  const chip = document.getElementById("data-chip");
+  if (!st) return;
+  const run = st.last_run;
+  const warn = st.stale || (run && (run.status === "crashed" || run.status === "incomplete"));
+  chip.classList.toggle("warn", !!warn);
+  const label = st.as_of ? `Data ${dayMonth(st.as_of)}` : "No data";
+  const why = st.stale ? "out of date" : warn ? "run problems" : null;
+  chip.replaceChildren(h("span", {}, label, why ? h("span", { class: "long", text: `, ${why}` }) : null));
+  chip.setAttribute("aria-label", statusLines(st).join(" "));
+  chip.hidden = false;
+}
+async function loadStatus() {
+  try { cache.status = await getJSON("/api/status"); paintChip(cache.status); } catch (e) { /* chip stays hidden */ }
+}
+
+/* Find a company: type a code or part of a name, pick from the list or press Enter. */
+function findCompany(q) {
+  const up = q.trim().toUpperCase();
+  const list = cache.companies || [];
+  if (!up) return null;
+  return list.find((c) => c.code === up) || list.find((c) => c.code.startsWith(up)) ||
+    list.find((c) => (c.name || "").toUpperCase().includes(up)) || null;
+}
+function initSearch() {
+  const form = document.getElementById("nav-search"), input = document.getElementById("nav-search-input");
+  if (window.matchMedia("(max-width: 480px)").matches) input.placeholder = "Search";
+  const go = (c) => { input.value = ""; input.blur(); closeMenus(); location.hash = `#/company/${c.code}`; };
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const c = findCompany(input.value);
+    if (c) { go(c); return; }
+    form.classList.add("no-match");
+    placeTipBelow(form, [h("div", { text: input.value.trim() ? `No screened company matches "${input.value.trim()}".` : "Type an ASX code or part of a company name." })]);
+    setTimeout(() => { form.classList.remove("no-match"); hideTip(); }, 1800);
+  });
+  input.addEventListener("input", (e) => {
+    // Picking from the list fills in the exact code; typing goes through Enter.
+    if (e.inputType && e.inputType !== "insertReplacementText") return;
+    const c = (cache.companies || []).find((x) => x.code === input.value.trim().toUpperCase());
+    if (c) go(c);
+  });
+  getJSON("/api/companies").then((list) => {
+    cache.companies = list;
+    document.getElementById("company-list").replaceChildren(...list.map((c) => h("option", { value: c.code, label: c.name || c.code })));
+  }).catch(() => { /* search still works once the page reloads */ });
+}
+
+function initNav() {
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = !nav.classList.contains("open");
+    closeDropdowns();
+    closeSettings();
+    nav.classList.toggle("open", open);
+    menuBtn.setAttribute("aria-expanded", open);
+  });
+  for (const dd of nav.querySelectorAll(".dd")) {
+    const btn = dd.querySelector(".dd-btn"), menu = dd.querySelector(".dd-menu");
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = menu.hidden;
+      closeDropdowns(dd);
+      closeSettings();
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", open);
+    });
+    menu.addEventListener("click", (e) => { if (e.target.closest("a")) closeMenus(); });
+  }
+  nav.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => closeMenus());
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
+  document.getElementById("settings-btn").addEventListener("click", () => closeDropdowns());
+  const chip = document.getElementById("data-chip");
+  bindHelp(chip, () => [h("div", { class: "t-title", text: "Data" }), ...statusLines(cache.status || {}).map((l) => h("div", { text: l }))]);
+  initSearch();
+  loadStatus();
+}
+
+/* ---------- dashboard ---------- */
+function portfolioStrip(pf) {
+  const gainPct = pf.gain !== null && pf.cost_base ? (pf.gain / pf.cost_base) * 100 : null;
+  const prevValue = pf.day_change !== null && pf.value !== null ? pf.value - pf.day_change : null;
+  const dayPct = prevValue ? (pf.day_change / prevValue) * 100 : null;
+  const n = pf.holdings.length;
+  return h("div", { class: "stats" },
+    statTile("Portfolio value", money(pf.value, 0), null, `${plural(n, "holding")}${pf.unpriced.length ? `, ${pf.unpriced.length} without a price` : ""}`),
+    statTile("Today", signed(pf.day_change, (v) => money(v, 0)), signClass(pf.day_change), dayPct === null ? "needs two days of prices" : signed(dayPct, (v) => fmt(v, 2) + "%")),
+    statTile("Unrealised gain", signed(pf.gain, (v) => money(v, 0)), signClass(pf.gain), gainPct === null ? null : signed(gainPct, (v) => fmt(v, 1) + "%") + " on cost"),
+    statTile("Cost base", money(pf.cost_base, 0), null, "purchase price plus brokerage"));
+}
+
+function attentionCard(d) {
+  const items = [
+    ...d.attention.map((a) => h("li", {}, h("div", { class: "main" },
+      companyLink(a.asx_code, null), badge(a.action), h("span", { class: "detail", text: a.action_reason })))),
+    ...d.cgt_soon.map((c) => h("li", {}, h("div", { class: "main" },
+      companyLink(c.asx_code, null), h("span", { text: `CGT discount from ${longDate(c.date)}` }),
+      h("span", { class: "detail", text: `${fmt(c.units, 0)} units, ${plural(c.days, "day")} away. A sale before then gets no CGT discount on these units.` })))),
+    d.not_screened.length ? h("li", {}, h("div", { class: "main" }, h("span", { text: `Held but not screened: ${d.not_screened.join(", ")}` }),
+      h("span", { class: "detail", text: "Add them to your watchlist file (allords.txt) so they are valued each night." }))) : null,
+  ].filter(Boolean);
+  return card("Needs attention", items.length ? "Held shares flagged SELL or REVIEW, and parcels reaching the CGT discount soon." : null,
+    items.length ? h("ul", { class: "items" }, items)
+      : h("p", { class: "empty", text: `Nothing needs attention: no held shares are flagged SELL or REVIEW, and no parcel reaches the CGT discount in the next ${d.cgt_soon_days} days.` }));
+}
+
+const MAX_CHANGES = 12;
+function changesCard(d) {
+  const ch = d.changes;
+  if (!ch.from_date) {
+    const first = d.tracking.first_date;
+    return card("What changed", null, h("p", { class: "empty", text: first
+      ? `Appears after the second night of recording (first night ${longDate(first)}). Lists companies whose suggested action moved.`
+      : "Appears once two nightly runs have recorded signals. Lists companies whose suggested action moved." }));
+  }
+  if (!ch.changes.length) {
+    return card("What changed", null, h("p", { class: "empty", text: `No suggested action changed between ${longDate(ch.from_date)} and ${longDate(ch.to_date)}.` }));
+  }
+  const shown = ch.changes.slice(0, MAX_CHANGES);
+  return card("What changed", `${longDate(ch.from_date)} to ${longDate(ch.to_date)}: suggested actions that moved, better first.`,
+    h("ul", { class: "items" }, shown.map((c) => h("li", {},
+      h("span", { class: `move ${c.direction}`, "aria-label": c.direction === "up" ? "Better" : "Worse", text: c.direction === "up" ? "▲" : "▼" }),
+      h("div", { class: "main" }, companyLink(c.asx_code, null), c.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
+        h("span", { class: "detail", text: `${c.company_name || ""}${c.margin_of_safety_percent !== null ? `, margin of safety ${pct(c.margin_of_safety_percent, 0)}` : ""}` })),
+      h("div", { class: "side" }, badge(c.previous), h("span", { class: "arrow", "aria-label": "to", text: "→" }), badge(c.action))))),
+    ch.changes.length > MAX_CHANGES ? h("p", { class: "card-foot", text: `and ${ch.changes.length - MAX_CHANGES} more.` }) : null);
+}
+
+function topCard(d) {
+  const counts = d.action_counts;
+  const parts = ["BUY", "INVESTIGATE"].filter((a) => counts[a]).map((a) => `${counts[a]} ${a}`);
+  const foot = parts.length ? h("p", { class: "card-foot" }, h("a", { href: "#/screener?action=BUY,INVESTIGATE",
+    text: `See all ${parts.join(" and ")} in the screener →` })) : null;
+  const c = card("Top opportunities", "Shares you don't hold: BUY first, then INVESTIGATE, highest score first.",
+    d.top.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Score", "Company", "Margin of safety", "Valuation", "Action"].map((x, i) =>
+        withHelp(h("th", { class: [i === 2 ? "num" : "", i === 0 || i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
+      h("tbody", {}, d.top.map((r) => clickableRow(r.asx_code,
+        h("td", { class: "opt2" }, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
+        h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
+        h("td", { class: `num ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
+        h("td", { class: "opt2" }, valuationPill(r.margin_of_safety_percent)),
+        h("td", {}, badge(r.action))))))) : h("p", { class: "empty", text: "No BUY or INVESTIGATE signals today." }),
+    foot);
+  c.classList.add("wide");
+  return c;
+}
+
+function actionsCard(d) {
+  const chips = Object.entries(d.action_counts).filter(([, n]) => n).map(([a, n]) =>
+    h("a", { class: "chip", href: `#/screener?action=${a}` }, badge(a), h("span", { class: "n", text: n })));
+  return card("Today's suggested actions", `Across ${plural(d.companies, "screened company", "screened companies")}. Pick one to open the screener filtered to it.`,
+    h("div", { class: "action-chips" }, chips));
+}
+
+function resultsTimeline(t) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return h("ul", { class: "timeline" }, t.results_due.map((r) => {
+    const days = Math.round((toDate(r.date) - today) / 86400000);
+    return h("li", {}, h("span", { text: `${r.months}-month results` }),
+      h("span", { text: days > 0 ? `${longDate(r.date)} (in ${plural(days, "day")})` : `from ${longDate(r.date)}` }));
+  }));
+}
+function trackingCard(t, withLink = true) {
+  const body = t.first_date
+    ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}. Rules version ${t.rules_version}.` }),
+      resultsTimeline(t)]
+    : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
+  return card("Track record", null, body,
+    withLink ? h("p", { class: "card-foot" }, h("a", { href: "#/track-record", text: "Track record →" })) : null);
+}
+
+function statusFoot(st) {
+  return h("div", { class: "dash-foot" }, statusLines(st).map((l) => h("span", { text: l })));
+}
+
+async function renderDashboard() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading dashboard..." }));
+  const d = await getJSON("/api/dashboard");
+  cache.thresholds = d.thresholds;
+  cache.status = d.status;
+  paintChip(d.status);
+  const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const pf = d.portfolio;
+  app.replaceChildren(...[
+    pageHead("Dashboard", today),
+    pf.holdings.length ? portfolioStrip(pf) : null,
+    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d), actionsCard(d), trackingCard(d.tracking)),
+    statusFoot(d.status),
+  ].filter(Boolean));
+  window.scrollTo(0, 0);
+}
+
+/* ---------- holdings (one portfolio until multiple portfolios arrive) ---------- */
+async function renderPortfolios() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading holdings..." }));
+  const d = await getJSON("/api/dashboard");
+  cache.thresholds = d.thresholds;
+  const pf = d.portfolio;
+  const note = card("Coming next", null, h("p", { class: "hint", text:
+    "Several portfolios (each with its own tax type), and recording buys and sells here in the browser, arrive in the next update. Until then, record trades with portfolio.py." }));
+  if (!pf.holdings.length) {
+    app.replaceChildren(pageHead("My holdings", null), card("No holdings yet", null,
+      h("p", { class: "empty", text: "Record a purchase with: python portfolio.py add CODE UNITS PRICE DATE" })), note);
+    return;
+  }
+  const heads = ["Company", "Units", "Cost base", "Price", "Value", "Gain", "Today", "Action", "CGT discount from"];
+  const numeric = new Set([1, 2, 3, 4, 5, 6]);
+  const optional = new Set([2, 3, 6, 8]);
+  app.replaceChildren(
+    pageHead("My holdings", plural(pf.holdings.length, "company", "companies")),
+    portfolioStrip(pf),
+    h("div", { class: "table-wrap", style: "margin-top:16px" }, h("table", { class: "grid" },
+      h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
+      h("tbody", {}, pf.holdings.map((r) => clickableRow(r.asx_code,
+        h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
+        h("td", { class: "num", text: fmt(r.units, 0) }),
+        h("td", { class: "num opt", text: money(r.cost_base, 0) }),
+        h("td", { class: "num opt", text: money(r.price) }),
+        h("td", { class: "num", text: money(r.value, 0) }),
+        h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
+        h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
+        h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" })),
+        h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "all eligible" })))))),
+    h("div", { class: "cards", style: "margin-top:16px" }, note));
+  window.scrollTo(0, 0);
+}
+
+/* ---------- track record (recording now; results once a month has passed) ---------- */
+async function renderTrackRecord() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading track record..." }));
+  const d = await getJSON("/api/dashboard");
+  const how = card("How Sift will be judged", null, h("div", { class: "prose" },
+    h("p", { text: "Each night Sift records what it said about every screened company: the suggested action, valuation status, estimated value and score. Those records are never edited, so later rule changes can't rewrite history." }),
+    h("p", { text: "After 1, 3, 6 and 12 months, each signal is compared with what actually happened: the total return including dividends, against the average of every screened company over the same period. A BUY that beats the average was right; one that lags it was wrong." }),
+    h("ul", {},
+      h("li", { text: "Verdict: how often each action was right, with confidence shown as too early (under 30 signals), moderate (30 to 100) or solid (over 100)." }),
+      h("li", { text: "Missed opportunities: companies flagged BUY that went on to rise strongly." }),
+      h("li", { text: "Still actionable: BUY signals that are still open, so you can act on them now." }))));
+  app.replaceChildren(pageHead("Track record", "Is Sift right?"),
+    h("div", { class: "cards" }, trackingCard(d.tracking, false), how));
+  window.scrollTo(0, 0);
+}
+
+/* ---------- watchlists (coming) ---------- */
+async function renderWatchlists() {
+  app.replaceChildren(pageHead("Watchlists", null), h("div", { class: "cards" }, card("Coming soon", null, h("div", { class: "prose" },
+    h("p", { text: "Several named watchlists, each company with a note and optional triggers such as margin of safety above a set level or price below a set amount. Watchlist companies will be listed first in What changed on the dashboard." }),
+    h("p", {}, "Until then, use the ", h("a", { href: "#/screener", text: "screener" }), " filters.")))));
 }
 
 /* ---------- settings: theme ---------- */
@@ -775,11 +1109,29 @@ function applyTheme(choice) {
 })();
 
 /* ---------- routing ---------- */
+const ROUTES = [
+  [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => renderCompany(m[1].toUpperCase())],
+  [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
+  [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
+  [/^#\/watchlists$/, "watchlists", () => renderWatchlists()],
+  [/^#\/portfolios$/, "portfolios", () => renderPortfolios()],
+  [/^(#\/?)?$/, "dashboard", () => renderDashboard()],
+];
+let previousPage = null;
+let currentHash = null;
 function route() {
   hideTip();
-  const m = location.hash.match(/^#\/company\/([A-Za-z0-9.]+)$/);
-  const render = m ? renderCompany(m[1].toUpperCase()) : renderScreener();
-  render.catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })));
+  closeMenus();
+  slots.length = 0;
+  const hash = location.hash;
+  let found = ROUTES.find(([re]) => re.test(hash));
+  if (!found) { location.replace("#/"); return; }
+  const [re, page, render] = found;
+  if (page === "company" && currentHash && !currentHash.startsWith("#/company/")) previousPage = currentHash;
+  currentHash = hash;
+  markCurrent(page);
+  render(hash.match(re)).catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })));
 }
 window.addEventListener("hashchange", route);
+initNav();
 route();

@@ -12,6 +12,7 @@ from src.models.daily_price import DailyPrice
 from src.models.dividend_payment import DividendPayment
 from src.models.financial_report import FinancialReport
 from src.models.holding import Holding
+from src.models.signal_snapshot import SignalSnapshot
 from src.models.valuation_metric import ValuationMetric
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "DividendPayment",
     "FinancialReport",
     "Holding",
+    "SignalSnapshot",
     "ValuationMetric",
 ]
