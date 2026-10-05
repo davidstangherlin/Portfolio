@@ -14,6 +14,7 @@ not verdicts - consistent with the rest of this codebase's formulas.
 from __future__ import annotations
 
 from decimal import Decimal
+from statistics import median
 
 from src.models import DailyPrice, FinancialReport
 
@@ -25,7 +26,7 @@ MIN_BARS_FOR_52W_RANGE = 100
 NEW_LOWS_RANGE_THRESHOLD = Decimal("10")
 
 DIVIDEND_HISTORY_YEARS = 5
-DIVIDEND_CUT_RATIO = Decimal("0.9")  # a year-on-year drop of more than 10% counts as a cut
+DIVIDEND_CUT_RATIO = Decimal("0.9")  # latest more than 10% below last year or the earlier median is a cut
 DIVIDEND_GROWTH_RATIO = Decimal("1.05")
 
 
@@ -94,19 +95,25 @@ def price_signal(vs_200d: Decimal | None, range_pos: Decimal | None) -> str | No
 
 
 def dividend_trend(reports: list[FinancialReport]) -> str | None:
-    """'CUT' if any year-on-year drop exceeds 10%, 'GROWING' if the latest
-    is more than 5% above the oldest with no cuts, 'STEADY' otherwise,
-    'NONE' for a non-payer. `reports` is newest first. A year after a
-    special dividend reads as a cut - which it is, in cash terms; the
-    payout_ratio warning is what flags the special year itself."""
+    """'CUT' if the latest dividend is more than 10% below either last
+    year's or the median of the earlier years in the window - a cut that
+    still stands. A cut the company has since restored no longer counts:
+    miners and energy producers vary their dividends with earnings by
+    policy, and flagging every historical dip buried the cuts that matter.
+    'GROWING' if the latest is more than 5% above the oldest, 'STEADY'
+    otherwise, 'NONE' for a non-payer. `reports` is newest first. The year
+    after a special dividend reads as a cut against last year, which it is
+    in cash terms; the payout_ratio warning flags the special year itself,
+    and the median keeps one special year from distorting the baseline."""
     values = [r.dividends_per_share for r in reversed(reports) if r.dividends_per_share is not None]
     if len(values) < 2:
         return None
     if all(v == 0 for v in values):
         return "NONE"
-    if any(current < previous * DIVIDEND_CUT_RATIO for previous, current in zip(values, values[1:])):
+    latest, previous, earlier = values[-1], values[-2], values[:-1]
+    if latest < previous * DIVIDEND_CUT_RATIO or latest < median(earlier) * DIVIDEND_CUT_RATIO:
         return "CUT"
-    if values[-1] > values[0] * DIVIDEND_GROWTH_RATIO:
+    if latest > values[0] * DIVIDEND_GROWTH_RATIO:
         return "GROWING"
     return "STEADY"
 

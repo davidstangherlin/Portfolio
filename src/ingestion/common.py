@@ -24,7 +24,17 @@ def get_or_create_company(session: Session, asx_code: str, client: YahooClient |
         company_name=profile.get("company_name") or asx_code,
         sector=profile.get("sector"),
         industry=profile.get("industry"),
+        country=profile.get("country"),
     )
     session.add(company)
     session.flush()  # assign company_id without ending the caller's transaction
     return company
+
+
+def ensure_country(company: Company, client: YahooClient) -> None:
+    """Backfill `companies.country` for rows created before the column
+    existed. Costs one profile request per company, once - after that the
+    stored value is reused. Left NULL (and retried next run) if Yahoo
+    doesn't report a country."""
+    if company.country is None:
+        company.country = client.get_profile().get("country")

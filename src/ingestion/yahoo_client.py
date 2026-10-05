@@ -82,7 +82,7 @@ class YahooClient:
         self._ticker = yf.Ticker(self.symbol)
 
     def get_profile(self) -> dict:
-        """Company name / sector / industry, for populating `companies`."""
+        """Company name / sector / industry / country, for populating `companies`."""
         try:
             info = self._ticker.get_info()
         except Exception:  # yfinance raises a variety of network/parsing errors
@@ -92,6 +92,7 @@ class YahooClient:
             "company_name": info.get("longName") or info.get("shortName") or self.asx_code,
             "sector": info.get("sector"),
             "industry": info.get("industry"),
+            "country": info.get("country"),
         }
 
     def get_price_history(self, period: str = "1mo") -> list[PriceBar]:

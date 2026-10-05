@@ -43,3 +43,32 @@ def test_asx_value_screener_view_exposes_every_valuation_metrics_column(db_sessi
         text("SELECT * FROM asx_value_screener LIMIT 0")
     )
     assert expected_columns.issubset(set(result.keys()))
+
+
+def test_apply_schema_command_is_idempotent(_test_database):
+    # `python -m src.apply_schema` is what the nightly job now runs first;
+    # it must be safe to run against an already up-to-date database.
+    from src.apply_schema import apply_schema
+    from src.config import get_engine
+
+    apply_schema(get_engine())
+    apply_schema(get_engine())
+
+
+def test_apply_schema_adds_missing_columns_to_an_older_database(_test_database):
+    from src.apply_schema import apply_schema
+    from src.config import get_engine
+
+    conn = _connect()
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("ALTER TABLE companies DROP COLUMN IF EXISTS country")
+    conn.close()
+
+    apply_schema(get_engine())
+
+    conn = _connect()
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'country'")
+        assert cur.fetchone() is not None
+    conn.close()

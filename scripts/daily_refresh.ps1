@@ -6,6 +6,7 @@
 
 .DESCRIPTION
     Runs, in order:
+        0. src.apply_schema              (bring the database up to the code's schema)
         1. src.ingestion.run_ingestion   (prices + fundamentals for the watchlist)
         2. src.valuation.run_valuation   (recompute every company's metrics)
         3. screen_asx.py --actions       (today's suggested actions, with reasons)
@@ -50,6 +51,11 @@ Set-Location $RepoDir
 . $VenvActivate
 
 Write-Log "===== Daily Refresh Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ====="
+
+Write-Log ""
+Write-Log "--- Schema ---"
+python -m src.apply_schema 2>&1 |
+    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
 
 Write-Log ""
 Write-Log "--- Ingestion ---"

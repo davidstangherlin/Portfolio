@@ -13,8 +13,13 @@ CREATE TABLE IF NOT EXISTS companies (
     asx_code VARCHAR(6) NOT NULL UNIQUE,         -- Pure 3-letter ASX code (e.g. 'BHP')
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    country VARCHAR(100)                         -- Domicile per Yahoo. Non-Australian companies pay no
+                                                  -- franking credits (see fundamentals_ingestion.py)
 );
+
+-- Migrations for databases created before these columns existed.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100);
 
 -- 2. DAILY MARKET PRICE & VOLUMES
 CREATE TABLE IF NOT EXISTS daily_prices (

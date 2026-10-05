@@ -45,7 +45,7 @@ def red_flags(row: dict) -> list[str]:
         detail = f" (cash flow {conversion:.0f}% of profit)" if conversion is not None else ""
         flags.append(f"weak earnings quality{detail}")
     if row.get("dividend_trend") == "CUT":
-        flags.append("dividend cut in recent years")
+        flags.append("dividend cut and not yet restored")
     if row.get("price_signal") == "NEW LOWS":
         flags.append("price still making new lows")
     if row.get("data_confidence") == "LOW":

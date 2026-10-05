@@ -55,7 +55,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env   # edit with your DB credentials
-psql "$DATABASE_URL" -f db/schema.sql
+python -m src.apply_schema   # applies db/schema.sql via .env; safe to re-run
 ```
 
 ## Workflow
@@ -146,7 +146,7 @@ Four extra columns, each answering a question the four value tests can't:
 |---|---|---|
 | `earnings_quality` | Is reported profit turning into cash? (operating cash flow vs profit, 3 years) | `STRONG` / `ADEQUATE` / `WEAK` |
 | `price_signal` | Is the price stabilising, or still falling? (200-day average, 52-week range) | `UPTREND` / `DOWNTREND` / `NEW LOWS` |
-| `dividend_trend` | Is the dividend dependable? (up to 5 years) | `GROWING` / `STEADY` / `CUT` / `NONE` |
+| `dividend_trend` | Is the dividend dependable? (up to 5 years) | `GROWING` / `STEADY` / `CUT` / `NONE`. `CUT` means the latest dividend is still more than 10% below last year or the earlier norm; a cut since restored no longer counts |
 | `data_confidence` | How much of the analysis rests on missing data? | `HIGH` / `MEDIUM` / `LOW` |
 
 ## Suggested Actions
@@ -221,7 +221,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-ingestion → valuation → screener, logging everything to a timestamped file
+schema update → ingestion → valuation → screener, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step runs even if
 a previous one hit problems, so a transient Yahoo Finance network error
 during ingestion doesn't block valuation/screener from running against
@@ -232,6 +232,12 @@ manually): `.venv` created and `requirements.txt` installed, `.env`
 configured, and a watchlist file (e.g. `allords.txt`) present at the repo
 root. The script resolves the repo root from its own location, so it
 keeps working if the repo is moved.
+
+**Schema changes apply themselves.** The first step runs
+`python -m src.apply_schema`, so after a `git pull` that adds a column the
+next scheduled run brings the database up to date before anything else
+touches it. To apply it straight away instead of waiting, run the same
+command yourself (no psql or password prompt needed).
 
 **One-time setup:**
 

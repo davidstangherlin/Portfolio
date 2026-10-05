@@ -82,7 +82,10 @@ def _dividend_history(*oldest_to_newest):
 @pytest.mark.parametrize("history,expected", [
     ((Decimal("1.00"), Decimal("1.05"), Decimal("1.12")), "GROWING"),
     ((Decimal("1.00"), Decimal("1.00"), Decimal("1.02")), "STEADY"),
-    ((Decimal("1.00"), Decimal("0.80"), Decimal("1.20")), "CUT"),  # a cut anywhere counts
+    ((Decimal("1.00"), Decimal("0.80"), Decimal("1.20")), "GROWING"),  # cut since restored no longer counts
+    ((Decimal("1.00"), Decimal("1.00"), Decimal("0.80")), "CUT"),  # fresh cut
+    ((Decimal("1.00"), Decimal("1.00"), Decimal("0.60"), Decimal("0.62"), Decimal("0.63")), "CUT"),  # old cut, never restored
+    ((Decimal("1.00"), Decimal("0.70"), Decimal("0.95"), Decimal("0.96"), Decimal("0.95")), "STEADY"),  # dipped, back near the norm
     ((Decimal("1.00"), Decimal("0")), "CUT"),  # suspended
     ((Decimal("0"), Decimal("0"), Decimal("0")), "NONE"),
     ((Decimal("1.00"),), None),  # one year can't show a trend
@@ -94,6 +97,22 @@ def test_dividend_trend(history, expected):
 def test_dividend_trend_after_special_dividend_reads_as_cut():
     # TWR's shape (docs/AS_BUILT.md §8.1): normal, special, back to normal
     assert markers.dividend_trend(_dividend_history(Decimal("0.10"), Decimal("1.19"), Decimal("0.12"))) == "CUT"
+
+
+def test_dividend_trend_one_special_year_does_not_set_the_baseline():
+    # The median of the earlier years ignores a single special: two years
+    # on from it, a dividend back at its normal level reads as steady.
+    history = _dividend_history(Decimal("0.10"), Decimal("1.19"), Decimal("0.10"), Decimal("0.10"))
+    assert markers.dividend_trend(history) == "STEADY"
+
+
+def test_variable_payout_miner_flags_only_while_the_dividend_is_down():
+    # BHP-style: a peak year, then a lower but stable payout. Below the
+    # earlier median it's a standing cut; restored to the norm it isn't.
+    assert markers.dividend_trend(_dividend_history(
+        Decimal("2.00"), Decimal("3.25"), Decimal("1.70"), Decimal("1.46"), Decimal("1.40"))) == "CUT"
+    assert markers.dividend_trend(_dividend_history(
+        Decimal("2.00"), Decimal("3.25"), Decimal("1.70"), Decimal("1.46"), Decimal("1.90"))) == "STEADY"
 
 
 # --- data confidence ---------------------------------------------------------

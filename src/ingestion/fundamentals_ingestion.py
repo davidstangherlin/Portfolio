@@ -2,10 +2,12 @@
 `financial_reports`.
 
 Franking percentage and the corporate tax rate are not available from
-Yahoo Finance - they default to fully franked (100%) at the standard
-30% Australian corporate rate, which holds for the large majority of
-established ASX-listed companies but should be corrected by hand for
-anything known to pay partly-franked or unfranked dividends.
+Yahoo Finance. Companies domiciled outside Australia (NZ, US, Irish and
+other foreign listings) pay no Australian franking credits, so they are
+set to 0%; everything else defaults to fully franked (100%) at the
+standard 30% Australian corporate rate, which holds for the large
+majority of established ASX-listed companies but should be corrected by
+hand for anything known to pay partly-franked or unfranked dividends.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from src.ingestion.common import get_or_create_company
+from src.ingestion.common import ensure_country, get_or_create_company
 from src.ingestion.yahoo_client import YahooClient
 from src.models import FinancialReport
 
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FRANKING_PERCENTAGE = Decimal("100.0")
 DEFAULT_CORPORATE_TAX_RATE = Decimal("30.0")
+FOREIGN_FRANKING_PERCENTAGE = Decimal("0.0")
 
 # Columns that may legitimately be missing on any given Yahoo pull (a
 # transient gap, a field Yahoo doesn't report for this company). On
@@ -39,7 +42,19 @@ _COALESCE_ON_UPDATE = (
 )
 
 
-def upsert_financial_report(session: Session, company_id, snapshot) -> None:
+def is_foreign(country: str | None) -> bool:
+    """True when Yahoo reports a domicile other than Australia. Unknown
+    (None) is treated as Australian, matching the pre-existing default."""
+    return country is not None and country.strip().lower() != "australia"
+
+
+def franking_percentage_for(snapshot, country: str | None) -> Decimal:
+    if is_foreign(country):
+        return FOREIGN_FRANKING_PERCENTAGE
+    return snapshot.franking_percentage or DEFAULT_FRANKING_PERCENTAGE
+
+
+def upsert_financial_report(session: Session, company_id, snapshot, country: str | None = None) -> None:
     values = dict(
         company_id=company_id,
         fiscal_year=snapshot.fiscal_year,
@@ -59,7 +74,7 @@ def upsert_financial_report(session: Session, company_id, snapshot) -> None:
         cash_and_equivalents=snapshot.cash_and_equivalents,
         net_tangible_assets=snapshot.net_tangible_assets,
         dividends_per_share=snapshot.dividends_per_share,
-        franking_percentage=snapshot.franking_percentage or DEFAULT_FRANKING_PERCENTAGE,
+        franking_percentage=franking_percentage_for(snapshot, country),
         corporate_tax_rate=snapshot.corporate_tax_rate or DEFAULT_CORPORATE_TAX_RATE,
     )
 
@@ -67,6 +82,11 @@ def upsert_financial_report(session: Session, company_id, snapshot) -> None:
     set_ = {"report_date": stmt.excluded.report_date}
     for col in _COALESCE_ON_UPDATE:
         set_[col] = func.coalesce(getattr(stmt.excluded, col), getattr(FinancialReport, col))
+    # A foreign domicile is a definite answer, so it corrects years already
+    # stored at the old 100% default. Australian rows are left alone on
+    # update so a hand-corrected partial franking figure survives re-runs.
+    if is_foreign(country):
+        set_["franking_percentage"] = stmt.excluded.franking_percentage
     stmt = stmt.on_conflict_do_update(
         index_elements=[FinancialReport.company_id, FinancialReport.fiscal_year, FinancialReport.period_type],
         set_=set_,
@@ -91,11 +111,12 @@ def ingest_fundamentals(
         try:
             client = YahooClient(asx_code)
             company = get_or_create_company(session, asx_code, client=client)
+            ensure_country(company, client)
             snapshots = client.get_annual_fundamentals(max_years=max_years)
             for snapshot in snapshots:
                 if snapshot.dividends_per_share is None:
                     snapshot.dividends_per_share = client.get_dividends_per_share(snapshot.fiscal_year)
-                upsert_financial_report(session, company.company_id, snapshot)
+                upsert_financial_report(session, company.company_id, snapshot, company.country)
             session.commit()
             logger.info("[%d/%d] Ingested %d annual reports for %s", i, total, len(snapshots), asx_code)
             results[asx_code] = len(snapshots)
