@@ -142,7 +142,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code:** ~1,390 lines across 24 Python files + 1 SQL file (line counts current as at this document's date; see §9 for the exact per-file breakdown) - plus `tests/`, a 312-test suite (§10.12, §10.13).
+**Total custom code (2026-10-05):** about 6,000 lines across 50 Python files, 2,350 lines of web front end (`web/`) and 380 lines of SQL, plus `tests/`: 317 tests (215 unit, 102 integration) in 26 files. A coverage run puts the tested share of the code at 86% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -749,6 +749,13 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 - **CLIs end to end** on five synthetic companies built to hit specific rules: identical fundamentals with a rising price (`GEM`, held, `HOLD`) and a falling one (`KNIFE`, `INVESTIGATE`, "price still making new lows"); a declining business held ~10 months (`FADE`, `SELL`, with "300 units qualify for the CGT discount from 07 Dec 2026 (66 days)"); an expensive held company (`PRICY`, `REVIEW`); and weak cash conversion (`LEAK`). `portfolio.py sell --order min-tax` correctly sold the DRP parcel before the larger, older one, and split $9.95 sale brokerage into $0.50 + $9.45. This run found the `WATCH`-reason gap described in §9.1, fixed before commit.
 - Test databases and seed scripts deleted afterwards.
 
+### 10.14 Web GUI, Portfolios, Watchlists and Track Record (2026-10-05)
+
+- **317 tests** (215 unit, 102 integration), up from 156 at §10.13. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
+- **Coverage check** (`coverage run -m pytest`, 2026-10-05): 86% of statements overall; 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
+- **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
+
 ---
 
 ## 11. Known Issues & Design Limitations
@@ -801,27 +808,35 @@ pip install -r requirements.txt
 
 # 3. Database (Docker path shown; any PostgreSQL 13+ works)
 docker run --name asx-db -e POSTGRES_PASSWORD=change_me -e POSTGRES_DB=asx_value -p 5432:5432 -d postgres:16
-psql "postgresql://postgres:change_me@localhost:5432/asx_value" -f db/schema.sql
 
-# 4. Configuration
+# 4. Configuration, then the schema (no psql needed; safe to re-run)
 cp .env.example .env
 # edit .env → DATABASE_URL=postgresql+psycopg2://postgres:change_me@localhost:5432/asx_value
+python -m src.apply_schema
 
 # 5. Run the pipeline (1y+ of prices so the 200-day price markers populate, §8.7)
 python -m src.ingestion.run_ingestion --tickers BHP CBA CSL WES WOW --period 2y
 python -m src.valuation.run_valuation --all
+python -m src.tracking.record_signals    # starts the track record (§21)
+python -m src.tracking.score_signals     # scores signals once 1/3/6/12 months have passed
 python screen_asx.py --actions
 
-# 6. (Optional) Record holdings so held companies get SELL/REVIEW/ACCUMULATE/HOLD (§19)
+# 6. (Optional) Record holdings so held companies get SELL/REVIEW/ACCUMULATE/HOLD (§19);
+#    or record them in Sift (step 7)
 python portfolio.py add BHP --units 100 --price 42.50 --date 2025-03-14 --brokerage 9.95
 
-# 7. (Optional) Run the test suite (§10.12) - uses its own asx_test database,
+# 7. (Optional) Sift, the web GUI (§20): http://localhost:8000
+python gui.py
+
+# 8. (Optional) Run the test suite (§10.12, §10.14) - uses its own asx_test database,
 #    created automatically, never the one configured above
 pip install -r requirements-dev.txt
 pytest
 ```
 
-**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply). `holdings` and `portfolios` are deliberately not in this list - parcel records are your tax records, not re-downloadable market data:
+From then on, the schema update and step 5's commands run nightly via `scripts/daily_refresh.ps1` (§16).
+
+**Full teardown/reset** (destroys all ingested data, keeps schema definition intact for re-apply). `holdings` and `portfolios` are deliberately not in this list - parcel records are your tax records, not re-downloadable market data. Because the other tables refer to `companies`, `CASCADE` also empties `dividend_payments`, `signal_snapshots` and `signal_outcomes` (the last 14 months of track record detail) and `watchlist_items` (every watchlist's companies, notes and triggers; the lists themselves stay). `track_record_monthly` survives. Back up first if you want those back:
 ```bash
 psql "$DATABASE_URL" -c "TRUNCATE companies, daily_prices, financial_reports, valuation_metrics CASCADE;"
 ```
@@ -921,11 +936,11 @@ If handing this document plus the source to another model for review, the highes
 
 **Step 0 (added 2026-10-05):** `python -m src.apply_schema` runs before ingestion, so a `git pull` that changes the schema can't leave the night's run failing on every company (known-issue #22). The schema runs in one transaction: if it fails, nothing changes and the later steps still run against the existing schema.
 
-**Purpose:** removes the need to manually run three separate commands (ingestion, valuation, screener) to keep the database current. Designed to be triggered daily and unattended by Windows Task Scheduler, after ASX market close.
+**Purpose:** removes the need to run each step by hand (originally three commands: ingestion, valuation, screener; now six, see the steps above) to keep the database current. Designed to be triggered daily and unattended by Windows Task Scheduler, after ASX market close.
 
 **Design decisions:**
 - **No stop-on-error chaining** (`;` between steps, not `&&` or `-and`): a transient Yahoo Finance network blip during ingestion should not prevent valuation/screener from still running against whatever data is already in the database from the previous day. Each step's own per-ticker/per-company error isolation (§7.3-§7.5, §8.4, known-issues #10/#13) already handles failures within a step; this script's job is only to make sure a whole-step failure doesn't cascade into skipping the rest of the pipeline.
-- **Single timestamped log file per run** (`logs\refresh_<yyyy-MM-dd_HHmmss>.log`), capturing stdout and stderr from all three steps (`2>&1` redirect piped through `Add-Content`), so an unattended run can be checked after the fact without having to watch it live.
+- **Single timestamped log file per run** (`logs\refresh_<yyyy-MM-dd_HHmmss>.log`), capturing stdout and stderr from every step (`2>&1` redirect piped through `Add-Content`), so an unattended run can be checked after the fact without having to watch it live.
 - **30-day log retention**, pruned at the end of every run (`Get-ChildItem` + `Where LastWriteTime` + `Remove-Item`), so the `logs\` folder doesn't grow unbounded on a machine that's left running this indefinitely.
 - **Self-locating repo root** (`Split-Path -Parent $PSScriptRoot`): the script resolves every other path (venv activation, watchlist file, log directory) relative to its own location rather than a hardcoded path, so it keeps working if the repo is cloned or moved elsewhere.
 - **Watchlist file is a single variable** (`$WatchlistFile`) at the top of the script, so switching from `allords.txt` to a narrower list (e.g. a sourced ASX 300 file, known-issue #11) is a one-line edit.
@@ -1041,6 +1056,17 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Track dividend income and franking credits for tax time (known-issue #19):**
 > "Add a dividends_received table linked to my holdings (payment date, amount, franking %) and a portfolio.py command that totals franked dividends and franking credits per financial year, alongside the CGT report."
 
+**Web GUI, multiple portfolios, watchlists and the track record (§19.1, §20, §21, §22):** ✅ Done 2026-10-05.
+
+**Read the first track record results (from about a month after recording starts):**
+> "Open the Track record numbers for me: for each action at 1 month, how did it do against the average, how confident can we be yet, and is anything surprising? Don't change any rules yet."
+
+**Review the rules once the track record is solid (6 to 12 months in):**
+> "The track record now has [N] months of results. Where are the actions out of order or weaker than expected? Propose rule changes with the evidence for each, and bump RULES_VERSION so the new rules are judged separately."
+
+**Add a size-weighted benchmark alongside the plain average (known-issue #29):**
+> "Add a market-capitalisation-weighted benchmark to the track record next to the equal-weighted one, and show both on the Track record page."
+
 **Tune the action rules once I've seen them on real data:**
 > "Having watched the suggested actions for a few weeks, here's where they felt wrong: [examples]. Adjust the rules in src/screening/actions.py, keep a test for each change, and update §9.1."
 
@@ -1150,7 +1176,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 ## 21. Track Record (`src/tracking/`, recording added in stage 1, scoring in stage 4, 2026-10-05)
 
-**Purpose.** Answer "is Sift right?" with evidence: record what Sift said about every company each night, then (from stage 4) compare it with what the share price did over the following 1, 3, 6 and 12 months against the average of every screened company. Recording starts first, because results can only ever be measured forward from the first night recorded (known-issue #26).
+**Purpose.** Answer "is Sift right?" with evidence: record what Sift said about every company each night, then compare it with what the share price did over the following 1, 3, 6 and 12 months against the average of every screened company. Recording starts first, because results can only ever be measured forward from the first night recorded (known-issue #26).
 
 **What is recorded (`signal_snapshots`, §4).** One row per screened company per valuation date: closing price on that date, suggested action and reason, whether it was held, valuation status, margin of safety, estimated value and model, score total and per spoke, the four value tests, red flags and `rules_version`. Written by `record_signals()` straight after valuation (nightly step 3, §16).
 
@@ -1175,7 +1201,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 **Track record page (`report.py`, `GET /api/track-record[?version=]`).**
 - **Is Sift accurate?** From the permanent monthly summary, per period: one sentence per action ("BUY calls beat the average screened share by 5.8 points over 3 months; 67% of 202 beat it"), its confidence (too early under 30 signals, moderate 30 to 100, solid above 100), a tick when the direction is what the action intends (BUY, ACCUMULATE, INVESTIGATE should beat the average; AVOID and SELL should trail it; WATCH, HOLD, REVIEW and IGNORE are neutral), and the order check: BUY above WATCH above AVOID on average excess return, judged only when all three have 30 signals. Averages across months are weighted by each month's count. A "By month" table lists each month for the chosen period.
 - **What did I miss?** From the last 14 months of detail, each signal at its longest scored horizon: BUY or INVESTIGATE on shares not held, with no parcel bought (any portfolio) from the signal date to 30 days after, that beat the average by more than 10 points. **Calls that saved money:** AVOID on shares not held, and SELL on shares held, that trailed it by more than 10 points. First qualifying call per company, best first, up to 20, with price then and now and whether it's still undervalued. Watchlist companies carry a ★.
-- **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why (price rose out of the buy zone, you bought it, or its action changed).
+- **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why, checked in this order: you bought it; the price rose out of the buy zone (margin of safety at or below 20% and the price above the signal's); the estimated value fell (margin of safety at or below 20% without a price rise); or its action changed.
 - **Rules version filter** limits the verdict, missed and saved lists to one `rules_version`. Empty panels say when their first results are due, or, with a version selected, that its signals aren't old enough yet.
 - **Dashboard:** the Track record card shows the BUY line at 3 months (1 month until then) once results exist.
 

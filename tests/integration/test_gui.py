@@ -239,3 +239,22 @@ def test_a_database_behind_the_code_says_how_to_fix_it():
 
 def test_startup_brings_the_database_up_to_date(_test_database):
     assert gui.prepare_database() is None  # idempotent: safe on every start
+
+
+def test_main_updates_the_database_then_serves(monkeypatch, capsys, _test_database):
+    import uvicorn
+
+    started = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, host, port, log_level: started.update(host=host, port=port))
+    monkeypatch.delenv("GUI_PASSWORD", raising=False)
+    assert gui.main(["--port", "8123"]) == 0
+    assert started == {"host": "127.0.0.1", "port": 8123}
+    assert "Database: up to date." in capsys.readouterr().out
+
+
+def test_unarchive_through_the_browser(seeded):
+    client = TestClient(gui.create_app())
+    pf = client.post("/api/portfolios", json={"name": "Old"}, headers=WRITE).json()
+    base = f"/api/portfolios/{pf['portfolio_id']}"
+    assert client.patch(base, json={"archived": True}, headers=WRITE).json()["archived"] is True  # empty: allowed
+    assert client.patch(base, json={"archived": False}, headers=WRITE).json()["archived"] is False

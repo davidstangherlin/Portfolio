@@ -174,3 +174,66 @@ def test_dashboard_headline_once_results_exist(history, db_session):
     db_session.commit()
     data = gui.dashboard_payload(db_session, date(2026, 10, 5), datetime(2026, 10, 5, 9))
     assert data["tracking"]["headline"]["action"] == "BUY" and data["tracking"]["headline"]["horizon_months"] == 3
+
+
+def _snap(session, company, d, action, price, held=False):
+    session.add(SignalSnapshot(
+        company_id=company.company_id, snapshot_date=d, price=D(price), action=action, held=held,
+        valuation_status="Undervalued", margin_of_safety_percent=D("30"), estimated_value=D(price) * 2,
+        score_total=0, score_value=0, score_performance=0, score_health=0, score_dividend=0, score_momentum=0,
+        mos_ok=True, roe_ok=True, de_ok=True, yield_ok=True, red_flags=[], rules_version="2026-10-05"))
+
+
+def test_still_actionable_groups_by_freshness(db_session):
+    latest = date(2026, 10, 2)
+    cos = {}
+    for code in ("NEW", "OPEN", "ROSE", "BOUGHT", "CUT", "BLIP"):
+        cos[code] = Company(ticker=f"{code}.AX", company_name=f"{code} Ltd", asx_code=code)
+        db_session.add(cos[code])
+    db_session.flush()
+    for d in _weekdays(latest - timedelta(days=60), latest):
+        _snap(db_session, cos["NEW"], d, "BUY" if d >= latest - timedelta(days=3) else "WATCH", "10")
+        _snap(db_session, cos["OPEN"], d, "BUY", "10")
+        _snap(db_session, cos["ROSE"], d, "BUY" if d < latest - timedelta(days=20) else "WATCH", "10")
+        _snap(db_session, cos["BOUGHT"], d, "BUY" if d < latest - timedelta(days=20) else "ACCUMULATE", "10",
+              held=d >= latest - timedelta(days=20))
+        _snap(db_session, cos["CUT"], d, "BUY", "10")
+        _snap(db_session, cos["BLIP"], d, "BUY" if d < latest - timedelta(days=20) else "WATCH", "10")
+    db_session.commit()
+
+    def row(code, action, mos, price="10", held=None):
+        return {"asx_code": code, "company_name": f"{code} Ltd", "action": action, "current_price": D(price),
+                "margin_of_safety_percent": None if mos is None else D(mos), "held": held}
+    current = [row("NEW", "BUY", "40"), row("OPEN", "BUY", "35"), row("ROSE", "WATCH", "10", price="14"),
+               row("BOUGHT", "ACCUMULATE", "30", held=D("100")), row("CUT", "BUY", "15"), row("BLIP", "WATCH", "30")]
+    out = report.actionable(db_session, current, ["BUY"], D("20"), {"OPEN": ["Ideas"]})
+
+    assert [i["asx_code"] for i in out["new"]] == ["NEW"] and out["new"][0]["since"] == date(2026, 9, 29)
+    assert [i["asx_code"] for i in out["open"]] == ["OPEN"] and out["open"][0]["watchlists"] == ["Ideas"]
+    why = {i["asx_code"]: i["why"] for i in out["moved_on"]}
+    assert why == {"ROSE": "price rose out of the buy zone", "BOUGHT": "you bought it",
+                   "CUT": "estimated value fell", "BLIP": "now WATCH"}
+
+
+def test_proven_actions_need_moderate_confidence_and_a_positive_result():
+    def v(buy_signals, buy_excess):
+        actions = [{"action": "BUY", "confidence": report.confidence(buy_signals), "avg_excess": D(buy_excess)},
+                   {"action": "WATCH", "confidence": "solid", "avg_excess": D("9")}]  # not buy-side: never proven
+        return {1: {"actions": actions}, 3: {"actions": actions}}
+    assert report.proven_actions(v(40, "2")) == (["BUY"], True, 3)
+    assert report.proven_actions(v(40, "-2")) == (["BUY"], False, None)
+    assert report.proven_actions(v(10, "5")) == (["BUY"], False, None)
+
+
+def test_nightly_commands(history, db_session, caplog):
+    import logging
+
+    from src.tracking import record_signals, score_signals
+
+    caplog.set_level(logging.INFO)
+    assert record_signals.main() == 0  # no valued companies in this history: records nothing, still succeeds
+    assert score_signals.main() == 0
+    assert "Scored" in caplog.text and "monthly summary rows refreshed" in caplog.text
+    assert db_session.execute(text("SELECT COUNT(*) FROM signal_outcomes")).scalar_one() > 0
+    assert score_signals.main() == 0  # a second run scores nothing twice
+    assert "Scored 0 outcomes" in caplog.text

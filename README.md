@@ -11,10 +11,11 @@ it's useful, and who it's for. See `docs/AS_BUILT.md` for full technical design.
 
 ```
 db/
-  schema.sql               PostgreSQL schema (companies, daily_prices,
-                            financial_reports, valuation_metrics, screener view)
+  schema.sql               PostgreSQL schema: market data, valuations, holdings and portfolios,
+                            watchlists, the track record, and the screener view
 src/
   config.py                DB connection (env-var driven)
+  apply_schema.py          brings the database up to the schema (nightly step 0, and on GUI start)
   models/                  SQLAlchemy ORM models, one per schema table
   ingestion/
     yahoo_client.py         yfinance wrapper for ASX tickers (adds .AX suffix)
@@ -32,14 +33,23 @@ src/
     engine.py                 pulls DB inputs together, picks DCF vs DDM by sector, upserts valuation_metrics
     run_valuation.py          CLI entrypoint
   portfolio/
-    cgt.py                    Australian CGT arithmetic (cost base, 12-month discount, FY summary)
-    holdings.py               parcel records: add, sell (with splitting), positions
+    cgt.py                    Australian CGT arithmetic, discount by tax type, FY summary
+    holdings.py               portfolios and parcels: add, sell (with splitting), undo, archive, positions
+    views.py                  portfolio figures for the web GUI
+    trade_input.py            checks on trades typed into the browser
   screening/
     actions.py                suggested action + reason for each company
     scores.py                 score wheel checks for the web GUI
+    enriched.py               screener rows with scores and valuation status (GUI and track record)
+  watchlist/
+    lists.py                  watchlists: entries, notes, triggers
+  tracking/
+    signals.py, record_signals.py   nightly signal record (nightly step 3)
+    outcomes.py, score_signals.py   scores signals at 1/3/6/12 months (nightly step 4)
+    report.py                 the Track record page's figures
 screen_asx.py               CLI value screener
-portfolio.py                CLI for your holdings and CGT records
-gui.py                      web GUI server (see Web GUI below)
+portfolio.py                CLI for your portfolios, holdings and CGT records
+gui.py                      web GUI server, Sift (see Web GUI below)
 web/                        web GUI page, styles and script (no build step)
 requirements.txt
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
@@ -49,7 +59,7 @@ scripts/
   daily_refresh.ps1          Windows Task Scheduler automation (see below)
 tests/
   conftest.py                 test-database setup (see Testing below)
-  unit/                       no database needed - pure functions + compute_metrics()
+  unit/                       no database needed
   integration/                needs a local PostgreSQL instance
 ```
 
@@ -369,18 +379,21 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers:
+Two tiers, 317 tests in all:
 
-- **`tests/unit/`** - pure functions (`dividends.py`, `graham.py`, `dcf.py`, `ddm.py`) and
-  `engine.py`'s `compute_metrics()`, built entirely on plain, unpersisted ORM objects -
-  no database connection at all, so these run in well under a second.
-- **`tests/integration/`** - the parts that genuinely need a real database:
-  `gather_inputs()`'s queries, the overflow-clamp actually round-tripping through
-  PostgreSQL, `run_valuation()`'s per-company crash isolation, and the screener's
-  SQL against the real view. `tests/conftest.py` creates an `asx_test` database and
-  applies `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to
-  point at a different instance) - it never touches whatever database your `.env`
-  points at.
+- **`tests/unit/`** (215 tests) - no database connection at all, so these run in about a
+  second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
+  the score wheel, dividend history and currency conversion, franking, CGT arithmetic
+  (including the discount by tax type), browser input checks and the cross-site write guard,
+  watchlist triggers, and the dashboard's log reading and stale-data rule.
+- **`tests/integration/`** (102 tests) - the parts that genuinely need a real database: the
+  schema (re-applied, upgraded from an older version, and built from nothing), ingestion
+  upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
+  web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password
+  and same-page guards), signal recording, and track record scoring against 13 months of
+  made-up history. `tests/conftest.py` creates an `asx_test` database and applies
+  `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to point at a
+  different instance) - it never touches whatever database your `.env` points at.
 
 If no PostgreSQL instance is reachable, `tests/integration/` skips with a clear
 reason rather than failing - `tests/unit/` is completely unaffected either way.

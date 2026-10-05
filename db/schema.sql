@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
 -- NOTHING), so later rule changes can't rewrite history: rules_version
 -- records which rules produced each row. The track record compares these
 -- against what the price did next. Kept for 14 months; monthly summaries
--- are kept for good (both from the track-record release).
+-- are kept for good (src/tracking/outcomes.py).
 CREATE TABLE IF NOT EXISTS signal_snapshots (
     company_id UUID NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
     snapshot_date DATE NOT NULL,                 -- the price date the valuation used

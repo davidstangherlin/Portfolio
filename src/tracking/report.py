@@ -212,10 +212,13 @@ def actionable(session, current_rows: list[dict], proven: list[str], threshold: 
             continue
         last = signals[-1]
         mos = now["margin_of_safety_percent"]
-        if mos is not None and mos <= threshold and last["price"] and now["current_price"] > last["price"]:
-            why = "price rose out of the buy zone"
-        elif now["held"] is not None:
+        out_of_zone = mos is None or mos <= threshold
+        if now["held"] is not None:
             why = "you bought it"
+        elif out_of_zone and last["price"] and now["current_price"] > last["price"]:
+            why = "price rose out of the buy zone"
+        elif out_of_zone:
+            why = "estimated value fell" if mos is not None else "no longer valued"
         else:
             why = f"now {now['action']}"
         moved.append({"asx_code": code, "company_name": now["company_name"], "action": last["action"],
@@ -228,9 +231,6 @@ def actionable(session, current_rows: list[dict], proven: list[str], threshold: 
     return {"as_of": latest, "new": order(new), "open": order(still_open),
             "moved_on": sorted(moved, key=lambda i: i["since"], reverse=True)[:LIST_LIMIT]}
 
-
-def first_results_due(status: dict) -> dict:
-    return {r["months"]: r["date"] for r in status.get("results_due", [])}
 
 
 def headline(session) -> dict | None:
