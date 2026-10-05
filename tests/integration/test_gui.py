@@ -75,3 +75,13 @@ def test_lan_mode_refuses_to_start_without_a_password(monkeypatch, capsys):
     monkeypatch.delenv("GUI_PASSWORD", raising=False)
     assert gui.main(["--lan"]) == 1
     assert "GUI_PASSWORD" in capsys.readouterr().out
+
+
+def test_company_api_states_the_model_assumptions_it_used(seeded):
+    data = TestClient(gui.create_app()).get("/api/company/GOOD").json()
+    assert data["model"] == {"method": "DCF", "growth_rate": 0.08, "stage1_years": 5,
+                             "terminal_growth_rate": 0.025, "discount_rate": 0.09}
+
+
+def test_page_is_branded_sift(seeded):
+    assert "<title>Sift | ASX value screener</title>" in TestClient(gui.create_app()).get("/").text

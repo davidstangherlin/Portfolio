@@ -214,9 +214,9 @@ Red flags: value-trap risk, payout ratio over 150%, weak earnings quality, divid
 price making new lows, low data confidence. These are rule-based research prompts, not
 financial advice: read the reason, then check the numbers behind it.
 
-## Web GUI
+## Web GUI (Sift)
 
-`gui.py` is a local web app over the same database and the same rules as
+`gui.py` is a local web app, branded **Sift**, over the same database and the same rules as
 `screen_asx.py` (it calls the screener's own row loader, so the two never
 disagree). It is read-only.
 
@@ -234,6 +234,14 @@ Press `Ctrl+C` to stop it.
   value and the Graham Number, the four value tests, quality markers and red flags, key
   ratios, a 12-month price chart with the 200-day average, margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.
+- **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
+  i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
+  **No estimate**. Shown in the table and on the company page.
+- **Summary strip:** the top of each company page shows share price, estimated value, margin of
+  safety and **implied upside** ((value - price) / price, which is not the same as margin of
+  safety), followed by the valuation model and its exact assumptions.
+- **Light or dark:** the gear icon (top right) offers Light, Dark or System (follows Windows or
+  your phone). Your choice is remembered in that browser.
 - **Field explanations:** hover any column heading, or any label on the company page, to see
   what it measures, how it is calculated and the pass threshold. Underlined headings have one.
   On a phone, tap the small "i" next to the heading instead.

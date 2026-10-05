@@ -103,6 +103,9 @@ const FIELD_HELP = {
   "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
   "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
   "Accounts currency": () => "The currency the company publishes its financial statements in. Statements in another currency (US dollars for most large miners, New Zealand dollars for NZ listings) are converted into the share price's currency at the exchange rate on each report's balance date, so earnings, book value, cash flow and every ratio built on them compare like with like. Dividends are already in the share price's currency and are not converted.",
+  "Valuation": (t) => `Where the price sits against estimated value. Undervalued: margin of safety above ${t.margin_of_safety}% (passes the value test). Fair value: 0% to ${t.margin_of_safety}%. Overvalued: below 0%, so the price is above estimated value. No estimate: no valuation model could run.`,
+  "Implied upside": () => "How much the price would rise to reach estimated value: (value - price) / price. Not the same as margin of safety, which divides by value: a 40% margin of safety is a 67% implied upside.",
+  "Estimated value": () => "Intrinsic value per share from the company's valuation model. Hover the bar label in the chart below for the model's full assumptions.",
   "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
   "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
 };
@@ -166,6 +169,18 @@ async function getJSON(url) {
 }
 
 /* ---------- shared pieces ---------- */
+/* Valuation status from margin of safety, using the live value-test threshold. */
+function valuationStatus(mos) {
+  if (mos === null || mos === undefined) return { cls: "none", label: "No estimate" };
+  if (mos > thresholds().margin_of_safety) return { cls: "under", label: "Undervalued" };
+  if (mos >= 0) return { cls: "fair", label: "Fair value" };
+  return { cls: "over", label: "Overvalued" };
+}
+function valuationPill(mos, large = false) {
+  const st = valuationStatus(mos);
+  return h("span", { class: `pill ${st.cls}${large ? " lg" : ""}`, text: st.label });
+}
+const signClass = (v) => (v === null || v === undefined ? null : v >= 0 ? "pos" : "neg");
 function badge(action) {
   return h("span", { class: `badge ${ACTION_STATUS[action] || "neutral"}`, text: action });
 }
@@ -389,13 +404,14 @@ window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer
 const COLUMNS = [
   { key: "score", label: "Score", value: (r) => sum(r.scores) },
   { key: "asx_code", label: "Company", value: (r) => r.asx_code },
-  { key: "sector", label: "Sector", opt: true, value: (r) => r.sector },
+  { key: "sector", label: "Sector", opt: true, opt3: true, value: (r) => r.sector },
   { key: "current_price", label: "Price", num: true, narrowHide: true, value: (r) => r.current_price },
   { key: "margin_of_safety_percent", label: "Margin of safety", num: true, value: (r) => r.margin_of_safety_percent },
+  { key: "valuation", label: "Valuation", narrowHide: true, opt4: true, value: (r) => r.margin_of_safety_percent },
   { key: "roe", label: "ROE", num: true, opt: true, value: (r) => r.roe },
   { key: "debt_to_equity", label: "Debt/equity", num: true, opt: true, value: (r) => r.debt_to_equity },
   { key: "grossed_up_dividend_yield", label: "Yield (grossed up)", num: true, opt: true, value: (r) => r.grossed_up_dividend_yield },
-  { key: "tests", label: "Value tests", opt: true, value: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
+  { key: "tests", label: "Value tests", opt: true, opt4: true, value: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
   { key: "action", label: "Action", value: (r) => cache.screener.actions.indexOf(r.action) },
 ];
 
@@ -429,13 +445,14 @@ function screenerRow(r) {
     h("td", {}, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
     h("td", {}, h("span", { class: "code", text: r.asx_code }), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
       h("div", { class: "name", text: r.company_name || "" })),
-    h("td", { class: "opt", text: r.sector || NA }),
+    h("td", { class: "opt opt3", text: r.sector || NA }),
     h("td", { class: "num opt2", text: money(r.current_price) }),
-    h("td", { class: "num", text: pct(r.margin_of_safety_percent, 0) }),
+    h("td", { class: `num ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
+    h("td", { class: "opt2 opt4" }, valuationPill(r.margin_of_safety_percent)),
     h("td", { class: "num opt", text: pct(r.roe, 1) }),
     h("td", { class: "num opt", text: fmt(r.debt_to_equity, 2) }),
     h("td", { class: "num opt", text: pct(r.grossed_up_dividend_yield, 1) }),
-    h("td", { class: "opt" }, ynMarks(r)),
+    h("td", { class: "opt opt4" }, ynMarks(r)),
     h("td", {}, badge(r.action)));
 }
 
@@ -476,7 +493,7 @@ async function renderScreener() {
   }
 
   for (const col of COLUMNS) {
-    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
+    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.opt3 ? "opt3" : "", col.opt4 ? "opt4" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
       scope: "col", tabindex: 0, text: col.label,
       onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } }), col.label));
   }
@@ -525,6 +542,31 @@ function accountsCurrency(c, reports) {
   return `${from}, converted to ${to} at ${fmt(latest.fx_rate, 4)} (${longDate(latest.report_date)})`;
 }
 
+/* The four headline figures at the top of a company page. */
+function summaryStrip(c, model) {
+  const mos = c.margin_of_safety_percent;
+  const value = c.dcf_intrinsic_value;
+  const upside = value && value > 0 && c.current_price ? ((value - c.current_price) / c.current_price) * 100 : null;
+  const signed = (v, dp) => (v === null || v === undefined ? NA : `${v > 0 ? "+" : ""}${fmt(v, dp)}%`);
+  const tile = (label, valueText, cls, note) => h("div", { class: "stat" },
+    withHelp(h("div", { class: "stat-label", tabindex: 0, text: label }), label),
+    h("div", { class: `stat-value ${cls || ""}`.trim(), text: valueText }),
+    note ? h("div", { class: "stat-note", text: note }) : null);
+  return h("div", { class: "stats" },
+    tile("Share price", money(c.current_price), null, `as at ${longDate(c.as_of_date)}`),
+    tile("Estimated value", value && value > 0 ? money(value) : NA, "accent", model ? `${model.method} model` : "no model could run"),
+    tile("Margin of safety", signed(mos, 1), signClass(mos), valuationStatus(mos).label),
+    tile("Implied upside", signed(upside, 1), signClass(upside), "price to reach estimated value"));
+}
+function modelNote(model) {
+  if (!model) return null;
+  const name = model.method === "DDM" ? "Two-stage dividend discount model (used for banks, insurers and REITs)" : "Two-stage discounted cash flow model";
+  const base = model.method === "DDM" ? "average dividend per share" : "average free cash flow";
+  return h("p", { class: "model-note", text:
+    `${name}: ${base} over three years, grown ${fmt(model.growth_rate * 100, 0)}% a year for ${model.stage1_years} years, ` +
+    `then ${fmt(model.terminal_growth_rate * 100, 1)}% a year, discounted at ${fmt(model.discount_rate * 100, 0)}% a year.` });
+}
+
 function checklist(checks) {
   return h("ul", { class: "checklist" }, checks.map((ch) => {
     const cls = ch.passed === true ? "pass" : ch.passed === false ? "fail" : "na";
@@ -558,8 +600,6 @@ async function renderCompany(code) {
   const method = c.valuation_method === "DDM" ? "dividend discount model" : c.valuation_method === "DCF" ? "discounted cash flow model" : null;
   const valuation = card("Price against estimated value",
     method ? `Estimated value from a ${method}. Graham Number shown for reference.` : "No intrinsic value estimate could be made for this company.",
-    mos === null ? null : h("p", { class: `headline ${mos >= 0 ? "status-good" : "status-bad"}`,
-      text: mos >= 0 ? `${fmt(mos, 0)}% below estimated value` : `${fmt(-mos, 0)}% above estimated value` }),
     chartSlot((w) => valuationBars([
       { label: "Share price", value: c.current_price, emphasis: true, help: FIELD_HELP["Share price"] },
       { label: "Estimated value", value: c.dcf_intrinsic_value, help: () => ESTIMATED_VALUE_HELP[c.valuation_method] },
@@ -646,17 +686,44 @@ async function renderCompany(code) {
   app.replaceChildren(...[
     h("a", { class: "back", href: "#/", text: "← All companies" }),
     h("div", { class: "co-head" },
-      h("h1", { text: c.asx_code }),
-      h("span", { class: "sub", text: [c.company_name, c.sector, c.industry].filter(Boolean).join("  |  ") }),
-      h("span", { class: "co-price", text: money(c.current_price) }),
+      h("h1", { text: c.company_name || c.asx_code }),
+      h("span", { class: "ticker mono", text: c.asx_code }),
+      valuationPill(mos, true),
       badge(c.action)),
+    h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
     h("p", { class: "reason", text: c.action_reason }),
+    summaryStrip(c, d.model),
+    modelNote(d.model),
     held,
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
 }
+
+/* ---------- settings: theme ---------- */
+const THEME_KEY = "sift-theme";
+function currentThemeChoice() {
+  try { return localStorage.getItem(THEME_KEY) || "system"; } catch (e) { return "system"; }
+}
+function applyTheme(choice) {
+  if (choice === "light" || choice === "dark") document.documentElement.setAttribute("data-theme", choice);
+  else document.documentElement.removeAttribute("data-theme");
+  try { choice === "system" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch (e) { /* not saved; still applied */ }
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", b.dataset.themeChoice === choice);
+  slots.forEach((sl) => { delete sl.el.dataset.w; }); // charts pick up the new colours on redraw
+  drawSlots();
+}
+(function initSettings() {
+  const btn = document.getElementById("settings-btn"), panel = document.getElementById("settings");
+  const setOpen = (open) => { panel.hidden = !open; btn.setAttribute("aria-expanded", open); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(panel.hidden); });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.addEventListener("click", () => applyTheme(b.dataset.themeChoice));
+  applyTheme(currentThemeChoice());
+})();
 
 /* ---------- routing ---------- */
 function route() {

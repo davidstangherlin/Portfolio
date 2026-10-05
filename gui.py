@@ -37,6 +37,7 @@ from src.config import get_session
 from src.models import Company, DailyPrice, FinancialReport, ValuationMetric
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
+from src.valuation import dcf as dcf_module, ddm as ddm_module
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 DEFAULT_PORT = 8000
@@ -138,6 +139,20 @@ def screener_payload(session, today: date) -> dict:
     }
 
 
+def _model_assumptions(method: str | None) -> dict | None:
+    """The default assumptions the nightly valuation runs with, for the
+    company page's model note (run_valuation's CLI overrides aren't used
+    by the scheduled job)."""
+    if method == "DDM":
+        m = ddm_module
+    elif method == "DCF":
+        m = dcf_module
+    else:
+        return None
+    return {"method": method, "growth_rate": m.DEFAULT_GROWTH_RATE, "stage1_years": m.DEFAULT_STAGE1_YEARS,
+            "terminal_growth_rate": m.DEFAULT_TERMINAL_GROWTH_RATE, "discount_rate": m.DEFAULT_DISCOUNT_RATE}
+
+
 def company_payload(session, asx_code: str, today: date) -> dict | None:
     args = screener_defaults([])
     rows, positions = load_annotated_rows(session, args, today)
@@ -194,6 +209,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
              "rule": f"above {t.min_yield}%", "passed": row["yield_ok"] == "Y"},
         ],
         "flags": red_flags(row),
+        "model": _model_assumptions(row.get("valuation_method")),
         "position": None if position is None else {
             "units": position.units, "cost_base": position.cost_base,
             "next_discount_date": position.next_discount_date,
