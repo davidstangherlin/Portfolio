@@ -5,48 +5,63 @@
 | **Repository** | `davidstangherlin/Portfolio` |
 | **Default branch** | `main` |
 | **Document purpose** | Fault-finding, disaster recovery / rebuild, and third-party (e.g. ChatGPT) code design review |
-| **Document version** | 1.0 |
-| **Date** | 2026-09-15 |
-| **Covers commits** | `d60ef53` (schema), `4f5d297` (pipeline + CLI) |
+| **Document version** | 2.0 |
+| **Date** | 2026-10-05 (first issued 2026-09-15) |
+| **Covers commits** | `d60ef53` (schema) to `f5beecc` (knowledge base); §15 has the full history |
 
 ---
 
 ## 1. Executive Summary
 
-This system is a local ASX (Australian Securities Exchange) value-investing research tool. It ingests daily prices and annual financial fundamentals for ASX-listed companies from Yahoo Finance, computes a standard set of value-investing metrics (grossed-up franked dividend yield, Graham Number, a 2-stage DCF or, for Financial Services/Real Estate companies, a Dividend Discount Model intrinsic value, margin of safety, and classic ratios), stores everything in PostgreSQL, and exposes a command-line screener that lists every company annotated with Y/N pass/fail indicators against configurable Graham/Buffett-style thresholds (optionally filterable down to just the companies passing, via `--passing-only`), four decision markers (§8.7) and a suggested action with its reason (§9.1). A parcel-level holdings table with Australian CGT record keeping (§19) lets held companies get HOLD / REVIEW / SELL.
+This system is a local ASX (Australian Securities Exchange) value-investing research tool, with a web interface called **Sift**. Each night it ingests prices and annual financial statements for about 500 ASX companies from Yahoo Finance, values every company (a two-stage discounted cash flow model, or a dividend discount model for banks, insurers and REITs), and computes the classic ratios, the franking-adjusted dividend yield, the Graham Number and the margin of safety. Every company is tested against four Graham/Buffett-style value tests, checked for quality and trend markers and red flags, scored on a 30-check score wheel, and given a suggested action with its reason (§8, §9).
 
-**Status as at this document's date:** code complete and mechanically validated end-to-end against a live PostgreSQL instance using seeded data. Live Yahoo Finance ingestion has **not yet been run successfully from a real internet connection** — it was attempted from a sandboxed development environment whose network policy blocks Yahoo Finance outright (see §8, Known Issues). It should work unmodified from a normal internet connection; this has not yet been confirmed by the user.
+Around that core:
+- **Sift** (§20) shows it all in a browser, on a PC or a phone at home: a dashboard of what needs attention and what changed overnight, a filterable screener, a page per company with charts, and a searchable **Help** page (§23).
+- **Portfolios** (§19, §19.1) keep parcel-level CGT records across several portfolios, each with its owner's tax type, with trades entered in the browser or at the command line.
+- **Watchlists** (§22) follow companies without owning them, with notes and price or value triggers.
+- **Track record** (§21) records what Sift said every night and scores it after 1, 3, 6 and 12 months against the average screened company, so the rules are judged on results.
+- **Knowledge base** (§23): one file, `web/knowledge.json`, supplies the Help page, every hover explanation and the glossary of the Word rules document.
 
-**Three-tier architecture:**
+**Status as at 2026-10-05:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record) and the knowledge base are complete. 402 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
+
+**Architecture:**
 
 ```mermaid
 flowchart LR
     subgraph External
-        YF[Yahoo Finance API]
+        YF[Yahoo Finance]
     end
-    subgraph Ingestion["src/ingestion/"]
-        YC[yahoo_client.py]
-        PI[price_ingestion.py]
-        FI[fundamentals_ingestion.py]
+    subgraph Nightly["Nightly job (scripts/daily_refresh.ps1)"]
+        SCH[apply_schema]
+        ING[src/ingestion/]
+        VAL[src/valuation/]
+        REC[src/tracking/ record + score]
     end
     subgraph Storage["PostgreSQL (db/schema.sql)"]
-        DB[(companies / daily_prices /\nfinancial_reports / valuation_metrics)]
+        MKT[(companies, prices,\nreports, valuations)]
+        MINE[(portfolios, holdings,\nwatchlists)]
+        TR[(signal snapshots,\noutcomes, monthly)]
         VIEW[[asx_value_screener view]]
     end
-    subgraph Valuation["src/valuation/"]
-        ENG[engine.py]
-        CALC[dividends.py / graham.py / dcf.py / ddm.py]
-    end
-    subgraph CLI
-        SCREEN[screen_asx.py]
+    subgraph Use["What you use"]
+        CLI[screen_asx.py / portfolio.py]
+        GUI[gui.py: Sift]
+        KB[web/knowledge.json]
+        DOC[Word rules document]
     end
 
-    YF --> YC --> PI --> DB
-    YC --> FI --> DB
-    DB --> ENG
-    ENG --> CALC
-    ENG -->|upsert| DB
-    DB --> VIEW --> SCREEN
+    YF --> ING --> MKT
+    SCH --> Storage
+    MKT --> VAL --> MKT
+    MKT --> VIEW
+    VIEW --> REC --> TR
+    VIEW --> CLI
+    VIEW --> GUI
+    MINE <--> GUI
+    MINE <--> CLI
+    TR --> GUI
+    KB --> GUI
+    KB --> DOC
 ```
 
 ---
@@ -755,7 +770,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 
 ### 10.14 Web GUI, Portfolios, Watchlists and Track Record (2026-10-05)
 
-- **317 tests** (215 unit, 102 integration), up from 156 at §10.13. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **402 tests** (299 unit, 103 integration), up from 156 at §10.13. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
 - **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
 - **Coverage check** (`coverage run -m pytest`, 2026-10-05): 86% of statements overall; 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
 - **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
@@ -1065,6 +1080,14 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 
 **Web GUI, multiple portfolios, watchlists and the track record (§19.1, §20, §21, §22):** ✅ Done 2026-10-05.
 
+**Searchable knowledge base (§23):** ✅ Done 2026-10-05.
+
+**Add a Help entry or correct a definition:**
+> "In web/knowledge.json, add an entry for [term] (or correct [entry]) in the right topic, with related terms and a link into Sift, then rebuild the Word document and run the tests."
+
+**Ask Sift questions in plain English (only if Help search proves too narrow):**
+> "Add AI question-answering to the Help page using web/knowledge.json as its only source. Explain the cost, what leaves my PC, and where the API key goes before building."
+
 **Read the first track record results (from about a month after recording starts):**
 > "Open the Track record numbers for me: for each action at 1 month, how did it do against the average, how confident can we be yet, and is anything surprising? Don't change any rules yet."
 
@@ -1136,7 +1159,7 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 - `gui.py`: FastAPI app run by uvicorn. `GET /api/screener` (every row, trimmed to the fields the table needs, plus five axis scores) and `GET /api/company/{code}` (the full row, the 30 checks, the four tests with thresholds, red flags, position, 365 days of prices, margin-of-safety history and up to 5 FY reports). `/` and `/static/*` serve `web/`.
 - Added with the dashboard (stage 1): `GET /api/dashboard`, `GET /api/status` (the data chip) and `GET /api/companies` (the search list); see "Menu bar and dashboard" below.
 - Both endpoints call `screen_asx.load_annotated_rows()`, the same loader the CLI uses, so the browser and `screen_asx.py` can never disagree on a test, flag or action. Two extra `DISTINCT ON` queries add `roic`, `graham_number` and the latest FY report for the score wheel without a per-company query. Since stage 1 this enrichment lives in `src/screening/enriched.py` (`load_universe()`), shared with the signal recorder (§21).
-- `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` dashboard, `#/screener` (optionally `?action=BUY,INVESTIGATE` or `?held=1` to open it pre-filtered), `#/company/BHP`, `#/portfolios`, `#/track-record`, `#/watchlists`; anything else goes to the dashboard.
+- `web/`: plain HTML, CSS and JavaScript, no framework, no build step, no CDN. Charts are inline SVG drawn at their real on-screen width (redrawn on resize) so text stays legible on a phone. All text is inserted with `textContent`. Hash routing: `#/` dashboard, `#/screener` (optionally `?action=BUY,INVESTIGATE`, `?held=1` or `?watchlist=NAME` to open it pre-filtered), `#/company/BHP`, `#/portfolios` and `#/portfolio/{id}`, `#/watchlists` and `#/watchlist/{id}`, `#/track-record`, `#/help` (with `?q=` or `/{entry}`, §23); anything else goes to the dashboard.
 - Charts follow the dataviz method: validated categorical palette (blue/orange, checked light and dark), 2px lines, hairline grid, one axis per chart, legend only for two or more series, crosshair or per-bar tooltips, a data table under every chart, and light and dark themes.
 
 **Field explanations.** The text comes from `web/knowledge.json` (§23), loaded before the first page draws. Every screener column heading, every label in the company page's markers and key-ratios panels, and the three bar labels in "Price against estimated value" (share price, estimated value, Graham Number) carries a plain-English explanation (what it measures, the formula, and the pass threshold, read from the live thresholds so it can't drift from the rules). `withHelp()` in `app.js` shows it on mouse hover and keyboard focus; on touch screens a small "i" button shows it on tap without triggering the column sort. With a mouse the "i" buttons are hidden and headings get a dotted underline instead, which keeps the table within a 1280px screen. The estimated value explanation follows the company's model (DCF or DDM, with its growth, terminal and discount rates); labels inside SVG charts use `svgLabelHelp()`, with an SVG "i" for touch screens.
