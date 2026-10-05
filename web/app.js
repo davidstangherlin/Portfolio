@@ -279,7 +279,7 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
 
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart", role: "img", "aria-label": label });
   for (const t of ticks) {
-    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 && zeroLine ? "base-line" : "grid-line" }));
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 && zeroLine ? "zero-line" : "grid-line" }));
     svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: yFmt(t) }));
   }
   const nLabels = Math.min(5, base.length);
@@ -665,7 +665,7 @@ async function renderCompany(code) {
   priceCard.classList.add("wide");
 
   const mosCard = d.mos_history.length >= 2
-    ? card("Margin of safety over time", "Above zero: trading below estimated value.",
+    ? card("Margin of safety over time", "The pink line is 0%, where the price equals estimated value. Above it: trading below estimated value.",
       chartSlot((w) => lineChart({ series: [{ name: "Margin of safety", color: "--s1", points: d.mos_history }], yFmt: (v) => fmt(v, 0) + "%", zeroLine: true, label: "Margin of safety history", width: w })),
       tableView(["Date", "Margin of safety"], d.mos_history.slice(-30).reverse().map((p) => [longDate(p[0]), pct(p[1])])))
     : card("Margin of safety over time", "Builds up as the nightly job records a valuation each day.");

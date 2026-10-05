@@ -267,6 +267,7 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .chart text { fill: var(--muted); font-size: 11px; }
 .chart .grid-line { stroke: var(--grid); stroke-width: 1; }
 .chart .base-line { stroke: var(--axis); stroke-width: 1; }
+.chart .zero-line { stroke: var(--twisty); stroke-width: 1.5; } /* 0% margin of safety: price equals estimated value */
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
 .legend .key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
 .legend .key.rect { height: 10px; width: 10px; border-radius: 2px; }
