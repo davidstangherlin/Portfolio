@@ -25,6 +25,8 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+from src.ingestion.dividend_history import Payment
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +73,7 @@ class FundamentalsSnapshot:
     cash_and_equivalents: Decimal | None = None
     net_tangible_assets: Decimal | None = None
     dividends_per_share: Decimal | None = None
+    abnormal_distributions_per_share: Decimal | None = None  # excluded one-offs, see dividend_history.py
     franking_percentage: Decimal | None = None  # Yahoo does not expose this - left None
     corporate_tax_rate: Decimal | None = None  # Yahoo does not expose this - left None
 
@@ -192,21 +195,25 @@ class YahooClient:
                     total_debt=total_debt,
                     cash_and_equivalents=bal("CashAndCashEquivalents"),
                     net_tangible_assets=bal("TangibleBookValue"),
-                    dividends_per_share=None,  # sourced separately via get_dividends_per_share
+                    dividends_per_share=None,  # sourced separately via get_dividend_payments
                 )
             )
         return snapshots
 
-    def get_dividends_per_share(self, fiscal_year: int) -> Decimal | None:
-        """Sum of per-share dividends paid in the given calendar/fiscal year."""
+    def get_dividend_payments(self) -> list[Payment]:
+        """Every per-share dividend Yahoo has recorded, oldest first. Raw:
+        abnormal one-offs and financial-year matching are handled by
+        src.ingestion.dividend_history."""
         try:
             dividends = self._ticker.dividends
         except Exception:
             logger.exception("Failed to fetch dividends for %s", self.symbol)
-            return None
+            return []
         if dividends is None or dividends.empty:
-            return None
-        year_dividends = dividends[dividends.index.year == fiscal_year]
-        if year_dividends.empty:
-            return None
-        return _to_decimal(float(year_dividends.sum()))
+            return []
+        payments = []
+        for ts, amount in dividends.items():
+            value = _to_decimal(float(amount))
+            if value is not None:
+                payments.append(Payment(ex_date=ts.date() if hasattr(ts, "date") else ts, amount=value))
+        return sorted(payments, key=lambda p: p.ex_date)

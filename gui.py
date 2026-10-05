@@ -203,6 +203,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,
              "free_cash_flow": r.free_cash_flow, "operating_cash_flow": r.operating_cash_flow,
              "dividends_per_share": r.dividends_per_share, "eps": r.eps,
+             "abnormal_distributions_per_share": r.abnormal_distributions_per_share,
              "total_debt": r.total_debt, "cash_and_equivalents": r.cash_and_equivalents,
              "total_equity": r.total_equity}
             for r in reversed(reports)

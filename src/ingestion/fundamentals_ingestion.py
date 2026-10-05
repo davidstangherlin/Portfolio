@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -21,6 +22,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.ingestion.common import ensure_country, get_or_create_company
+from src.ingestion.dividend_history import dividends_for_fiscal_year
 from src.ingestion.yahoo_client import YahooClient
 from src.models import FinancialReport
 
@@ -39,6 +41,7 @@ _COALESCE_ON_UPDATE = (
     "free_cash_flow", "capital_expenditure", "eps",
     "total_assets", "total_liabilities", "total_equity", "total_debt",
     "cash_and_equivalents", "net_tangible_assets", "dividends_per_share",
+    "abnormal_distributions_per_share",
 )
 
 
@@ -74,6 +77,7 @@ def upsert_financial_report(session: Session, company_id, snapshot, country: str
         cash_and_equivalents=snapshot.cash_and_equivalents,
         net_tangible_assets=snapshot.net_tangible_assets,
         dividends_per_share=snapshot.dividends_per_share,
+        abnormal_distributions_per_share=snapshot.abnormal_distributions_per_share,
         franking_percentage=franking_percentage_for(snapshot, country),
         corporate_tax_rate=snapshot.corporate_tax_rate or DEFAULT_CORPORATE_TAX_RATE,
     )
@@ -104,7 +108,11 @@ def ingest_fundamentals(
     Each ticker is isolated in its own try/except (see
     `price_ingestion.ingest_daily_prices` for why this matters at scale).
     `delay_seconds` paces requests between tickers to reduce the chance of
-    Yahoo rate-limiting a large batch."""
+    Yahoo rate-limiting a large batch.
+
+    Dividends per share are matched to each financial year, with abnormal
+    one-off distributions (e.g. a capital return recorded as a dividend)
+    held out - see src/ingestion/dividend_history.py."""
     results: dict[str, int] = {}
     total = len(asx_codes)
     for i, asx_code in enumerate(asx_codes, start=1):
@@ -113,9 +121,12 @@ def ingest_fundamentals(
             company = get_or_create_company(session, asx_code, client=client)
             ensure_country(company, client)
             snapshots = client.get_annual_fundamentals(max_years=max_years)
+            payments = client.get_dividend_payments() if snapshots else []
             for snapshot in snapshots:
                 if snapshot.dividends_per_share is None:
-                    snapshot.dividends_per_share = client.get_dividends_per_share(snapshot.fiscal_year)
+                    fy = dividends_for_fiscal_year(payments, snapshot.report_date, date.today())
+                    snapshot.dividends_per_share = fy.ordinary
+                    snapshot.abnormal_distributions_per_share = fy.abnormal if fy.ordinary is not None else None
                 upsert_financial_report(session, company.company_id, snapshot, company.country)
             session.commit()
             logger.info("[%d/%d] Ingested %d annual reports for %s", i, total, len(snapshots), asx_code)

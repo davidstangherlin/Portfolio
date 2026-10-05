@@ -20,6 +20,7 @@ src/
     yahoo_client.py         yfinance wrapper for ASX tickers (adds .AX suffix)
     price_ingestion.py      upserts daily_prices from Yahoo Finance
     fundamentals_ingestion.py  upserts financial_reports from Yahoo Finance
+    dividend_history.py     ordinary dividends per financial year, one-offs held out
     run_ingestion.py        CLI entrypoint for both
   valuation/
     dividends.py            grossed-up (franked) dividend yield
@@ -140,6 +141,27 @@ for that long - the screener prints a note when this is the case, so a blank
 column reads as "not enough history yet," not a bug. `fundamentals_trend`
 has no such wait: it only needs 2+ years of already-ingested annual reports,
 so it populates on the very next `run_valuation` run.
+
+## How Dividends Are Counted
+
+Every dividend figure (yield, payout ratio, dividend trend and the dividend discount model
+for banks, insurers and REITs) uses **ordinary dividends per financial year**:
+
+- **Matched to the company's own financial year.** Each year counts the twelve months of
+  ex-dividend dates ending four months after its balance date. That captures the interim
+  paid during the year and the final paid after it, whether the year ends in June,
+  September or December. If those four months haven't passed yet, the twelve months to
+  today are used instead, so a year in progress isn't mistaken for a cut.
+- **Abnormal one-offs excluded.** A single payment more than twice the company's usual
+  annual dividend (a capital return recorded as a dividend, or a very large special) is
+  held out and stored separately. The company page shows any excluded amount in its
+  dividend chart, so nothing is hidden. Example: Tower (TWR) cancelled 1 in 10 shares in
+  March 2025 at A$1.08 each; Yahoo recorded that as a dividend on every share, which had
+  produced a 519% payout ratio and a 107% yield.
+
+The correction applies as fundamentals are re-ingested (nightly, or straight away with
+`python -m src.ingestion.run_ingestion --tickers-file allords.txt --fundamentals-only --delay 0.5`
+then `python -m src.valuation.run_valuation --all`).
 
 ## Decision Markers
 
@@ -322,6 +344,11 @@ command yourself (no psql or password prompt needed).
   Ingestion defaults new records to fully franked (100%) at the standard 30%
   Australian corporate rate; correct by hand for anything known to pay
   partly-franked or unfranked dividends.
+- **Currency (open issue).** Yahoo reports some companies' financial statements in their
+  reporting currency (US dollars for many miners such as BHP and RIO, New Zealand dollars for
+  NZ listings) while share prices are in Australian dollars. Nothing converts between them yet,
+  so per-share earnings, P/E, P/B, estimated value and the Graham Number are distorted for those
+  companies by the exchange rate. See AS_BUILT known-issue #25.
 - **Shares outstanding** isn't a schema column. It's derived at valuation time
   from `daily_prices.market_cap / close_price`, falling back to
   `net_profit_after_tax / eps` when market cap is unavailable.

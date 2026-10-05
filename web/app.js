@@ -83,13 +83,13 @@ const FIELD_HELP = {
   "Margin of safety": (t) => `How far the price sits below estimated intrinsic value: (value - price) / value. Positive means cheaper than estimated value; negative means dearer. Passes the value test above ${t.margin_of_safety}%.`,
   "ROE": (t) => `Return on equity: net profit after tax / shareholders' equity. How well the company earns on its owners' money. Passes the value test above ${t.roe}%.`,
   "Debt/equity": (t) => `Total debt / shareholders' equity. Lower means less financial risk. Passes the value test below ${fmt(t.debt_to_equity, 2)}.`,
-  "Yield (grossed up)": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%.`,
-  "Grossed-up yield": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%.`,
+  "Yield (grossed up)": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.`,
+  "Grossed-up yield": (t) => `Dividend yield including franking credits: cash dividend x (1 + franking % x 30/70) / price. Companies based outside Australia are treated as unfranked. Passes the value test above ${t.yield}%. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.`,
   "Value tests": () => "The four core value tests, in order: margin of safety, ROE, debt/equity, grossed-up yield. A tick passes; a cross fails or has no data. All four must pass for an overall pass.",
   "Action": () => "Suggested next step from the rules; the reason is on the company page. Shares you don't hold: BUY, INVESTIGATE, WATCH, AVOID, IGNORE. Shares you hold: SELL, REVIEW, ACCUMULATE, HOLD. A research prompt, not financial advice.",
   "Earnings quality": () => "Operating cash flow / net profit over the last three years. STRONG at 100% or more, ADEQUATE 80% to 99%, WEAK below 80%. Profit that isn't turning into cash is a warning sign. Not assessed for banks, insurers and REITs.",
   "Price signal": () => "Price trend. UPTREND: at or above the 200-day average. DOWNTREND: below it. NEW LOWS: below it and in the bottom 10% of the 52-week range. Needs 200 days of prices.",
-  "Dividend trend": () => "Over up to five years. CUT: the latest dividend is more than 10% below last year's or the earlier median. GROWING: more than 5% above the oldest. STEADY otherwise. NONE: pays no dividend.",
+  "Dividend trend": () => "Over up to five years. CUT: the latest dividend is more than 10% below last year's or the earlier median. GROWING: more than 5% above the oldest. STEADY otherwise. NONE: pays no dividend. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
   "Fundamentals trend": () => "Latest versus oldest of the last three annual reports. DECLINING: ROE down more than 2 points or revenue down more than 5%. IMPROVING: up by those amounts. STABLE otherwise. Ignores the share price.",
   "Margin of safety trend": () => "Change in margin of safety over the last 30 days, in percentage points. Positive means the share is getting cheaper relative to its estimated value. More than 5 points counts as momentum.",
   "Value-trap risk": () => "Yes when the margin of safety passes but fundamentals are DECLINING: the share looks cheap, possibly for a good reason.",
@@ -99,8 +99,8 @@ const FIELD_HELP = {
   "Price to free cash flow": () => "Share price / free cash flow per share, latest year. Lower means more cash generated for each dollar paid.",
   "EV/EBIT": () => "Enterprise value (market capitalisation + debt - cash) / earnings before interest and tax. Compares companies regardless of how they are funded.",
   "ROIC": () => "Return on invested capital: net profit / (debt + equity - cash). The return on all the capital the business uses, not just shareholders' money.",
-  "Cash dividend yield": () => "Cash dividend / share price, before franking credits.",
-  "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off.",
+  "Cash dividend yield": () => "Cash dividend / share price, before franking credits. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
+  "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off. Ordinary dividends only: a one-off payment more than twice the usual annual dividend is excluded.",
   "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
   "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
   "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
@@ -614,12 +614,18 @@ async function renderCompany(code) {
         { name: "Net profit after tax", color: "--s2", values: d.reports.map((r) => r.net_profit_after_tax) }] })),
       tableView(["Year", "Revenue", "Net profit", "Free cash flow"], d.reports.map((r, i) => [fy[i], compact(r.revenue), compact(r.net_profit_after_tax), compact(r.free_cash_flow)])))
     : card("Revenue and net profit", "No annual reports stored.");
+  const abnormal = d.reports.map((r, i) => [fy[i], r.abnormal_distributions_per_share]).filter(([, v]) => v > 0);
+  const abnormalNote = abnormal.length ? h("p", { class: "hint note", text:
+    `Excluded from every dividend figure: ${abnormal.map(([y, v]) => `${money(v, 3)} in ${y}`).join(", ")}. ` +
+    "A one-off payment more than twice the usual annual dividend, such as a capital return or large special dividend." }) : null;
   const divCard = d.reports.some((r) => r.dividends_per_share)
-    ? card("Dividends per share", "Cash dividends, before franking credits.",
+    ? card("Dividends per share", "Ordinary cash dividends per financial year, before franking credits.",
+      abnormalNote,
       chartSlot((w) => columnChart({ categories: fy, yFmt: (v) => money(v), label: "Dividends per share by year", width: w,
         series: [{ name: "Dividend per share", color: "--s1", values: d.reports.map((r) => r.dividends_per_share) }] })),
-      tableView(["Year", "Dividend per share"], d.reports.map((r, i) => [fy[i], money(r.dividends_per_share, 3)])))
-    : card("Dividends per share", "No dividends recorded.");
+      tableView(["Year", "Dividend per share", "Excluded one-off"], d.reports.map((r, i) =>
+        [fy[i], money(r.dividends_per_share, 3), r.abnormal_distributions_per_share ? money(r.abnormal_distributions_per_share, 3) : "none"])))
+    : card("Dividends per share", "No dividends recorded.", abnormalNote);
 
   const held = d.position ? h("p", { class: "hint", text:
     `You hold ${fmt(d.position.units, 0)} units, cost base ${money(d.position.cost_base)}.` +

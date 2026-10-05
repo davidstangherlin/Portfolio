@@ -68,7 +68,8 @@ Portfolio/
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
 │   │   ├── yahoo_client.py             yfinance wrapper, all external I/O isolated here
-│   │   ├── common.py                   get_or_create_company() shared helper
+│   │   ├── common.py                   get_or_create_company(), ensure_country() shared helpers
+│   │   ├── dividend_history.py         Ordinary dividends per financial year, abnormal one-offs held out (§7.6)
 │   │   ├── price_ingestion.py          Upserts daily_prices
 │   │   ├── fundamentals_ingestion.py   Upserts financial_reports
 │   │   └── run_ingestion.py            CLI entrypoint
@@ -190,7 +191,8 @@ erDiagram
         numeric total_debt
         numeric cash_and_equivalents
         numeric net_tangible_assets
-        numeric dividends_per_share
+        numeric dividends_per_share "ordinary, per financial year"
+        numeric abnormal_distributions_per_share "one-offs held out"
         numeric franking_percentage "default 100.0"
         numeric corporate_tax_rate "default 30.0"
         timestamptz created_at
@@ -295,7 +297,7 @@ All Yahoo Finance / `yfinance` calls are isolated in this one module. Nothing el
 - `YahooClient.get_profile()` — company name / sector / industry / country (used when creating a new `Company` row, and once per existing company to backfill `country`)
 - `YahooClient.get_price_history(period)` — daily close/volume/market-cap bars; market cap is derived as `close_price × sharesOutstanding` (from `yfinance`'s `.info`) since Yahoo's history endpoint doesn't return market cap directly
 - `YahooClient.get_annual_fundamentals(max_years)` — pulls income statement, balance sheet, and cash flow statement (annual frequency), maps Yahoo's field names onto our schema's columns
-- `YahooClient.get_dividends_per_share(fiscal_year)` — sums per-share dividend payments for a calendar year from `ticker.dividends`
+- `YahooClient.get_dividend_payments()` — every per-share dividend payment from `ticker.dividends` (ex-date, amount), raw. Financial-year matching and abnormal-distribution exclusion happen in `dividend_history.py` (§7.6). Replaced `get_dividends_per_share(fiscal_year)`, which summed by calendar year (2026-10-05)
 
 **Every method here is defensive**: wrapped in `try/except Exception`, logs and returns `None`/`[]`/`{}` rather than raising, because Yahoo's field availability is inconsistent across companies and changes without notice. This was a deliberate design decision, not an oversight — see §8.2.
 
@@ -334,6 +336,16 @@ python -m src.ingestion.run_ingestion (--tickers BHP CBA CSL | --tickers-file wa
 **`--tickers-file`** (added 2026-10-02) reads ASX codes from a plain text file — one or more per line, whitespace- or comma-separated, blank lines and `#`-comments ignored. This exists specifically for large watchlists (e.g. a full index's constituents) where typing hundreds of codes on the command line isn't practical. `--tickers` and `--tickers-file` can be combined; the combined list is deduplicated case-insensitively, preserving first-seen order. Validated directly against a sample file mixing comma-separated, whitespace-separated, commented, and duplicate (differently-cased) entries — all parsed and deduplicated correctly.
 
 **`--delay`** (added 2026-10-02) — see §7.3.
+
+### 7.6 `dividend_history.py` — ordinary dividends per financial year (added 2026-10-05)
+
+Pure functions that turn the raw payment list into `financial_reports.dividends_per_share` and the new `abnormal_distributions_per_share`. Found on Tower (TWR), whose 519% payout ratio was real arithmetic on bad input.
+
+- **Abnormal distributions.** For each payment, the "typical annual dividend" is the median of the trailing-twelve-month totals at every other payment within three years of it. A payment more than `ABNORMAL_DISTRIBUTION_MULTIPLE` (2) times that is abnormal: excluded from `dividends_per_share` and summed into `abnormal_distributions_per_share`. Needs at least 2 comparable payments, otherwise nothing is excluded. Using annual totals rather than individual payments means an uneven split (a 2c interim and a 10c final) is not mistaken for a one-off. Tower's A$1.0777 capital return (1 in 10 shares cancelled, recorded by Yahoo against every share) is about ten times its usual year and is excluded; its 15c final dividend is not.
+- **Financial-year matching.** A financial year takes ex-dates in the twelve months ending `FY_DIVIDEND_LAG_MONTHS` (4) after its balance date: the interim paid during the year plus the final paid after it, for June, September and December year-ends alike; quarterly payers still total twelve months. If that window hasn't closed, it falls back to the twelve months to today.
+- **Zero versus missing.** A company with any dividend history that paid nothing in a year now gets 0, not NULL. Because `dividends_per_share` is in `_COALESCE_ON_UPDATE`, a NULL would have kept a stale stored figure; a 0 overwrites it. NULL now means no dividend history at all.
+- **Scope of the correction.** Applied on the next fundamentals ingestion to every year Yahoo returns (the latest four). An older stored fifth year keeps its calendar-year figure; it only feeds `dividend_trend`'s oldest point.
+- **Surfaced, not silent.** The web GUI's dividend card states any excluded amount and lists it in its data table.
 
 ---
 
@@ -687,6 +699,8 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 21 | Suggested actions are rule-based, with fixed thresholds | The rules can't know context the data doesn't hold (a takeover bid, a one-off write-down, management change) and treat every sector with the same thresholds | By design - each action carries its reason so it can be checked, and every flag is a prompt to read the underlying numbers. Not financial advice |
 | 22 | Pulling code that added a column broke the live database until `db\schema.sql` was reapplied by hand (happened three times) | Every company failed valuation; the screener and `portfolio.py` errored | Resolved 2026-10-05: `python -m src.apply_schema` applies the schema through `.env` (no psql/password), and `daily_refresh.ps1` runs it first every night (§16) |
 | 23 | Web GUI phone access uses HTTP Basic authentication over plain HTTP | On a shared or compromised network the password and holdings could be read in transit | Use `--lan` only on your own home Wi-Fi (network set to Private), never port-forward it; the default mode listens on this PC only |
+| 24 | Yahoo's dividend feed mixed in one-off distributions and was summed by calendar year | A capital return read as a dividend (TWR: 519% payout, 107% yield, inflated DDM value, false "cut"); dividends half a year out of step with earnings for September and December year-ends | Resolved 2026-10-05: `dividend_history.py` (§7.6) excludes abnormal distributions (shown, not hidden) and matches dividends to each financial year |
+| 25 | No currency conversion between financial statements and share prices | Yahoo reports some companies' statements in USD (many miners, e.g. BHP, RIO, S32) or NZD (NZ listings) while ASX prices are in AUD. EPS, book value and free cash flow are compared to an AUD price unconverted, distorting P/E, P/B, estimated value, margin of safety and the Graham Number by the exchange rate | Open. Fix: store Yahoo's `financialCurrency` per company and convert statement figures to AUD at each report date's exchange rate before valuation |
 
 ---
 
@@ -801,6 +815,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked for an interactive HTML GUI, Simply Wall St style. Chose: local web app, screener table and company page, phone access on home Wi-Fi. Added `gui.py` (FastAPI, read-only, reusing the screener's own row loader via a new `load_annotated_rows()`), a no-build-step front end in `web/` drawing every chart as inline SVG, and `src/screening/scores.py`: a score wheel of 5 axes x 6 named yes/no checks. `--lan` requires `GUI_PASSWORD` (HTTP Basic on every route, static files included). Validated against a seeded disposable database in headless Chromium at desktop and phone widths, light and dark: fixed a hidden button showing, chart text scaling with card width (charts now draw at their real pixel width), a stray `null`, and phone column overflow. 14 new tests (194 total). Known issue #23 |
 | 2026-10-05 | User asked for a hover explanation on each table heading in the web GUI. Added explanations to all 10 screener headings and all 18 company-page labels (markers and key ratios): hover or keyboard focus with a mouse, a tap-able "i" on touch screens. Thresholds in the text come from the live screener settings. Checked in headless Chromium at desktop and phone sizes: first version's "i" icons pushed the Action column off a 1280px screen, so they now show only on touch screens, with a dotted underline as the desktop cue |
 | 2026-10-05 | User asked for explanations on the estimated value and Graham Number bars, and for the Graham Number's definition. Added hover/tap explanations to all three valuation bar labels; the estimated value text states the company's model and its assumptions. Corrected the rules document (section 4.6), which still said the Graham Number fed nothing: it is one of the score wheel's Value checks |
+| 2026-10-05 | User asked whether TWR's "payout ratio 519%" with "dividend cut and not yet restored" meant a wrong formula. The formula was right; the input wasn't: Yahoo recorded Tower's March 2025 capital return (A$1.0777 per cancelled share) as a dividend on every share, and dividends were summed by calendar year. Added `src/ingestion/dividend_history.py` (§7.6): abnormal one-offs (over 2x the typical annual dividend) excluded and stored in new column `financial_reports.abnormal_distributions_per_share`, and dividends matched to each financial year (12 months of ex-dates ending 4 months after balance date). Web GUI shows excluded amounts; dividend help texts updated. Also found and logged known-issue #25 (no currency conversion for USD/NZD reporters). 12 new tests (206 total) |
 
 ---
 
@@ -862,6 +877,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 14. **Accumulate for held shares.** *"With the shares I hold that should also include BUY more or an Accumulate. That would be better than Sell, Hold, Review."* → Added `ACCUMULATE` for held shares passing all four tests with no red flags; `HOLD` now names the failed tests.
 
 15. **Interactive web GUI.** *"How do I build an interactive HTML GUI to view this? I also want to be able to interact with it like Simply Wall Street."* Then chose a local web app, the screener table and company page, and phone access on home Wi-Fi. → Added `gui.py`, `web/` and the score wheel (§20).
+
+16. **Dividend data quality.** *"Check the payout ratio 519% suggests a one-off dividend; dividend cut and not yet restored. Is this an incorrect formula?"* Then *"Yes implement both"* (exclude abnormal distributions; match dividends to financial years). → §7.6, known-issues #24 and #25.
 
 ---
 

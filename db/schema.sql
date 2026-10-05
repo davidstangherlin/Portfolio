@@ -59,13 +59,16 @@ CREATE TABLE IF NOT EXISTS financial_reports (
     net_tangible_assets NUMERIC(16, 2),          -- NTA (Crucial for ASX asset-heavy/value plays)
 
     -- ASX Dividend & Franking Context
-    dividends_per_share NUMERIC(10, 4),
+    dividends_per_share NUMERIC(10, 4),          -- ordinary dividends for this financial year (abnormal one-offs excluded)
+    abnormal_distributions_per_share NUMERIC(10, 4), -- one-off distributions held out of dividends_per_share
     franking_percentage NUMERIC(5, 2) DEFAULT 100.0, -- e.g., 100.00 for fully franked
     corporate_tax_rate NUMERIC(4, 2) DEFAULT 30.0,   -- Standard Australian 30% rate
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, fiscal_year, period_type)
 );
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS abnormal_distributions_per_share NUMERIC(10, 4);
+
 
 -- 4. VALUATION DERIVATIVES & VALUE INVESTING METRICS
 CREATE TABLE IF NOT EXISTS valuation_metrics (

@@ -193,3 +193,4 @@ text.has-help { cursor: help; }
   .has-help { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 }
 svg g[tabindex]:focus:not(:focus-visible) { outline: none; }
+.hint.note { color: var(--ink); background: var(--hover); border-radius: 6px; padding: 6px 8px; }

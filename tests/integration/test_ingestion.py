@@ -86,3 +86,41 @@ def test_hand_corrected_franking_survives_reingestion_for_australian_company(db_
 
     upsert_financial_report(db_session, company.company_id, _snapshot(), company.country)
     assert _franking(db_session, company) == Decimal("50")
+
+
+def test_ingestion_replaces_an_inflated_dividend_and_records_the_abnormal_one(db_session, monkeypatch):
+    # Tower-shaped: the stored FY25 figure had the March 2025 capital return
+    # summed in as a dividend (the old calendar-year sum). Re-ingesting must
+    # overwrite it with the ordinary dividend and keep the excluded amount.
+    from src.ingestion import fundamentals_ingestion
+    from src.ingestion.dividend_history import Payment
+
+    company = _company(db_session, "TWR", country="New Zealand")
+    db_session.add(FinancialReport(company_id=company.company_id, fiscal_year=2025, period_type="FY",
+                                   report_date=date(2025, 9, 30), eps=Decimal("0.229"), dividends_per_share=Decimal("1.19")))
+    db_session.commit()
+
+    payments = [Payment(date.fromisoformat(d), Decimal(a)) for d, a in (
+        ("2023-06-14", "0.030"), ("2024-06-12", "0.030"), ("2025-01-15", "0.065"), ("2025-03-18", "1.0777"),
+        ("2025-06-11", "0.072"), ("2026-01-14", "0.150"))]
+
+    class FakeYahoo:
+        def __init__(self, code):
+            self.asx_code = code
+
+        def get_profile(self):
+            return {"country": "New Zealand"}
+
+        def get_annual_fundamentals(self, max_years=4):
+            return [FundamentalsSnapshot(fiscal_year=2025, period_type="FY", report_date=date(2025, 9, 30), eps=Decimal("0.229"))]
+
+        def get_dividend_payments(self):
+            return payments
+
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", FakeYahoo)
+    fundamentals_ingestion.ingest_fundamentals(db_session, ["TWR"])
+
+    db_session.expire_all()
+    report = db_session.execute(select(FinancialReport)).scalar_one()
+    assert report.dividends_per_share == Decimal("0.2220")  # June 2025 interim + January 2026 final
+    assert report.abnormal_distributions_per_share == Decimal("1.0777")
