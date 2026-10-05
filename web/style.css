@@ -184,7 +184,12 @@ dt.has-help { cursor: help; }
 .tooltip .t-title { font-weight: 600; margin-bottom: 2px; }
 /* With a mouse, hover is enough: a dotted underline signals the explanation
    and the "i" buttons (for touch screens) are hidden to save width. */
+.info-svg circle { fill: var(--surface); stroke: var(--muted); stroke-width: 1; }
+.info-svg text { fill: var(--muted); font: italic 600 10px Georgia, serif; }
+.info-svg { cursor: help; }
+text.has-help { cursor: help; }
 @media (hover: hover) and (pointer: fine) {
-  .info { display: none; }
+  .info, .info-svg { display: none; }
   .has-help { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 }
+svg g[tabindex]:focus:not(:focus-visible) { outline: none; }

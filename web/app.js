@@ -102,6 +102,12 @@ const FIELD_HELP = {
   "Cash dividend yield": () => "Cash dividend / share price, before franking credits.",
   "Payout ratio": () => "Dividend / earnings per share. Above 100% the dividend exceeds profit; above 150% it is flagged as a likely one-off.",
   "Country": () => "Country of domicile from Yahoo Finance. Companies outside Australia are treated as paying no franking credits.",
+  "Share price": () => "Latest closing price on the ASX. The further it sits below the estimated value, the larger the margin of safety.",
+  "Graham Number": () => "Benjamin Graham's ceiling on what a defensive investor should pay: the square root of 22.5 x earnings per share x book value per share. 22.5 is his maximum P/E of 15 times his maximum P/B of 1.5, so a price below it means both limits are met at once. Uses the latest annual report; blank if earnings or book value is negative. One of the score wheel's Value checks, but not used in the four value tests or the action. It ignores growth, so it understates companies with few physical assets.",
+};
+const ESTIMATED_VALUE_HELP = {
+  DCF: "Intrinsic value per share from a two-stage discounted cash flow (DCF) model: average free cash flow over the last three years, grown at 8% a year for five years and 2.5% a year after that, discounted back at 9% a year. Cash is added and debt subtracted, then the total is divided by shares on issue. This is the figure the margin of safety and the value test use.",
+  DDM: "Intrinsic value per share from a two-stage dividend discount model (DDM), used for banks, insurers and REITs because their free cash flow isn't meaningful: average dividend per share over the last three years, grown at 5% a year for five years and 2.5% a year after that, discounted back at 9% a year. This is the figure the margin of safety and the value test use.",
 };
 
 function placeTipBelow(el, nodes) {
@@ -109,24 +115,44 @@ function placeTipBelow(el, nodes) {
   showTip({ clientX: r.left, clientY: r.bottom }, nodes);
 }
 
-/* Adds an explanation to a heading or label: shown on mouse hover and
-   keyboard focus, and via a small "i" button for touch screens. */
-function withHelp(el, label) {
-  const help = FIELD_HELP[label];
-  if (!help) return el;
-  const nodes = () => [h("div", { class: "t-title", text: label }), h("div", { text: help(thresholds()) })];
-  el.classList.add("has-help");
+const helpNodes = (label, text) => () => [h("div", { class: "t-title", text: label }), h("div", { text: text(thresholds()) })];
+
+function bindHelp(el, nodes) {
   el.addEventListener("pointermove", (e) => { if (e.pointerType !== "touch") showTip(e, nodes()); });
   el.addEventListener("pointerleave", hideTip);
   el.addEventListener("focus", () => placeTipBelow(el, nodes()));
   el.addEventListener("blur", hideTip);
+}
+
+/* Adds an explanation to a heading or label: shown on mouse hover and
+   keyboard focus, and via a small "i" button for touch screens. */
+function withHelp(el, label, text = FIELD_HELP[label]) {
+  if (!text) return el;
+  const nodes = helpNodes(label, text);
+  el.classList.add("has-help");
+  bindHelp(el, nodes);
   const info = h("button", { type: "button", class: "info", "aria-label": `What is ${label}?`, text: "i" });
   info.addEventListener("click", (e) => { e.stopPropagation(); placeTipBelow(info, nodes()); });
   info.addEventListener("keydown", (e) => e.stopPropagation()); // Enter on the "i" shouldn't sort the column
   el.append(info);
   return el;
 }
-document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".info")) hideTip(); });
+
+/* The same for a label drawn inside an SVG chart, where an HTML button
+   can't go: the "i" for touch screens is an SVG circle at (ix, iy). */
+function svgLabelHelp(textEl, label, text, ix, iy) {
+  if (!text) return textEl;
+  const nodes = helpNodes(label, text);
+  textEl.classList.add("has-help");
+  const g = s("g", { tabindex: 0, "aria-label": `${label}: ${text(thresholds())}` }, textEl);
+  bindHelp(g, nodes);
+  const info = s("g", { class: "info-svg", role: "button", "aria-label": `What is ${label}?` },
+    s("circle", { cx: ix, cy: iy, r: 7.5 }), s("text", { x: ix, y: iy + 3.5, "text-anchor": "middle", text: "i" }));
+  info.addEventListener("click", (e) => { e.stopPropagation(); placeTipBelow(info, nodes()); });
+  g.append(info);
+  return g;
+}
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".info, .info-svg")) hideTip(); });
 
 /* ---------- data ---------- */
 async function getJSON(url) {
@@ -328,7 +354,8 @@ function valuationBars(items, width = 640) {
   shown.forEach((it, i) => {
     const y = m.t + i * rowH + (rowH - 20) / 2;
     const w = X(it.value) - labelW;
-    svg.append(s("text", { x: labelW - 10, y: y + 14, "text-anchor": "end", style: "fill:var(--ink-2);font-size:12px", text: it.label }));
+    const label = s("text", { x: labelW - 10, y: y + 14, "text-anchor": "end", style: "fill:var(--ink-2);font-size:12px", text: it.label });
+    svg.append(svgLabelHelp(label, it.label, it.help, 9, y + 10));
     const r = Math.min(4, w / 2);
     svg.append(s("path", { d: `M${labelW},${y}H${labelW + w - r}Q${labelW + w},${y} ${labelW + w},${y + r}V${y + 20 - r}Q${labelW + w},${y + 20} ${labelW + w - r},${y + 20}H${labelW}Z`,
       fill: it.emphasis ? "var(--s1)" : "var(--muted)" }));
@@ -523,9 +550,9 @@ async function renderCompany(code) {
     mos === null ? null : h("p", { class: `headline ${mos >= 0 ? "status-good" : "status-bad"}`,
       text: mos >= 0 ? `${fmt(mos, 0)}% below estimated value` : `${fmt(-mos, 0)}% above estimated value` }),
     chartSlot((w) => valuationBars([
-      { label: "Share price", value: c.current_price, emphasis: true },
-      { label: "Estimated value", value: c.dcf_intrinsic_value },
-      { label: "Graham Number", value: c.graham_number },
+      { label: "Share price", value: c.current_price, emphasis: true, help: FIELD_HELP["Share price"] },
+      { label: "Estimated value", value: c.dcf_intrinsic_value, help: () => ESTIMATED_VALUE_HELP[c.valuation_method] },
+      { label: "Graham Number", value: c.graham_number, help: FIELD_HELP["Graham Number"] },
     ], w)));
 
   const wheelCard = card("Score", `${total} of ${d.checks_per_axis * d.axes.length} checks passed. Hover a spoke to see its checks.`,
