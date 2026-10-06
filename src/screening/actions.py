@@ -14,9 +14,11 @@ from datetime import date
 from decimal import Decimal
 
 from src.portfolio.holdings import PositionSummary
+from src.settings import LIVE, ModelSettings
 
-PAYOUT_WARNING_THRESHOLD = Decimal("150")
-OVERVALUED_MARGIN_OF_SAFETY = Decimal("-50")
+# Live thresholds come from the settings registry (src/settings.py).
+PAYOUT_WARNING_THRESHOLD = LIVE.payout_warning
+OVERVALUED_MARGIN_OF_SAFETY = LIVE.overvalued_review
 CGT_TIMING_WINDOW_DAYS = 90
 
 ACTION_ORDER = ("SELL", "REVIEW", "ACCUMULATE", "HOLD", "BUY", "INVESTIGATE", "WATCH", "AVOID", "IGNORE")
@@ -34,12 +36,12 @@ def _fmt_units(units: Decimal) -> str:
     return f"{units.normalize():f}"
 
 
-def red_flags(row: dict) -> list[str]:
+def red_flags(row: dict, settings: ModelSettings = LIVE) -> list[str]:
     flags = []
     if row.get("trap_risk") == "Y":
         flags.append("value-trap risk (cheap but ROE/revenue declining)")
     payout = row.get("payout_ratio")
-    if payout is not None and payout > PAYOUT_WARNING_THRESHOLD:
+    if payout is not None and payout > settings.payout_warning:
         flags.append(f"payout ratio {payout:.0f}% suggests a one-off dividend")
     if row.get("earnings_quality") == "WEAK":
         conversion = row.get("cash_conversion")
@@ -54,12 +56,13 @@ def red_flags(row: dict) -> list[str]:
     return flags
 
 
-def suggest_action(row: dict, position: PositionSummary | None = None, today: date | None = None) -> tuple[str, str]:
+def suggest_action(row: dict, position: PositionSummary | None = None, today: date | None = None,
+                   settings: ModelSettings = LIVE) -> tuple[str, str]:
     passes = [label for key, label in _CORE_TESTS if row.get(key) == "Y"]
     fails = [label for key, label in _CORE_TESTS if row.get(key) != "Y"]
-    flags = red_flags(row)
+    flags = red_flags(row, settings)
     if position is not None and position.units > 0:
-        return _held_action(row, position, passes, fails, flags, today or date.today())
+        return _held_action(row, position, passes, fails, flags, today or date.today(), settings)
     return _not_held_action(row, passes, fails, flags)
 
 
@@ -96,7 +99,8 @@ def _not_held_action(row: dict, passes: list[str], fails: list[str], flags: list
 
 
 def _held_action(
-    row: dict, position: PositionSummary, passes: list[str], fails: list[str], flags: list[str], today: date
+    row: dict, position: PositionSummary, passes: list[str], fails: list[str], flags: list[str], today: date,
+    settings: ModelSettings = LIVE,
 ) -> tuple[str, str]:
     mos = row.get("margin_of_safety_percent")
 
@@ -113,7 +117,7 @@ def _held_action(
         action, reason = "SELL", "fundamentals declining and " + ", ".join(sell_reasons)
     else:
         review = list(flags)
-        if mos is not None and mos < OVERVALUED_MARGIN_OF_SAFETY:
+        if mos is not None and mos < settings.overvalued_review:
             review.append(f"now well above estimated value (margin of safety {mos:.0f}%)")
         if review:
             action, reason = "REVIEW", "; ".join(review)

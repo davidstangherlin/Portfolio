@@ -40,10 +40,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-DEFAULT_DISCOUNT_RATE = Decimal("0.09")
-DEFAULT_GROWTH_RATE = Decimal("0.05")  # dividend growth tends to be steadier/lower than FCF growth
-DEFAULT_TERMINAL_GROWTH_RATE = Decimal("0.025")
-DEFAULT_STAGE1_YEARS = 5
+from src.settings import LIVE
+
+# Live values come from the settings registry (src/settings.py).
+DEFAULT_DISCOUNT_RATE = LIVE.discount_rate
+DEFAULT_GROWTH_RATE = LIVE.ddm_growth_rate  # dividend growth tends to be steadier/lower than FCF growth
+DEFAULT_TERMINAL_GROWTH_RATE = LIVE.terminal_growth_rate
+DEFAULT_STAGE1_YEARS = LIVE.stage1_years
 
 
 @dataclass(frozen=True)

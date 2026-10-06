@@ -6,6 +6,10 @@
    "name": "Using Sift"
   },
   {
+   "id": "admin",
+   "name": "Model, settings and what-if"
+  },
+  {
    "id": "valuation",
    "name": "Valuation"
   },
@@ -55,6 +59,7 @@
     "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
     "Track record: whether Sift's suggestions have actually worked.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
+    "Model and rules (settings gear, Admin): every setting and formula, and what-if scenarios.",
     "Search: type a company code or name, or a term such as franking, in the box at the top."
    ],
    "related": [
@@ -239,7 +244,9 @@
     "estimated-value",
     "discount-rate",
     "terminal-value",
-    "fcf"
+    "fcf",
+    "growth-rate",
+    "sensitivity-grid"
    ]
   },
   {
@@ -253,7 +260,9 @@
    "hover": "Intrinsic value per share from a two-stage dividend discount model (DDM), used for banks, insurers and REITs because their free cash flow isn't meaningful: average dividend per share over the last three years, grown at 5% a year for five years and 2.5% a year after that, discounted back at 9% a year. This is the figure the margin of safety and the value test use.",
    "related": [
     "estimated-value",
-    "discount-rate"
+    "discount-rate",
+    "growth-rate",
+    "sensitivity-grid"
    ]
   },
   {
@@ -265,7 +274,9 @@
    "definition": "The annual return required to justify the investment, used to convert future cash into today's dollars. 9% in this tool.",
    "related": [
     "dcf",
-    "ddm"
+    "ddm",
+    "growth-rate",
+    "sensitivity-grid"
    ]
   },
   {
@@ -1211,6 +1222,121 @@
    "abbreviation": "N",
    "full": "No",
    "definition": "The company fails the test."
+  },
+  {
+   "id": "admin-console",
+   "title": "Model and rules (admin)",
+   "category": "admin",
+   "aliases": [
+    "admin",
+    "settings",
+    "formulas",
+    "model"
+   ],
+   "definition": "Every setting behind Sift's results, the formula each feeds, and a lab for trying other values.",
+   "body": [
+    "Open it from the settings gear, under Admin. Settings and formulas lists every adjustable setting with its live value, allowed range, formula and where it's used, grouped as valuation models, the four value tests, markers and actions, and the score wheel.",
+    "What-if scenarios lets you change any of them and see what would happen on today's data. Nothing live changes: the nightly job, the screener, your actions and the track record keep using the live settings.",
+    "Every company page has Show workings: each step behind its figures, with its own numbers."
+   ],
+   "related": [
+    "scenario",
+    "show-workings",
+    "sensitivity-grid"
+   ],
+   "links": [
+    {
+     "text": "Open Model and rules",
+     "href": "#/admin"
+    }
+   ]
+  },
+  {
+   "id": "scenario",
+   "title": "Scenario (what-if)",
+   "category": "admin",
+   "glossary": "term",
+   "glossary_title": "Scenario",
+   "aliases": [
+    "what-if",
+    "what if",
+    "hypothetical"
+   ],
+   "definition": "A named set of changed settings, run against today's data to see what would change, without changing anything live.",
+   "body": [
+    "Leave a setting blank to keep its live value. Run shows: how many companies get each action, live against the scenario; which move between actions; the spread of margins of safety; every company whose action or valuation status changes; and what happens to your holdings and watchlists.",
+    "The margin-of-safety trend (momentum) stays at its live value in a scenario, because it compares with the live figure stored 30 days ago. Holdings and watchlists are today's.",
+    "A scenario uses today's data only; it can't say how the settings would have done in the past."
+   ],
+   "related": [
+    "admin-console",
+    "show-workings"
+   ],
+   "links": [
+    {
+     "text": "Open What-if scenarios",
+     "href": "#/admin/scenarios"
+    }
+   ]
+  },
+  {
+   "id": "show-workings",
+   "title": "Show workings",
+   "category": "admin",
+   "aliases": [
+    "workings",
+    "calculation",
+    "how is it calculated"
+   ],
+   "definition": "On every company page: each step behind its estimated value, ratios, tests, markers and action, with its own numbers.",
+   "body": [
+    "The valuation steps show the base averaged over the years used, each year's projected cash flow and present value, the terminal value, cash and debt, shares on issue, the estimated value and the margin of safety.",
+    "Choose a saved scenario at the top to see the same company under other settings."
+   ],
+   "related": [
+    "estimated-value",
+    "dcf",
+    "ddm",
+    "sensitivity-grid"
+   ]
+  },
+  {
+   "id": "sensitivity-grid",
+   "title": "Sensitivity grid",
+   "category": "admin",
+   "aliases": [
+    "sensitivity",
+    "stress test"
+   ],
+   "definition": "A company's estimated value and margin of safety across a range of discount rates and growth rates.",
+   "body": [
+    "Rows are growth rates around the model's own, columns are discount rates from 7% to 11%. The outlined cell is the setting in use. Wide swings across the grid mean the estimate leans heavily on its assumptions, so treat its margin of safety with care."
+   ],
+   "related": [
+    "discount-rate",
+    "growth-rate",
+    "show-workings"
+   ]
+  },
+  {
+   "id": "growth-rate",
+   "title": "Growth rate (valuation)",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Growth rate",
+   "aliases": [
+    "stage 1 growth"
+   ],
+   "definition": "How fast a valuation model assumes cash flow (DCF) or dividends (DDM) grow each year for the first five years, before the terminal value takes over.",
+   "body": [
+    "Live: 8% a year for free cash flow and 5% a year for dividends, set in Model and rules. A higher rate raises the estimated value; Show workings and the sensitivity grid show by how much for each company."
+   ],
+   "related": [
+    "dcf",
+    "ddm",
+    "terminal-value",
+    "sensitivity-grid"
+   ]
   }
  ]
 }

@@ -17,7 +17,7 @@ const state = {
   q: "", sector: "", actions: new Set(), passing: false, held: false, watchlist: "",
   sort: { key: "action", dir: "asc" }, shown: PAGE_SIZE,
 };
-const cache = { screener: null, thresholds: null, status: null, portfolios: null };
+const cache = { screener: null, thresholds: null, status: null, portfolios: null, adminSettings: null };
 
 /* ---------- DOM helpers (text always via textContent) ---------- */
 function setAttrs(el, attrs) {
@@ -738,7 +738,7 @@ async function renderCompany(code) {
     modelNote(d.model),
     held,
     watchNote(d.watchlists),
-    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard),
+    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
@@ -1758,6 +1758,306 @@ async function renderHelp(query, focusId) {
   if (!focusId && window.matchMedia("(hover: hover)").matches) search.focus();
 }
 
+/* ---------- admin console: model and rules, what-if scenarios, workings ---------- */
+/* A small "?" that opens the Help entry for a concept. */
+function helpLink(id) {
+  const e = id && KNOWLEDGE.entries.find((x) => x.id === id);
+  if (!e) return null;
+  return h("a", { class: "help-link", href: `#/help/${id}`, title: `Help: ${e.title}`, "aria-label": `Help: ${e.title}`, text: "?" });
+}
+const withHelpLink = (text, id) => [text, " ", helpLink(id)];
+
+/* A setting's number as the console shows it: rates and percents with %, ratios bare. */
+function settingText(meta, value) {
+  if (value === null || value === undefined || value === "") return NA;
+  const v = Number(value);
+  if (meta.unit === "rate" || meta.unit === "%") return `${fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0)}%`;
+  if (meta.unit === "years") return plural(v, "year");
+  if (meta.unit === "points") return `${fmt(v, v % 1 ? 1 : 0)} points`;
+  return fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0);
+}
+/* A workings figure: big dollar amounts compact, per-share amounts to the cent. */
+function stepValue(v, unit) {
+  if (v === null || v === undefined) return NA;
+  if (typeof v === "string") return v;
+  if (unit === "$") return Math.abs(v) >= 100000 ? compact(v) : money(v, Math.abs(v) < 10 ? 3 : 2);
+  if (unit === "%") return pct(v, 1);
+  if (unit === "x") return fmt(v, 2);
+  if (unit === "points") return `${fmt(v, 1)} points`;
+  if (Number.isInteger(Number(v)) && Math.abs(v) < 100000) return fmt(v, 0);
+  return Math.abs(v) >= 100000 ? new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 2 }).format(v) : fmt(v, 2);
+}
+
+function adminTabs(current) {
+  return h("div", { class: "tabs", role: "navigation", "aria-label": "Admin" },
+    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"]].map(([id, href, label]) =>
+      h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
+}
+
+const PIPELINE = [
+  ["Prices and annual reports are downloaded each night", "data-chip"],
+  ["Estimated value: a discounted cash flow model for most companies", "dcf"],
+  ["or a dividend discount model for banks, insurers and REITs", "ddm"],
+  ["Margin of safety: how far the price sits below estimated value", "margin-of-safety"],
+  ["Ratios: ROE, debt to equity, yields, P/E, P/B and the Graham Number", "roe"],
+  ["The four value tests", "four-value-tests"],
+  ["Markers: earnings quality, price signal, dividend and fundamentals trends, momentum", "earnings-quality"],
+  ["Red flags", "red-flag"],
+  ["The suggested action and its reason", "suggested-action"],
+  ["The score wheel: 30 checks across five spokes", "score-wheel"],
+  ["Recorded each night and scored later for the track record", "track-record-scoring"],
+];
+
+async function renderAdmin() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading settings..." }));
+  const d = await getJSON("/api/admin/settings");
+  cache.adminSettings = d;
+  const pipeline = card("How a result is made", "Open any company and choose Show workings to see these steps with its own numbers.",
+    h("ol", { class: "pipeline" }, PIPELINE.map(([text, id]) => h("li", {}, withHelpLink(text, id)))));
+  pipeline.classList.add("wide");
+  const groups = d.groups.map((g) => {
+    const c = card(g.name, null, h("div", { class: "table-wrap" }, h("table", { class: "grid compact settings-table" },
+      h("thead", {}, h("tr", {}, ["Setting", "Live value", "Allowed", "Formula", "Used in"].map((x, i) =>
+        h("th", { class: [i === 1 ? "num" : "", i === 2 ? "opt" : "", i === 4 ? "opt4" : ""].join(" ").trim() || null, text: x })))),
+      h("tbody", {}, d.settings.filter((sx) => sx.group === g.id).map((sx) => h("tr", { class: "static" },
+        h("td", {}, withHelpLink(sx.label, sx.help_id)),
+        h("td", { class: "num strong", text: settingText(sx, sx.live) }),
+        h("td", { class: "opt hint", text: `${settingText(sx, sx.minimum)} to ${settingText(sx, sx.maximum)}` }),
+        h("td", { class: "formula", text: sx.formula }),
+        h("td", { class: "opt4 hint", text: sx.used_in })))))));
+    c.classList.add("wide");
+    return c;
+  });
+  app.replaceChildren(pageHead("Model and rules", "Every setting behind Sift's results"), adminTabs("settings"),
+    h("div", { class: "cards" }, pipeline, ...groups,
+      card("Trying other values", null, h("p", { class: "hint" }, "Change these in a ",
+        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario")))));
+  window.scrollTo(0, 0);
+}
+
+async function renderScenarios() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading scenarios..." }));
+  const d = await getJSON("/api/admin/scenarios");
+  const list = d.scenarios.length ? h("div", { class: "cards" }, d.scenarios.map((x) => h("a", { class: "card pf-card", href: `#/admin/scenario/${x.scenario_id}` },
+    h("div", { class: "pf-head" }, h("h2", { text: x.name })),
+    h("p", { class: "hint", text: x.changes ? plural(x.changes, "setting changed", "settings changed") : "No changes from live yet" }),
+    x.notes ? h("p", { class: "hint", text: x.notes }) : null)))
+    : h("p", { class: "empty", text: "No scenarios yet. A scenario is a set of changed settings you can run against today's data without changing anything live." });
+  app.replaceChildren(pageHead("What-if scenarios", null), adminTabs("scenarios"),
+    h("p", {}, h("a", { class: "btn primary", href: "#/admin/scenario/new", text: "New scenario" }), " ", helpLink("scenario")),
+    list);
+  window.scrollTo(0, 0);
+}
+
+function arrowPair(a, b, format) {
+  const same = format(a) === format(b);
+  return same ? h("span", { text: format(b) }) : h("span", { class: "pair" }, h("span", { class: "was", text: format(a) }), " → ", h("strong", { text: format(b) }));
+}
+
+function resultTable(items, axesNote) {
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+    h("thead", {}, h("tr", {}, ["Company", "Action", "Valuation", "Estimated value", "Margin of safety", "Score"].map((x, i) =>
+      h("th", { class: [i >= 3 ? "num" : "", i === 2 || i === 5 ? "opt" : ""].join(" ").trim() || null, text: x })))),
+    h("tbody", {}, items.map((it) => clickableRow(it.asx_code,
+      h("td", {}, h("span", { class: "code", text: it.asx_code }), watchStar(it.watchlists), it.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
+        h("div", { class: "name", text: it.company_name || "" })),
+      h("td", {}, it.live_action === it.action ? badge(it.action) : h("span", { class: "pair" }, badge(it.live_action), h("span", { class: "arrow", text: "→" }), badge(it.action))),
+      h("td", { class: "opt" }, arrowPair(it.live_status, it.status, (x) => x || NA)),
+      h("td", { class: "num" }, arrowPair(it.live_value, it.value, (x) => money(x))),
+      h("td", { class: "num" }, arrowPair(it.live_mos, it.mos, (x) => pct(x, 0))),
+      h("td", { class: "num opt" }, arrowPair(it.live_score, it.score, (x) => String(x))))))));
+}
+
+function scenarioResults(r, metaByKey) {
+  const out = [];
+  const changes = r.changes.length
+    ? h("ul", { class: "items" }, r.changes.map((c) => h("li", {}, h("div", { class: "main" }, withHelpLink(c.label, c.help_id)),
+      h("div", { class: "side" }, h("span", { class: "was", text: settingText(metaByKey[c.key], c.live) }), " → ", h("strong", { text: settingText(metaByKey[c.key], c.scenario) })))))
+    : h("p", { class: "empty", text: "No settings changed: these are the live results, recalculated." });
+  out.push(card("What this scenario changes", null, changes));
+  const s = r.summary;
+  const buy = r.counts.find((c) => c.action === "BUY") || { live: 0, scenario: 0 };
+  const tile = (label, a, b, f, help) => h("div", { class: "stat" },
+    h("div", { class: "stat-label" }, label, " ", helpLink(help)), h("div", { class: "stat-value" }, arrowPair(a, b, f)));
+  const strip = h("div", { class: "stats" },
+    tile("BUY signals", buy.live, buy.scenario, String, "suggested-action"),
+    tile("Median margin of safety", s.median_mos[0], s.median_mos[1], (x) => pct(x, 0), "margin-of-safety"),
+    tile("Average score", s.average_score[0], s.average_score[1], (x) => fmt(x, 1), "score-wheel"),
+    tile("Companies valued", s.valued[0], s.valued[1], String, "estimated-value"));
+  const counts = card("Suggested actions", `Across ${plural(r.companies, "company", "companies")}, live against this scenario.`,
+    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Action", "Live", "Scenario", "Change"].map((x, i) => h("th", { class: i ? "num" : null, text: x })))),
+      h("tbody", {}, r.counts.map((c) => h("tr", { class: "static" }, h("td", {}, badge(c.action)), h("td", { class: "num", text: c.live }),
+        h("td", { class: "num", text: c.scenario }),
+        h("td", { class: `num ${signClass(c.scenario - c.live) || ""}`.trim(), text: signed(c.scenario - c.live, String) })))))),
+    h("p", { class: "card-foot" }, helpLink("suggested-action"), " What each action means"));
+  const moves = card("Moves between actions", null, r.moves.length
+    ? h("ul", { class: "items" }, r.moves.map((m) => h("li", {}, h("div", { class: "main" }, badge(m.from), h("span", { class: "arrow", text: "→" }), badge(m.to)),
+      h("div", { class: "side", text: plural(m.companies, "company", "companies") }))))
+    : h("p", { class: "empty", text: "No company changes action." }));
+  const bins = r.distribution.map((b) => b.low === null ? `under ${fmt(b.high, 0)}%` : b.high === null ? `${fmt(b.low, 0)}% up` : `${fmt(b.low, 0)} to ${fmt(b.high, 0)}%`);
+  const dist = card("Spread of margins of safety", "How many companies fall in each band, live against this scenario.",
+    chartSlot((w) => columnChart({ categories: bins, yFmt: (v) => fmt(v, 0), label: "Companies by margin of safety band, live and scenario", width: w,
+      series: [{ name: "Live", color: "--s1", values: r.distribution.map((b) => b.live) }, { name: "Scenario", color: "--s2", values: r.distribution.map((b) => b.scenario) }] })),
+    tableView(["Margin of safety", "Live", "Scenario"], r.distribution.map((b, i) => [bins[i], String(b.live), String(b.scenario)])));
+  dist.classList.add("wide");
+  const MAX = 100;
+  const changed = card("Companies that change", r.changed.length ? `${plural(r.changed.length, "company", "companies")} change action or valuation status, better moves first.` : null,
+    r.changed.length ? resultTable(r.changed.slice(0, MAX)) : h("p", { class: "empty", text: "No company changes action or valuation status." }),
+    r.changed.length > MAX ? h("p", { class: "card-foot", text: `and ${r.changed.length - MAX} more.` }) : null);
+  changed.classList.add("wide");
+  const mine = card("Your holdings and watchlists", "Every company you hold or watch, live against this scenario.",
+    r.mine.length ? resultTable(r.mine) : h("p", { class: "empty", text: "You don't hold or watch any screened company." }));
+  mine.classList.add("wide");
+  out.push(counts, moves, dist, changed, mine);
+  return [strip, h("div", { class: "cards", style: "margin-top:16px" }, out)];
+}
+
+async function renderScenario(id) {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading scenario..." }));
+  const meta = cache.adminSettings || (cache.adminSettings = await getJSON("/api/admin/settings"));
+  const metaByKey = Object.fromEntries(meta.settings.map((x) => [x.key, x]));
+  const saved = id ? await getJSON(`/api/admin/scenarios/${encodeURIComponent(id)}`) : { name: "", notes: "", overrides: {} };
+  const name = h("input", { name: "name", value: saved.name, maxlength: 60, placeholder: "e.g. Cautious: 10% discount", autocomplete: "off" });
+  const notes = h("input", { name: "notes", value: saved.notes || "", maxlength: 1000, placeholder: "What you're testing", autocomplete: "off" });
+  const inputs = {};
+  const groups = meta.groups.map((g) => h("details", { class: "axis-block", open: meta.settings.some((x) => x.group === g.id && saved.overrides[x.key] !== undefined) || g.id === "valuation" },
+    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: g.name })),
+    h("div", { class: "setting-rows" }, meta.settings.filter((x) => x.group === g.id).map((x) => {
+      const input = h("input", { inputmode: "decimal", autocomplete: "off", value: saved.overrides[x.key] ?? "",
+        placeholder: String(Number(x.live)), "aria-label": x.label });
+      const mark = () => input.classList.toggle("changed", input.value.trim() !== "" && Number(input.value) !== Number(x.live));
+      input.addEventListener("input", mark); mark();
+      inputs[x.key] = input;
+      const unit = x.unit === "rate" || x.unit === "%" ? "%" : x.unit === "x" ? "x" : x.unit === "years" ? "years" : x.unit === "points" ? "points" : "";
+      return h("label", { class: "setting-row" },
+        h("span", { class: "setting-name" }, withHelpLink(x.label, x.help_id)),
+        h("span", { class: "setting-input" }, input, h("span", { class: "unit", text: unit })),
+        h("span", { class: "setting-live", text: `live ${settingText(x, x.live)}` }));
+    }))));
+  const overrides = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()]).filter(([, v]) => v !== ""));
+  const msg = formMessage();
+  const results = h("div", { class: "scenario-results" });
+  const run = async () => {
+    results.replaceChildren(h("p", { class: "loading", text: "Running against today's data..." }));
+    try {
+      const r = await send("POST", "/api/admin/run", { overrides: overrides() });
+      results.replaceChildren(...scenarioResults(r, metaByKey));
+      drawSlots();
+    } catch (err) { results.replaceChildren(); showMessage(msg, err.message, false); }
+  };
+  const save = async () => {
+    try {
+      const body = { name: name.value, notes: notes.value, overrides: overrides() };
+      const x = id ? await send("PUT", `/api/admin/scenarios/${id}`, body) : await send("POST", "/api/admin/scenarios", body);
+      if (!id) { cache.flash = `Saved ${x.name}.`; location.hash = `#/admin/scenario/${x.scenario_id}`; return; }
+      showMessage(msg, `Saved ${x.name}.`, true);
+    } catch (err) { showMessage(msg, err.message, false); }
+  };
+  const remove = async () => {
+    if (!confirm(`Delete the scenario ${saved.name}? This can't be undone. Nothing live is affected.`)) return;
+    try { await send("DELETE", `/api/admin/scenarios/${id}`); location.hash = "#/admin/scenarios"; }
+    catch (err) { showMessage(msg, err.message, false); }
+  };
+  const reset = () => { Object.values(inputs).forEach((el) => { el.value = ""; el.classList.remove("changed"); }); results.replaceChildren(); };
+  const editor = card("Settings to try", "Leave a box blank to keep its live value. Rates are in percent. Nothing live changes, whatever you try here.",
+    h("div", { class: "form-grid" }, field("Name", name), field("Notes", notes)),
+    h("div", { class: "scenario-groups" }, groups),
+    h("div", { class: "form-actions", style: "margin-top:12px" },
+      h("button", { class: "btn primary", type: "button", text: "Run against today's data", onclick: run }),
+      h("button", { class: "btn", type: "button", text: "Save", onclick: save }),
+      h("button", { class: "btn", type: "button", text: "Reset to live", onclick: reset }),
+      id ? h("button", { class: "btn danger", type: "button", text: "Delete", onclick: remove }) : null),
+    msg);
+  editor.classList.add("wide");
+  app.replaceChildren(h("a", { class: "back", href: "#/admin/scenarios", text: "← Scenarios" }),
+    pageHead(id ? saved.name : "New scenario", "What-if against today's data", helpLink("scenario")),
+    adminTabs("scenarios"), h("div", { class: "cards" }, editor), results);
+  if (cache.flash) { showMessage(msg, cache.flash, true); cache.flash = null; }
+  window.scrollTo(0, 0);
+  if (id) run();
+}
+
+/* ---------- company page: show workings and sensitivity ---------- */
+function workingsCard(code) {
+  const body = h("div", { class: "workings" });
+  let loaded = false, scenario = "";
+  const load = async () => {
+    body.replaceChildren(h("p", { class: "loading", text: "Working it out..." }));
+    try {
+      const d = await getJSON(`/api/company/${encodeURIComponent(code)}/workings${scenario ? `?scenario=${scenario}` : ""}`);
+      body.replaceChildren(...workingsBody(d, (x) => { scenario = x; load(); }));
+    } catch (err) { body.replaceChildren(h("p", { class: "error", text: err.message })); }
+  };
+  const det = h("details", { class: "axis-block workings-toggle" },
+    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: "Show workings" }),
+      h("span", { class: "hint", text: "every step, with this company's numbers" })), body);
+  det.addEventListener("toggle", () => { if (det.open && !loaded) { loaded = true; load(); } });
+  const c = card("Workings and what-if", null, det, h("p", { class: "hint", style: "margin-top:8px" }, "Settings behind these steps: ",
+    h("a", { href: "#/admin", text: "Model and rules" }), ". ", helpLink("show-workings")));
+  c.classList.add("wide");
+  return c;
+}
+
+function stepList(steps) {
+  return h("ol", { class: "steps" }, steps.map((st) => h("li", {},
+    h("div", { class: "step-head" }, h("span", { class: "step-title" }, withHelpLink(st.title, st.help_id)),
+      h("span", { class: "step-result", text: stepValue(st.result, st.unit) })),
+    h("div", { class: "step-formula", text: st.formula }),
+    st.inputs.length ? h("div", { class: "step-inputs" }, st.inputs.map((i) => h("span", {}, `${i.label} `, h("strong", { text: stepValue(i.value, i.unit) })))) : null,
+    st.note ? h("div", { class: "hint", text: st.note }) : null)));
+}
+
+function workingsBody(d, choose) {
+  const v = d.valuation;
+  const picker = h("select", { "aria-label": "Settings", class: "inline-select", onchange: (e) => choose(e.target.value) },
+    h("option", { value: "", text: "Live settings" }),
+    d.scenarios.map((x) => h("option", { value: x.scenario_id, selected: x.name === d.scenario, text: `Scenario: ${x.name}` })));
+  const head = h("div", { class: "workings-head" }, picker,
+    h("span", {}, d.scenario ? `Under ${d.scenario}: ` : "", "estimated value ", h("strong", { text: money(d.estimated_value) }),
+      ", margin of safety ", h("strong", { text: pct(d.margin_of_safety, 1) }), ", ", valuationPill(d.margin_of_safety), " ", badge(d.action.action)));
+  const sections = [];
+  const sec = (title, help, ...kids) => h("section", { class: "work-sec" }, h("h3", {}, withHelpLink(title, help)), kids);
+  const base = v.base;
+  sections.push(sec(`Estimated value (${v.method})`, v.help_id,
+    h("p", { class: "hint", text: v.why }),
+    h("div", { class: "step-inputs" }, v.assumptions.map((a) => h("span", {}, `${a.label} `, h("strong", { text: pct(a.value, a.value % 1 ? 1 : 0) })))),
+    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Base year" }), h("th", { class: "num", text: base.label }))),
+      h("tbody", {}, base.years.map((y) => h("tr", { class: "static" }, h("td", { text: `FY${y.year}` }), h("td", { class: "num", text: stepValue(y.value, "$") }))),
+        h("tr", { class: "static total" }, h("td", { text: "Average (the base)" }), h("td", { class: "num strong", text: stepValue(base.average, "$") }))))),
+    v.unavailable ? h("p", { class: "empty", text: v.unavailable }) : [
+      h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+        h("thead", {}, h("tr", {}, ["Year", "Cash flow", "Discount factor", "Present value"].map((x, i) => h("th", { class: i ? "num" : null, text: x })))),
+        h("tbody", {}, v.years.map((y) => h("tr", { class: "static" }, h("td", { text: String(y.year) }), h("td", { class: "num", text: stepValue(y.flow, "$") }),
+          h("td", { class: "num", text: fmt(y.factor, 4) }), h("td", { class: "num", text: stepValue(y.present_value, "$") })))))),
+      stepList(v.steps)]));
+  sections.push(sec("Ratios", "roe", h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+    h("thead", {}, h("tr", {}, ["Ratio", "Formula", "Inputs", "Result"].map((x, i) => h("th", { class: [i === 3 ? "num" : "", i === 2 ? "opt" : ""].join(" ").trim() || null, text: x })))),
+    h("tbody", {}, d.ratios.map((st) => h("tr", { class: "static" }, h("td", {}, withHelpLink(st.title, st.help_id)), h("td", { class: "formula", text: st.formula }),
+      h("td", { class: "opt hint" }, st.inputs.map((i, k) => [k ? ", " : "", `${i.label} ${stepValue(i.value, i.unit)}`])),
+      h("td", { class: "num strong", text: stepValue(st.result, st.unit) }))))))));
+  sections.push(sec("The four value tests", "four-value-tests", h("ul", { class: "checklist" }, d.tests.map((t) => h("li", {},
+    h("span", { class: `mark ${t.passed ? "pass" : "fail"}`, "aria-hidden": "true", text: t.passed ? "✓" : "✕" }),
+    h("span", {}, withHelpLink(`${t.name}: ${t.value === null ? NA : t.unit === "%" ? pct(t.value, 1) : fmt(t.value, 2)} (needs ${t.rule})`, t.help_id)))))));
+  sections.push(sec("Markers", "earnings-quality", stepList(d.markers)));
+  sections.push(sec("Suggested action", d.action.help_id, h("p", {}, badge(d.action.action), " ", d.action.reason),
+    d.action.flags.length ? h("ul", { class: "flags" }, d.action.flags.map((f) => h("li", { text: f }))) : h("p", { class: "hint", text: "No red flags." }),
+    h("p", { class: "hint" }, `Score ${d.score.total} of 30. `, helpLink(d.score.help_id))));
+  if (d.sensitivity) {
+    const sv = d.sensitivity;
+    sections.push(sec(`Sensitivity: estimated value at other rates (${sv.method})`, "sensitivity-grid",
+      h("p", { class: "hint", text: `Rows: growth rate. Columns: discount rate. Each cell: estimated value and margin of safety at today's price of ${money(sv.price)}. The outlined cell is the setting in use.` }),
+      h("div", { class: "table-wrap" }, h("table", { class: "grid compact sens" },
+        h("thead", {}, h("tr", {}, h("th", { text: "Growth \\ discount" }), sv.discount_rates.map((r) => h("th", { class: "num", text: pct(r, 0) })))),
+        h("tbody", {}, sv.rows.map((row) => h("tr", { class: "static" }, h("th", { scope: "row", text: pct(row.growth, 1) }),
+          row.cells.map((c) => h("td", { class: `num${c && c.current ? " current" : ""}` },
+            !c || c.value === null ? NA : [h("div", { class: "strong", text: money(c.value) }),
+              h("span", { class: `pill ${({ Undervalued: "under", "Fair value": "fair", Overvalued: "over" })[c.status] || "none"}`, text: pct(c.mos, 0) })])))))))));
+  }
+  return [head, ...sections];
+}
+
 /* ---------- settings: theme ---------- */
 const THEME_KEY = "sift-theme";
 function currentThemeChoice() {
@@ -1788,6 +2088,10 @@ const ROUTES = [
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
+  [/^#\/admin$/, "admin", () => renderAdmin()],
+  [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
+  [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
+  [/^#\/admin\/scenario\/([0-9a-f-]{36})$/, "admin", (m) => renderScenario(m[1])],
   [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
   [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
   [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],

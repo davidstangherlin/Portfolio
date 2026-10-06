@@ -255,6 +255,19 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     PRIMARY KEY (watchlist_id, company_id)
 );
 
+-- 5d. SCENARIOS (admin console what-ifs, docs/AS_BUILT.md §24)
+-- A named set of setting changes to try against today's data. Only the
+-- changed settings are stored, in the admin console's units (rates as
+-- percents). Running one never writes to any other table.
+CREATE TABLE IF NOT EXISTS scenarios (
+    scenario_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(60) NOT NULL UNIQUE,
+    notes TEXT,
+    overrides JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that

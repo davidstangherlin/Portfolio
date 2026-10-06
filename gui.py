@@ -52,6 +52,11 @@ from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
 from src.tracking import report as track_report
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
+from src import settings as model_settings
+from src.admin import scenarios as scenario_lab, workings as workings_module
+from src.admin.scenarios import ScenarioError
+from src.models import Scenario
+from src.settings import SettingsError
 from src.watchlist.lists import WatchlistError
 from src.valuation import dcf as dcf_module, ddm as ddm_module
 
@@ -507,6 +512,28 @@ def track_record_payload(session, today: date, version: str | None = None) -> di
     }
 
 
+# ---------- admin console (§24) ----------
+
+def settings_payload() -> dict:
+    """Every adjustable setting with its live value, as the admin console shows it."""
+    def shown(key, value):
+        return model_settings.to_display(key, value)
+    return {
+        "groups": [{"id": g, "name": n} for g, n in model_settings.GROUPS],
+        "settings": [{"key": m.key, "group": m.group, "label": m.label, "unit": m.unit,
+                      "live": shown(m.key, getattr(model_settings.LIVE, m.key)),
+                      "minimum": shown(m.key, m.minimum), "maximum": shown(m.key, m.maximum),
+                      "formula": m.formula, "used_in": m.used_in, "help_id": m.help_id}
+                     for m in model_settings.SETTINGS],
+    }
+
+
+def scenario_info(scenario) -> dict:
+    return {"scenario_id": str(scenario.scenario_id), "name": scenario.name, "notes": scenario.notes,
+            "overrides": scenario.overrides or {}, "changes": len(scenario.overrides or {}),
+            "updated_at": scenario.updated_at}
+
+
 def create_app(password: str | None = None) -> FastAPI:
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -587,7 +614,7 @@ def create_app(password: str | None = None) -> FastAPI:
             try:
                 result = action(session)
                 session.commit()
-            except (HoldingsError, WatchlistError) as exc:
+            except (HoldingsError, WatchlistError, ScenarioError, SettingsError) as exc:
                 session.rollback()
                 raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
         return JSONResponse(_json_ready(result))
@@ -741,6 +768,78 @@ def create_app(password: str | None = None) -> FastAPI:
             w = watchlist_or_404(session, watchlist_id)
             return {"removed": watchlists.remove_entry(session, w, asx_code)}
         return change(action)
+
+    # ---------- admin console (§24) ----------
+    def scenario_or_404(session, scenario_id: str):
+        try:
+            found = session.get(Scenario, uuid.UUID(scenario_id))
+        except ValueError:
+            found = None
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such scenario")
+        return found
+
+    @app.get("/api/admin/settings")
+    def api_admin_settings():
+        return JSONResponse(_json_ready(settings_payload()))
+
+    @app.get("/api/admin/scenarios")
+    def api_scenarios():
+        with get_session() as session:
+            rows = session.execute(select(Scenario).order_by(Scenario.updated_at.desc(), Scenario.name)).scalars()
+            return JSONResponse(_json_ready({"scenarios": [scenario_info(x) for x in rows]}))
+
+    @app.post("/api/admin/scenarios")
+    def api_create_scenario(body: dict = Body(...)):
+        return change(lambda session: scenario_info(scenario_lab.save_scenario(
+            session, body.get("name"), body.get("notes"), body.get("overrides"))))
+
+    @app.get("/api/admin/scenarios/{scenario_id}")
+    def api_scenario(scenario_id: str):
+        with get_session() as session:
+            return JSONResponse(_json_ready(scenario_info(scenario_or_404(session, scenario_id))))
+
+    @app.put("/api/admin/scenarios/{scenario_id}")
+    def api_update_scenario(scenario_id: str, body: dict = Body(...)):
+        return change(lambda session: scenario_info(scenario_lab.save_scenario(
+            session, body.get("name"), body.get("notes"), body.get("overrides"), scenario_or_404(session, scenario_id))))
+
+    @app.delete("/api/admin/scenarios/{scenario_id}")
+    def api_delete_scenario(scenario_id: str):
+        def action(session):
+            found = scenario_or_404(session, scenario_id)
+            name = found.name
+            session.delete(found)
+            return {"deleted": name}
+        return change(action)
+
+    @app.post("/api/admin/run")
+    def api_run_scenario(body: dict = Body(...)):
+        """A what-if against live on today's data, from the editor's
+        current values (saved or not). Reads only; POST because it carries
+        the settings."""
+        try:
+            settings = model_settings.with_overrides(body.get("overrides") or {})
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        with get_session() as session:
+            result = scenario_lab.run(session, settings, date.today(), watchlists.watched_codes(session))
+        return JSONResponse(_json_ready(result))
+
+    @app.get("/api/company/{asx_code}/workings")
+    def api_workings(asx_code: str, scenario: str | None = None):
+        with get_session() as session:
+            settings, name = model_settings.LIVE, None
+            if scenario:
+                found = scenario_or_404(session, scenario)
+                settings, name = scenario_lab.scenario_settings(found), found.name
+            result = workings_module.company_workings(session, asx_code.strip().upper(), date.today(), settings)
+            if result is None:
+                raise HTTPException(status_code=404, detail=f"No workings for {asx_code.upper()}: no price or reports")
+            result["scenario"] = name
+            result["scenarios"] = [{"scenario_id": str(x.scenario_id), "name": x.name} for x in
+                                   session.execute(select(Scenario).order_by(Scenario.name)).scalars()]
+            return JSONResponse(_json_ready(result))
 
     @app.get("/")
     def index():

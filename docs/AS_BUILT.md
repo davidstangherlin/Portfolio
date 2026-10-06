@@ -5,9 +5,9 @@
 | **Repository** | `davidstangherlin/Portfolio` |
 | **Default branch** | `main` |
 | **Document purpose** | Fault-finding, disaster recovery / rebuild, and third-party (e.g. ChatGPT) code design review |
-| **Document version** | 2.0 |
-| **Date** | 2026-10-05 (first issued 2026-09-15) |
-| **Covers commits** | `d60ef53` (schema) to `f5beecc` (knowledge base); §15 has the full history |
+| **Document version** | 2.1 |
+| **Date** | 2026-10-06 (first issued 2026-09-15) |
+| **Covers commits** | `d60ef53` (schema) to the admin console (2026-10-06); §15 has the full history |
 
 ---
 
@@ -21,8 +21,9 @@ Around that core:
 - **Watchlists** (§22) follow companies without owning them, with notes and price or value triggers.
 - **Track record** (§21) records what Sift said every night and scores it after 1, 3, 6 and 12 months against the average screened company, so the rules are judged on results.
 - **Knowledge base** (§23): one file, `web/knowledge.json`, supplies the Help page, every hover explanation and the glossary of the Word rules document.
+- **Admin console** (§24): every setting, formula and threshold in one registry, shown with its Help entry; every company figure shown step by step; and what-if scenarios that compare different settings with live on today's data without changing anything live.
 
-**Status as at 2026-10-05:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record) and the knowledge base are complete. 402 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
+**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete. 428 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
 
 **Architecture:**
 
@@ -74,6 +75,7 @@ Portfolio/
 │   └── schema.sql                      PostgreSQL DDL — source of truth for the data model
 ├── src/
 │   ├── config.py                       DB connection resolution (env-var driven)
+│   ├── settings.py                     Every adjustable setting: live values, ranges, formulas, guard rails (§24)
 │   ├── models/                         SQLAlchemy 2.0 ORM layer
 │   │   ├── base.py                     Declarative Base
 │   │   ├── company.py                  Company model + relationships
@@ -84,6 +86,7 @@ Portfolio/
 │   │   ├── portfolio.py                Portfolio model - a named owner with a tax type (§19.1)
 │   │   ├── watchlist.py                Watchlist and WatchlistItem models (§22)
 │   │   ├── signal_snapshot.py          SignalSnapshot model - what Sift said each night (§21)
+│   │   ├── scenario.py                 Scenario model - a saved what-if: name, notes, changed settings (§24)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
 │   │   ├── yahoo_client.py             yfinance wrapper, all external I/O isolated here
@@ -106,6 +109,9 @@ Portfolio/
 │   │   ├── holdings.py                 Portfolios; parcel add/sell (with splitting)/delete/undo sale; position summaries
 │   │   ├── views.py                    Portfolio figures for the web GUI: totals, positions, parcels, CGT by year (§19.1)
 │   │   └── trade_input.py              Checks on trades typed into the browser, with plain-English errors (§19.1)
+│   ├── admin/                          Admin console (§24)
+│   │   ├── scenarios.py                What-if runs on cached inputs, live vs scenario comparison, saving
+│   │   └── workings.py                 A company's figures step by step, and the sensitivity grid
 │   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
 │   ├── screening/
 │   │   ├── actions.py                  Suggested action + reason per company (§9.1)
@@ -145,6 +151,7 @@ Portfolio/
 │   │   ├── test_knowledge.py           The knowledge base: IDs, links, hover labels, placeholders, glossary (§23)
 │   │   ├── test_trade_input.py         Browser input checks, CGT discount by tax type, the cross-site write guard
 │   │   ├── test_watchlist_triggers.py  Trigger thresholds and entry checks (§22)
+│   │   ├── test_settings.py            The settings registry: live values pinned, ranges, guard rails, modules read it (§24)
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
 │       ├── test_valuation_pipeline.py  gather_inputs/upsert/run_valuation crash isolation, markers end to end
@@ -154,14 +161,15 @@ Portfolio/
 │       ├── test_gui.py                 Web API payloads, dashboard and the password guard (§20)
 │       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
 │       ├── test_track_record.py        Scoring against made-up history, summary, deletion, report rules (§21)
-│       └── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
+│       ├── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
+│       └── test_admin.py               Scenarios match live when unchanged, workings match the engine, admin API (§24)
 └── docs/
     ├── AS_BUILT.md                     This document
     ├── OVERVIEW.md                     Plain-English summary: what, why, who
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code (2026-10-05):** about 6,000 lines across 50 Python files, 2,350 lines of web front end (`web/`) and 380 lines of SQL, plus `tests/`: 402 tests (299 unit, 103 integration) in 27 files, of which 78 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 86% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
+**Total custom code (2026-10-06):** about 6,850 lines across 55 Python files, 2,800 lines of web front end (`web/`) and 390 lines of SQL, plus `tests/`: 428 tests (318 unit, 110 integration) in 29 files, of which 83 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -768,11 +776,11 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 - **CLIs end to end** on five synthetic companies built to hit specific rules: identical fundamentals with a rising price (`GEM`, held, `HOLD`) and a falling one (`KNIFE`, `INVESTIGATE`, "price still making new lows"); a declining business held ~10 months (`FADE`, `SELL`, with "300 units qualify for the CGT discount from 07 Dec 2026 (66 days)"); an expensive held company (`PRICY`, `REVIEW`); and weak cash conversion (`LEAK`). `portfolio.py sell --order min-tax` correctly sold the DRP parcel before the larger, older one, and split $9.95 sale brokerage into $0.50 + $9.45. This run found the `WATCH`-reason gap described in §9.1, fixed before commit.
 - Test databases and seed scripts deleted afterwards.
 
-### 10.14 Web GUI, Portfolios, Watchlists and Track Record (2026-10-05)
+### 10.14 Web GUI, Portfolios, Watchlists, Track Record and Admin Console (2026-10-05 to 2026-10-06)
 
-- **402 tests** (299 unit, 103 integration), up from 156 at §10.13. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **428 tests** (318 unit, 110 integration), up from 156 at §10.13. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
 - **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
-- **Coverage check** (`coverage run -m pytest`, 2026-10-05): 86% of statements overall; 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
+- **Coverage check** (`coverage run -m pytest`, re-run 2026-10-06): 87% of statements overall; 95% to 97% for the admin console's modules (`src/settings.py`, `src/admin/`); 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
 - **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
 
 ---
@@ -810,6 +818,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 27 | Parcels can't be moved between portfolios, and changing a portfolio's tax type re-rates its past sales | An off-market transfer (for example shares moved into an SMSF) has to be entered as a sale in one portfolio and a buy in the other, which is also how the ATO treats it; a tax type changed by mistake changes the CGT report until changed back | By design for now. A transfer feature would need to record the change of ownership date and value |
 | 28 | Watchlist triggers are a state, not an alert | A trigger shows while it's true (dashboard, watchlist page) and disappears when it stops being true; nothing is sent, and a trigger met and lost between two visits isn't recorded | By design for now. The nightly signal record (§21) could later keep trigger history if wanted |
 | 29 | The benchmark is the plain average of the screened companies, not an index | Small companies count as much as large ones, so a BUY list tilted to large companies is judged against a small-company-heavy average; brokerage, tax and timing within the day are ignored | By design: it measures whether the rules pick better companies from the ones they look at, which an index wouldn't. A market-capitalisation-weighted benchmark could be added alongside |
+| 30 | What-if scenarios are judged on today's data only, and keep momentum at its live value | A scenario shows what would change tonight, not whether it would have done better over the past year; a scenario that moves the margin of safety a lot is shown with the live trend | By design for phases 1 and 2 (§24). Phase 4 (backtesting a scenario against the track record's history) would answer the first; nothing changes live until a scenario is deliberately published (phase 3, not built) |
 
 ---
 
@@ -945,6 +954,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | **Stage 3:** multiple watchlists (§22): `watchlists` and `watchlist_items` (note, margin-of-safety and price triggers), a Watchlists overview and page per list, "Add to watchlist" on company pages, a watchlist filter and ★ in the screener, triggered entries under Needs attention, and watchlist companies first in What changed. Caught by the new tests before release: the company page failed for a company already on a list (it read a field only the screener's rows carry). 301 tests pass (18 new). Checked in headless Chromium at 1280px and 390px |
 | 2026-10-05 | **Stage 4:** the track record is scored (§21): `signal_outcomes` and `track_record_monthly`, nightly step 4 (`score_signals`), and the Track record page's verdict panel with confidence and the order check, By month, What did I miss and Calls that saved money, What should I look at now, and a rules-version filter; the dashboard shows the headline BUY result. Found and fixed before release: `db/schema.sql` created `signal_outcomes` before the `signal_snapshots` it refers to, which only fails on a brand-new database, so every existing test database missed it; a new test now builds the schema from nothing. Also fixed the period buttons not showing which was selected. 312 tests pass (11 new). Checked against 13 months of made-up history in headless Chromium |
 | 2026-10-05 | User asked whether to add a searchable knowledge base from the glossary and build documents. Chose user help only, inside Sift, as the single source for the hover text and the Word glossary, without AI question-answering. Added `web/knowledge.json` (78 entries: every hover explanation, acronym and glossary term, merged one per concept, plus guides to each part of Sift), a Help page with search, topic filters and deep links, term search in the menu bar, and `scripts/build_rules_doc.js` (the Word document's builder, until then only in a temporary build workspace). The rebuilt Word document matches the previous one except one glossary row now sorted correctly. Browser checks found and fixed two bugs: every Help entry opening on a deep link, and SMSF opening the Portfolios guide instead of its own entry. 402 tests pass (85 new) |
+| 2026-10-06 | User asked to view every formula, calculation and metric in an admin console, adjust them and run hypothetical models. Chose phases 1 and 2 (view with workings; a what-if lab on today's data, nothing live changes), all four groups of settings and the same password, and asked for links to the Help entry for each concept. Added `src/settings.py` (29 settings, one source for every module, live values unchanged and pinned by tests), `src/admin/` (show workings with a sensitivity grid; scenario runs on cached inputs compared with live), the `scenarios` table, the Model and rules and What-if scenarios pages, a Show workings card on every company page, five Help entries in a new Admin topic, a pink ? link from every setting and working step to its Help entry, and §11.6 plus the two new glossary terms in the Word rules document. A no-change scenario reproduces live exactly. 428 tests pass (26 new). §24 |
 
 ---
 
@@ -1027,6 +1037,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 23. **Knowledge base.** *"Should we consider including a searchable knowledge base in this solution, using the glossary and build files?"* Then chose user help only, inside Sift, one source for the hover text and Word glossary, no AI Q&A. → §23.
 
+24. **Admin console.** *"With the app I want to be able to view all of the formulas calculations and metrics in an admin console. I'd like the ability to adjust them and run some hypothetical models."* Then chose phases 1 and 2, all four groups of settings and the same password, and *"Continue with the build as designed. Add links to the knowledge base article that references the concept."* → §24.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -1081,6 +1093,14 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Web GUI, multiple portfolios, watchlists and the track record (§19.1, §20, §21, §22):** ✅ Done 2026-10-05.
 
 **Searchable knowledge base (§23):** ✅ Done 2026-10-05.
+
+**Admin console, phases 1 and 2 (§24):** ✅ Done 2026-10-06.
+
+**Publish a scenario as the live rules (phase 3, only once the track record supports it):**
+> "Add a way to publish a saved scenario as the live settings, with a confirmation, a record of who changed what and when, a new RULES_VERSION so the track record judges the new rules separately, and a one-click way back."
+
+**Backtest a scenario (phase 4, once there are several months of signal history):**
+> "Score a saved scenario against the track record's history: what would it have said each night, and how would those calls have done against the average, next to the live rules?"
 
 **Add a Help entry or correct a definition:**
 > "In web/knowledge.json, add an entry for [term] (or correct [entry]) in the right topic, with related terms and a link into Sift, then rebuild the Word document and run the tests."
@@ -1273,3 +1293,42 @@ The wheel describes; it does not decide. The suggested action still comes only f
 **Checks (`tests/unit/test_knowledge.py`).** IDs unique and URL-safe; every entry has a title, definition and known category; every related ID and link is real; every UI label Sift asks for is explained exactly once; both valuation models are explained; glossary entries have what the Word table needs and none were lost; and, per entry, no em dashes and no unknown placeholders. `test_gui.py` checks the file is served behind the password.
 
 **Not included, by choice:** AS_BUILT stays a separate technical document, and there's no AI question-answering (it would need an API key and send questions out). Both can be added later; the Help search would be the place to hang Q&A.
+
+---
+
+## 24. Admin Console: Model and Rules, Show Workings, What-if Scenarios (`src/settings.py`, `src/admin/`, added 2026-10-06)
+
+**Purpose.** See every formula, threshold and calculation Sift uses, and try different settings against today's data, without changing anything live. Built as phases 1 and 2 of the agreed design: view and explain (phase 1), and a what-if lab (phase 2). Publishing a scenario as the live rules (phase 3) and backtesting a scenario against the track record (phase 4) are not built.
+
+**One registry for every setting (`src/settings.py`).** `ModelSettings` is a frozen dataclass of the 29 adjustable settings, and `LIVE` holds the values the nightly job uses. Every module that used its own constant now reads it from `LIVE`, so the registry is the single source:
+
+| Group | Settings | Read by |
+|---|---|---|
+| Valuation models | DCF growth, DDM growth, discount rate, terminal growth, stage-one years, cash flow averaging years | `dcf.py`, `ddm.py`, `engine.py` |
+| Value tests | Minimum margin of safety, ROE, maximum debt/equity, minimum grossed-up yield | `screen_asx.py` |
+| Markers and actions | Earnings quality STRONG and ADEQUATE, new-lows range, dividend cut and growth ratios, ROE and revenue trend steps, momentum step, payout warning, overvalued review level | `markers.py`, `engine.py`, `actions.py`, `screen_asx.py` |
+| Score wheel | The nine thresholds the 30 checks use beyond the four tests | `scores.py` |
+
+Each setting carries its group, label, unit, allowed range, formula, where it's used and the knowledge base entry that explains it (`help_id`). `with_overrides()` builds a scenario's settings from entered values (rates entered as percents, e.g. 9 for 9%), and `check()` refuses combinations that make no sense: discount rate not above terminal growth, ADEQUATE above STRONG, and any score wheel "strong" threshold not stricter than its value test. The live values did not change: `tests/unit/test_settings.py` pins all 29, and the score wheel's labels are built from the settings but read exactly as before at the live values.
+
+**Model and rules (`#/admin`).** Opened from the gear panel ("Model and rules", "What-if scenarios"), behind the same password as the rest of Sift. Shows the nightly pipeline, then every setting by group with its live value, range, formula and where it's used. Each setting has a pink **?** link to its Help entry, and the Help entries for the admin console and scenarios link back to these pages.
+
+**Show workings (`src/admin/workings.py`, a card on every company page).** Every figure on the company page step by step: the base years and their average, the assumptions, the year-by-year projection, the discounting and terminal value, the estimated value and margin of safety; then the ratios, each value test with its threshold and result, and each marker with the rule that set it. A sensitivity grid shows the estimated value at discount rates from 7% to 11% (plus the live rate, if outside that) against growth 2 and 4 points either side of the live rate, with the live cell outlined. Every step links to the Help entry for the concept. A selector re-runs the workings under any saved scenario. Tests check the final figures equal `compute_metrics()` exactly for a DCF company and a bank (DDM), so the workings can't drift from the numbers Sift uses.
+
+**What-if scenarios (`src/admin/scenarios.py`, `#/admin/scenarios`).**
+- **Editor:** every setting with its live value; changed values turn pink. Run compares the scenario with live on today's data without saving; Save keeps it by name with notes. A scenario stores only the settings that differ from live, in the units entered (`scenarios` table, `overrides` JSONB), so it follows any later change to a live value it didn't override.
+- **Results:** how many companies hold each action under live and the scenario, the moves between actions, every company whose action, status or value changed (better moves first, held and watched companies flagged, and a separate "Yours" list), the margin of safety distribution, median margin of safety, average score and number valued.
+- **How a run works:** each company's inputs (latest price, up to five annual reports, recent closes) are gathered once and cached in memory until the data changes (keyed by the latest price date, latest valuation date and row counts). Each run then values, tests, scores and assigns actions for the whole universe in memory, twice (live and scenario). Values are rounded to their column sizes as the nightly job stores them, so a scenario with no changes matches live exactly (tested).
+- **Nothing live changes:** a run writes nothing. Saving writes only the `scenarios` row. Valuations, the screener, signals and the track record are untouched.
+- **Kept at live values:** the margin-of-safety trend (momentum) compares with the live figure stored 30 days ago, so a scenario uses the live trend rather than mixing its own figure with a stored live one. Holdings and watchlists are today's.
+
+**API.** `GET /api/admin/settings`; `GET|POST /api/admin/scenarios`; `GET|PUT|DELETE /api/admin/scenarios/{id}`; `POST /api/admin/run` (a run from the editor's current values; reads only, POST because it carries the settings); `GET /api/company/{code}/workings?scenario={id}`. Writes go through the same password, same-page guard and one-transaction `change()` as portfolios (§19.1). An unknown setting, a value outside its range, a duplicate or blank name, or a `check()` failure returns a 400 with a plain-English message.
+
+**Knowledge base.** Five new entries in a new Admin topic: Admin console, Scenario and Growth rate (both in the Word glossary), Show workings and Sensitivity grid. DCF, DDM and discount rate link to them. 83 entries in all.
+
+**Tests.** `tests/unit/test_settings.py` (pinned live values, every setting's metadata and Help link, every module reading the registry, override units, each guard rail, score labels and markers under changed settings) and `tests/integration/test_admin.py` (no-change scenario equals live exactly, a stricter ROE test moves a company from ACCUMULATE to HOLD, a valuation change matches the engine, the cache follows the data, workings equal the engine for DCF and DDM with every Help link real, and the API end to end including the write guard, 400s, 404s, rename and delete). Checked in headless Chromium at 1280px and 390px against a disposable database of 60 companies with 13 months of made-up history.
+
+**Limits.**
+- A scenario is judged on today's data only; it can't yet say how it would have done in the past (phase 4).
+- Momentum stays live, as above, so a scenario that changes the margin of safety a lot shows the live trend beside it.
+- The cache is per server process; the first run after the nightly job (or a restart) gathers inputs again, which takes a few seconds for 500 companies.

@@ -66,14 +66,16 @@ from tabulate import tabulate
 from src.config import get_session
 from src.portfolio.holdings import PositionSummary, position_summaries
 from src.screening.actions import ACTION_ORDER, HELD_ACTIONS, suggest_action
+from src.settings import LIVE, ModelSettings
 from src.valuation import markers
 from src.valuation.engine import DEFAULT_TREND_DAYS
 
-DEFAULT_MIN_MARGIN_OF_SAFETY = Decimal("20")
-DEFAULT_MIN_ROE = Decimal("12")
-DEFAULT_MAX_DEBT_TO_EQUITY = Decimal("0.80")
-DEFAULT_MIN_GROSSED_UP_YIELD = Decimal("4.5")
-DEFAULT_MIN_MOS_TREND = Decimal("5")  # percentage points improvement over ~trend_days to count as "momentum"
+# Live thresholds come from the settings registry (src/settings.py).
+DEFAULT_MIN_MARGIN_OF_SAFETY = LIVE.min_margin_of_safety
+DEFAULT_MIN_ROE = LIVE.min_roe
+DEFAULT_MAX_DEBT_TO_EQUITY = LIVE.max_debt_equity
+DEFAULT_MIN_GROSSED_UP_YIELD = LIVE.min_yield
+DEFAULT_MIN_MOS_TREND = LIVE.min_mos_trend  # percentage points improvement over ~trend_days to count as "momentum"
 
 COLUMNS = [
     "asx_code", "company_name", "sector", "current_price",
@@ -116,7 +118,7 @@ _CRITERIA = [
 # year's earnings - usually a special/one-off distribution rather than a
 # sustainable, repeatable payout. The yield is still shown (not hidden or
 # nulled), but flagged here so it isn't mistaken for ordinary income.
-PAYOUT_RATIO_WARNING_THRESHOLD = Decimal("150")
+PAYOUT_RATIO_WARNING_THRESHOLD = LIVE.payout_warning
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -148,6 +150,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def args_from_settings(settings: ModelSettings) -> argparse.Namespace:
+    """The screener's default arguments with the value tests and momentum
+    threshold taken from `settings` (the admin console's what-if lab)."""
+    args = parse_args([])
+    args.min_margin_of_safety, args.min_roe = settings.min_margin_of_safety, settings.min_roe
+    args.max_debt_equity, args.min_yield = settings.max_debt_equity, settings.min_yield
+    args.min_mos_trend = settings.min_mos_trend
+    return args
+
+
 def build_query(args: argparse.Namespace) -> tuple[str, dict]:
     where_clauses = []
     params: dict = {}
@@ -173,7 +185,8 @@ def build_query(args: argparse.Namespace) -> tuple[str, dict]:
 
 
 def annotate_row(
-    row: dict, args: argparse.Namespace, position: PositionSummary | None = None, today: date | None = None
+    row: dict, args: argparse.Namespace, position: PositionSummary | None = None, today: date | None = None,
+    settings: ModelSettings = LIVE,
 ) -> dict:
     """Adds one Y/N indicator column per criterion plus an 'overall' column
     (AND of all four, or OR if --any-of), without removing or hiding the
@@ -205,9 +218,9 @@ def annotate_row(
     annotated["overall"] = "Y" if overall else "N"
     annotated["momentum_ok"] = "Y" if momentum_ok else "N"
     annotated["trap_risk"] = "Y" if trap_risk else "N"
-    annotated["price_signal"] = markers.price_signal(row["price_vs_200d"], row["range_position_52w"])
+    annotated["price_signal"] = markers.price_signal(row["price_vs_200d"], row["range_position_52w"], settings.new_lows_range)
     annotated["held"] = position.units if position else None
-    annotated["action"], annotated["action_reason"] = suggest_action(annotated, position, today)
+    annotated["action"], annotated["action_reason"] = suggest_action(annotated, position, today, settings)
     return annotated
 
 

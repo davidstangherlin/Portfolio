@@ -49,6 +49,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.models import Company, DailyPrice, FinancialReport, ValuationMetric
+from src.settings import LIVE, ModelSettings
 from src.valuation import dcf as dcf_module
 from src.valuation import ddm as ddm_module
 from src.valuation import markers
@@ -58,7 +59,7 @@ from src.valuation.graham import book_value_per_share, graham_number
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_FCF_AVERAGE_YEARS = 3
+DEFAULT_FCF_AVERAGE_YEARS = LIVE.fcf_average_years
 DEFAULT_TREND_DAYS = 30
 
 # Sectors where a standard FCF-based DCF isn't meaningful (known-issue #8):
@@ -115,8 +116,8 @@ def _average_free_cash_flow(reports: list[FinancialReport]) -> Decimal | None:
     return sum(values) / Decimal(len(values))
 
 
-_ROE_TREND_THRESHOLD = Decimal("2")  # percentage points
-_REVENUE_TREND_THRESHOLD = Decimal("0.05")  # 5%
+_ROE_TREND_THRESHOLD = LIVE.roe_trend_points  # percentage points
+_REVENUE_TREND_THRESHOLD = LIVE.revenue_trend_ratio  # 5%
 
 
 def _roe(report: FinancialReport) -> Decimal | None:
@@ -125,7 +126,8 @@ def _roe(report: FinancialReport) -> Decimal | None:
     return None
 
 
-def _fundamentals_trend(reports: list[FinancialReport]) -> str | None:
+def _fundamentals_trend(reports: list[FinancialReport], roe_points: Decimal = _ROE_TREND_THRESHOLD,
+                        revenue_ratio: Decimal = _REVENUE_TREND_THRESHOLD) -> str | None:
     """Classifies ROE/revenue direction across the latest vs oldest report
     in the fetched fcf_average_years window (`reports` is newest-first -
     see `_last_n_annual_reports`), independent of price. A simple,
@@ -152,13 +154,13 @@ def _fundamentals_trend(reports: list[FinancialReport]) -> str | None:
     if roe_trend is None and revenue_trend is None:
         return None
 
-    if (roe_trend is not None and roe_trend < -_ROE_TREND_THRESHOLD) or (
-        revenue_trend is not None and revenue_trend < -_REVENUE_TREND_THRESHOLD
+    if (roe_trend is not None and roe_trend < -roe_points) or (
+        revenue_trend is not None and revenue_trend < -revenue_ratio
     ):
         return "DECLINING"
 
-    if (roe_trend is not None and roe_trend > _ROE_TREND_THRESHOLD) or (
-        revenue_trend is not None and revenue_trend > _REVENUE_TREND_THRESHOLD
+    if (roe_trend is not None and roe_trend > roe_points) or (
+        revenue_trend is not None and revenue_trend > revenue_ratio
     ):
         return "IMPROVING"
 
@@ -266,10 +268,15 @@ def compute_metrics(
     inputs: ValuationInputs,
     *,
     growth_rate: Decimal | None = None,
-    discount_rate: Decimal = dcf_module.DEFAULT_DISCOUNT_RATE,
-    terminal_growth_rate: Decimal = dcf_module.DEFAULT_TERMINAL_GROWTH_RATE,
-    stage1_years: int = dcf_module.DEFAULT_STAGE1_YEARS,
+    discount_rate: Decimal | None = None,
+    terminal_growth_rate: Decimal | None = None,
+    stage1_years: int | None = None,
+    settings: ModelSettings = LIVE,
 ) -> dict:
+    """Every valuation_metrics figure for one company. Assumptions and
+    thresholds come from `settings` (the live registry unless the admin
+    console's what-if lab passes another); an explicit growth, discount,
+    terminal or stage-1 argument (run_valuation's CLI options) overrides it."""
     price = inputs.price
     report = inputs.report
     shares = inputs.shares_outstanding
@@ -282,7 +289,10 @@ def compute_metrics(
     # the DCF's 8% to dividend growth too. An explicit --growth-rate on the
     # CLI still applies uniformly to whichever model runs, as before.
     if growth_rate is None:
-        growth_rate = ddm_module.DEFAULT_GROWTH_RATE if sector_aware else dcf_module.DEFAULT_GROWTH_RATE
+        growth_rate = settings.ddm_growth_rate if sector_aware else settings.dcf_growth_rate
+    discount_rate = settings.discount_rate if discount_rate is None else discount_rate
+    terminal_growth_rate = settings.terminal_growth_rate if terminal_growth_rate is None else terminal_growth_rate
+    stage1_years = settings.stage1_years if stage1_years is None else stage1_years
 
     bvps = book_value_per_share(report.total_equity, shares)
     graham = graham_number(report.eps, bvps)
@@ -380,7 +390,7 @@ def compute_metrics(
     if margin_of_safety is not None and inputs.prior_margin_of_safety_percent is not None:
         margin_of_safety_trend = margin_of_safety - inputs.prior_margin_of_safety_percent
 
-    fundamentals_trend = _fundamentals_trend(inputs.reports)
+    fundamentals_trend = _fundamentals_trend(inputs.reports, settings.roe_trend_points, settings.revenue_trend_ratio)
 
     # Decision markers (src/valuation/markers.py). Cash conversion is
     # skipped for sector-aware companies: a bank's operating cash flow is
@@ -409,10 +419,11 @@ def compute_metrics(
         "margin_of_safety_trend": margin_of_safety_trend,
         "fundamentals_trend": fundamentals_trend,
         "cash_conversion": cash_conversion,
-        "earnings_quality": markers.earnings_quality(cash_conversion),
+        "earnings_quality": markers.earnings_quality(cash_conversion, settings.earnings_quality_strong,
+                                                     settings.earnings_quality_adequate),
         "price_vs_200d": markers.price_vs_moving_average(inputs.recent_closes),
         "range_position_52w": markers.range_position(inputs.recent_closes),
-        "dividend_trend": markers.dividend_trend(history),
+        "dividend_trend": markers.dividend_trend(history, settings.dividend_cut_ratio, settings.dividend_growth_ratio),
         "data_confidence": markers.data_confidence(price, report, len(history), len(inputs.recent_closes)),
     }
 

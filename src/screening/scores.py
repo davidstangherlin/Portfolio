@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from src.models import FinancialReport
+from src.settings import LIVE, ModelSettings, display
 
 AXES = ("Value", "Performance", "Health", "Dividend", "Momentum")
 CHECKS_PER_AXIS = 6
@@ -45,10 +46,13 @@ def _in(value, allowed: tuple[str, ...]) -> bool | None:
     return None if value is None else value in allowed
 
 
-def score_card(row: dict, report: FinancialReport | None = None) -> dict[str, list[Check]]:
+def score_card(row: dict, report: FinancialReport | None = None, settings: ModelSettings = LIVE) -> dict[str, list[Check]]:
     """`row` is one annotated screener row (screen_asx.annotate_row) plus
     `roic` and `graham_number`; `report` is the latest FY financial report,
-    used for the balance-sheet health checks."""
+    used for the balance-sheet health checks. Thresholds come from
+    `settings` (src/settings.py), and each label states the one used."""
+    s = settings
+    n = display
     mos = row.get("margin_of_safety_percent")
     price = row.get("current_price")
     graham = row.get("graham_number")
@@ -72,23 +76,23 @@ def score_card(row: dict, report: FinancialReport | None = None) -> dict[str, li
     return {
         "Value": [
             Check("Trading below estimated value", _gt(mos, 0)),
-            Check("Margin of safety above 20%", _gt(mos, 20)),
-            Check("Margin of safety above 40%", _gt(mos, 40)),
-            Check("P/E between 0 and 15", _between(row.get("pe_ratio"), 0, 15)),
-            Check("P/B between 0 and 1.5", _between(row.get("pb_ratio"), 0, 1.5)),
+            Check(f"Margin of safety above {n(s.min_margin_of_safety)}%", _gt(mos, s.min_margin_of_safety)),
+            Check(f"Margin of safety above {n(s.score_mos_strong)}%", _gt(mos, s.score_mos_strong)),
+            Check(f"P/E between 0 and {n(s.score_max_pe)}", _between(row.get("pe_ratio"), 0, s.score_max_pe)),
+            Check(f"P/B between 0 and {n(s.score_max_pb)}", _between(row.get("pb_ratio"), 0, s.score_max_pb)),
             Check("Price below Graham Number", None if price is None or graham is None else price < graham),
         ],
         "Performance": [
-            Check("ROE above 12%", _gt(row.get("roe"), 12)),
-            Check("ROE above 20%", _gt(row.get("roe"), 20)),
-            Check("ROIC above 10%", _gt(row.get("roic"), 10)),
+            Check(f"ROE above {n(s.min_roe)}%", _gt(row.get("roe"), s.min_roe)),
+            Check(f"ROE above {n(s.score_roe_high)}%", _gt(row.get("roe"), s.score_roe_high)),
+            Check(f"ROIC above {n(s.score_min_roic)}%", _gt(row.get("roic"), s.score_min_roic)),
             Check("ROE and revenue not declining", _in(row.get("fundamentals_trend"), ("STABLE", "IMPROVING"))),
-            Check("Profit backed by cash (80%+)", _in(row.get("earnings_quality"), ("STRONG", "ADEQUATE"))),
+            Check(f"Profit backed by cash ({n(s.earnings_quality_adequate)}%+)", _in(row.get("earnings_quality"), ("STRONG", "ADEQUATE"))),
             Check("Cash flow exceeds profit", _in(row.get("earnings_quality"), ("STRONG",))),
         ],
         "Health": [
-            Check("Debt/equity below 0.8", _lt(de, 0.8)),
-            Check("Debt/equity below 0.4", _lt(de, 0.4)),
+            Check(f"Debt/equity below {n(s.max_debt_equity)}", _lt(de, s.max_debt_equity)),
+            Check(f"Debt/equity below {n(s.score_debt_equity_low)}", _lt(de, s.score_debt_equity_low)),
             Check("More cash than debt", None if cash is None or debt is None else cash >= debt),
             Check("Positive shareholders' equity", _gt(equity, 0)),
             Check("Positive free cash flow", _gt(fcf, 0)),
@@ -96,18 +100,19 @@ def score_card(row: dict, report: FinancialReport | None = None) -> dict[str, li
         ],
         "Dividend": [
             Check("Pays a dividend", pays_dividend),
-            Check("Grossed-up yield above 4.5%", _gt(gross_yield, 4.5)),
-            Check("Grossed-up yield above 6%", _gt(gross_yield, 6)),
-            Check("Payout ratio 100% or less", None if payout is None else payout <= 100),
+            Check(f"Grossed-up yield above {n(s.min_yield)}%", _gt(gross_yield, s.min_yield)),
+            Check(f"Grossed-up yield above {n(s.score_yield_high)}%", _gt(gross_yield, s.score_yield_high)),
+            Check(f"Payout ratio {n(s.score_max_payout)}% or less", None if payout is None else payout <= s.score_max_payout),
             Check("No standing dividend cut", _in(trend, ("STEADY", "GROWING"))),
             Check("Dividend growing", _in(trend, ("GROWING",))),
         ],
         "Momentum": [
             Check("Price above 200-day average", _in(signal, ("UPTREND",))),
             Check("Not making new 52-week lows", _in(signal, ("UPTREND", "DOWNTREND"))),
-            Check("In upper half of 52-week range", _gt(row.get("range_position_52w"), 50)),
+            Check("In upper half of 52-week range" if s.score_upper_range == 50 else f"Above {n(s.score_upper_range)}% of 52-week range",
+                  _gt(row.get("range_position_52w"), s.score_upper_range)),
             Check("Margin of safety improving (30 days)", _gt(row.get("margin_of_safety_trend"), 0)),
-            Check("Margin of safety up 5+ points", None if row.get("margin_of_safety_trend") is None else row.get("momentum_ok") == "Y"),
+            Check(f"Margin of safety up {n(s.min_mos_trend)}+ points", None if row.get("margin_of_safety_trend") is None else row.get("momentum_ok") == "Y"),
             Check("ROE or revenue improving", _in(row.get("fundamentals_trend"), ("IMPROVING",))),
         ],
     }

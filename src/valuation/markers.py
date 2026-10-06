@@ -17,17 +17,20 @@ from decimal import Decimal
 from statistics import median
 
 from src.models import DailyPrice, FinancialReport
+from src.settings import LIVE
 
-EARNINGS_QUALITY_STRONG = Decimal("100")
-EARNINGS_QUALITY_ADEQUATE = Decimal("80")
+# Live thresholds come from the settings registry (src/settings.py); each
+# function also takes them as arguments so the admin console can try others.
+EARNINGS_QUALITY_STRONG = LIVE.earnings_quality_strong
+EARNINGS_QUALITY_ADEQUATE = LIVE.earnings_quality_adequate
 
 MOVING_AVERAGE_DAYS = 200
 MIN_BARS_FOR_52W_RANGE = 100
-NEW_LOWS_RANGE_THRESHOLD = Decimal("10")
+NEW_LOWS_RANGE_THRESHOLD = LIVE.new_lows_range
 
 DIVIDEND_HISTORY_YEARS = 5
-DIVIDEND_CUT_RATIO = Decimal("0.9")  # latest more than 10% below last year or the earlier median is a cut
-DIVIDEND_GROWTH_RATIO = Decimal("1.05")
+DIVIDEND_CUT_RATIO = LIVE.dividend_cut_ratio  # latest more than 10% below last year or the earlier median is a cut
+DIVIDEND_GROWTH_RATIO = LIVE.dividend_growth_ratio
 
 
 def cash_conversion_percent(reports: list[FinancialReport]) -> Decimal | None:
@@ -49,12 +52,13 @@ def cash_conversion_percent(reports: list[FinancialReport]) -> Decimal | None:
     return sum(ocf for ocf, _ in pairs) / total_profit * 100
 
 
-def earnings_quality(cash_conversion: Decimal | None) -> str | None:
+def earnings_quality(cash_conversion: Decimal | None, strong: Decimal = EARNINGS_QUALITY_STRONG,
+                     adequate: Decimal = EARNINGS_QUALITY_ADEQUATE) -> str | None:
     if cash_conversion is None:
         return None
-    if cash_conversion >= EARNINGS_QUALITY_STRONG:
+    if cash_conversion >= strong:
         return "STRONG"
-    if cash_conversion >= EARNINGS_QUALITY_ADEQUATE:
+    if cash_conversion >= adequate:
         return "ADEQUATE"
     return "WEAK"
 
@@ -82,19 +86,21 @@ def range_position(closes: list[Decimal]) -> Decimal | None:
     return (closes[0] - low) / (high - low) * 100
 
 
-def price_signal(vs_200d: Decimal | None, range_pos: Decimal | None) -> str | None:
+def price_signal(vs_200d: Decimal | None, range_pos: Decimal | None,
+                 new_lows: Decimal = NEW_LOWS_RANGE_THRESHOLD) -> str | None:
     """'NEW LOWS' (below a 200-day average and in the bottom 10% of its
     52-week range - still falling), 'DOWNTREND' or 'UPTREND'."""
     if vs_200d is None:
         return None
-    if vs_200d < 0 and range_pos is not None and range_pos <= NEW_LOWS_RANGE_THRESHOLD:
+    if vs_200d < 0 and range_pos is not None and range_pos <= new_lows:
         return "NEW LOWS"
     if vs_200d < 0:
         return "DOWNTREND"
     return "UPTREND"
 
 
-def dividend_trend(reports: list[FinancialReport]) -> str | None:
+def dividend_trend(reports: list[FinancialReport], cut_ratio: Decimal = DIVIDEND_CUT_RATIO,
+                   growth_ratio: Decimal = DIVIDEND_GROWTH_RATIO) -> str | None:
     """'CUT' if the latest dividend is more than 10% below either last
     year's or the median of the earlier years in the window - a cut that
     still stands. A cut the company has since restored no longer counts:
@@ -111,9 +117,9 @@ def dividend_trend(reports: list[FinancialReport]) -> str | None:
     if all(v == 0 for v in values):
         return "NONE"
     latest, previous, earlier = values[-1], values[-2], values[:-1]
-    if latest < previous * DIVIDEND_CUT_RATIO or latest < median(earlier) * DIVIDEND_CUT_RATIO:
+    if latest < previous * cut_ratio or latest < median(earlier) * cut_ratio:
         return "CUT"
-    if latest > values[0] * DIVIDEND_GROWTH_RATIO:
+    if latest > values[0] * growth_ratio:
         return "GROWING"
     return "STEADY"
 

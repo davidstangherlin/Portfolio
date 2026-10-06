@@ -12,9 +12,10 @@ it's useful, and who it's for. See `docs/AS_BUILT.md` for full technical design.
 ```
 db/
   schema.sql               PostgreSQL schema: market data, valuations, holdings and portfolios,
-                            watchlists, the track record, and the screener view
+                            watchlists, the track record, saved scenarios and the screener view
 src/
   config.py                DB connection (env-var driven)
+  settings.py              every adjustable setting: live values, ranges, formulas (see Admin console)
   apply_schema.py          brings the database up to the schema (nightly step 0, and on GUI start)
   models/                  SQLAlchemy ORM models, one per schema table
   ingestion/
@@ -41,6 +42,9 @@ src/
     actions.py                suggested action + reason for each company
     scores.py                 score wheel checks for the web GUI
     enriched.py               screener rows with scores and valuation status (GUI and track record)
+  admin/
+    scenarios.py              what-if runs compared with live, on today's data
+    workings.py               a company's figures step by step, and the sensitivity grid
   watchlist/
     lists.py                  watchlists: entries, notes, triggers
   tracking/
@@ -357,6 +361,28 @@ npm install
 node build_rules_doc.js
 ```
 
+### Admin console: model, workings and what-if scenarios
+
+Open the gear (top right) and choose **Model and rules** or **What-if scenarios**. Same
+password as the rest of Sift.
+
+- **Model and rules** lists the nightly steps and all 29 settings Sift uses (valuation
+  models, value tests, markers and actions, score wheel), each with its live value, allowed
+  range, formula and where it's used. The pink **?** opens the Help entry for that concept.
+- **Show workings**, at the foot of every company page, walks through each figure: the cash
+  flow or dividend base, the year-by-year projection, discounting, estimated value, margin of
+  safety, ratios, each test and marker. A sensitivity grid shows the estimated value across
+  discount and growth rates. Choose a saved scenario to see the workings under it.
+- **What-if scenarios**: change any settings (changed values turn pink), then **Run** to see
+  what would change today: actions under live and the scenario, the companies that move
+  (yours and your watchlists flagged), the margin of safety spread and average score.
+  **Save** keeps the scenario by name. Settings that make no sense together (for example a
+  discount rate below terminal growth) are refused with the reason.
+
+Nothing live changes: a run writes nothing, and the nightly job, screener, dashboard and track
+record keep using the live settings in `src/settings.py`. Changing a live setting is still a
+code change (edit `src/settings.py`, run `pytest`, commit). See docs/AS_BUILT.md §24.
+
 ## Recording Your Holdings (CGT)
 
 Record trades in the browser (Sift's Portfolios pages, above) or with `portfolio.py`; both
@@ -402,20 +428,22 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers, 402 tests in all:
+Two tiers, 428 tests in all:
 
-- **`tests/unit/`** (299 tests) - no database connection at all, so these run in about a
+- **`tests/unit/`** (318 tests) - no database connection at all, so these run in about a
   second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
   the score wheel, dividend history and currency conversion, franking, CGT arithmetic
   (including the discount by tax type), browser input checks and the cross-site write guard,
-  watchlist triggers, the dashboard's log reading and stale-data rule, and the knowledge base
-  behind the Help page (one check per entry).
-- **`tests/integration/`** (103 tests) - the parts that genuinely need a real database: the
+  watchlist triggers, the dashboard's log reading and stale-data rule, the settings registry
+  (live values pinned, guard rails), and the knowledge base behind the Help page (one check
+  per entry).
+- **`tests/integration/`** (110 tests) - the parts that genuinely need a real database: the
   schema (re-applied, upgraded from an older version, and built from nothing), ingestion
   upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
   web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password
-  and same-page guards), signal recording, and track record scoring against 13 months of
-  made-up history. `tests/conftest.py` creates an `asx_test` database and applies
+  and same-page guards), signal recording, track record scoring against 13 months of
+  made-up history, and the admin console (a scenario with no changes matches live exactly,
+  workings match the engine). `tests/conftest.py` creates an `asx_test` database and applies
   `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to point at a
   different instance) - it never touches whatever database your `.env` points at.
 

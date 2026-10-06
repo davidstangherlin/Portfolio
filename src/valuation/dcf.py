@@ -24,10 +24,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-DEFAULT_DISCOUNT_RATE = Decimal("0.09")  # midpoint of the 8-10% baseline range
-DEFAULT_GROWTH_RATE = Decimal("0.08")
-DEFAULT_TERMINAL_GROWTH_RATE = Decimal("0.025")  # roughly long-run nominal GDP/inflation
-DEFAULT_STAGE1_YEARS = 5
+from src.settings import LIVE
+
+# Live values come from the settings registry (src/settings.py).
+DEFAULT_DISCOUNT_RATE = LIVE.discount_rate  # 9%: midpoint of the 8-10% baseline range
+DEFAULT_GROWTH_RATE = LIVE.dcf_growth_rate
+DEFAULT_TERMINAL_GROWTH_RATE = LIVE.terminal_growth_rate  # roughly long-run nominal GDP/inflation
+DEFAULT_STAGE1_YEARS = LIVE.stage1_years
 
 
 @dataclass(frozen=True)

@@ -83,7 +83,7 @@ add(
   new Paragraph({ children: [new TextRun({ text: "ASX Value Screener", bold: true, size: 44, color: NAVY })], spacing: { after: 60 } }),
   new Paragraph({ children: [new TextRun({ text: "Rules and Methodology Reference", size: 30, color: "404040" })], spacing: { after: 120 } }),
   new Paragraph({
-    children: [new TextRun({ text: "As at 5 October 2026  |  Research tool, not financial advice", size: 18, color: "666666" })],
+    children: [new TextRun({ text: "As at 6 October 2026  |  Research tool, not financial advice", size: 18, color: "666666" })],
     border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: NAVY, space: 6 } },
     spacing: { after: 240 },
   }),
@@ -356,6 +356,12 @@ add(
   bullet("A trigger is a live condition, not an alert: it shows while it is true and disappears when it stops being true."),
   bullet("A company with no current valuation or price meets neither trigger."),
   bullet("Watchlists are separate from the nightly ticker file, which decides which companies are valued at all."),
+  h2("11.6 Admin console and what-if scenarios"),
+  p("Every threshold and assumption in this document is held in one place in the code (29 settings in four groups: valuation models, value tests, markers and actions, and the score wheel). The admin console shows each with its live value, allowed range, formula and where it is used, linked to its Help entry."),
+  bullet("**Show workings.** Each company page can show every figure step by step, from the cash flow or dividend base through the projection and discounting to estimated value, margin of safety, each test and each marker, with a sensitivity grid of estimated value across discount and growth rates."),
+  bullet("**What-if scenarios.** A scenario changes one or more settings and is run against today's data alongside the live settings, showing which companies' actions, valuation status or estimated value would change."),
+  bullet("**Guard rails.** A scenario is refused if the discount rate is not above terminal growth, if ADEQUATE earnings quality is set above STRONG, or if a score wheel threshold is not stricter than its value test."),
+  bullet("**Nothing live changes.** Scenarios are for exploring only. The nightly job, screener, actions and track record always use the live settings in this document; the margin of safety trend in a scenario stays at its live value."),
 );
 
 // 12. Holdings and CGT
