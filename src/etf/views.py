@@ -34,7 +34,11 @@ _ROWS = text("""
     SELECT c.company_id, c.asx_code, COALESCE(m.fund_name, c.company_name) AS company_name,
            m.issuer, m.product_type, m.category, m.sub_category, m.benchmark, m.mer_percent, m.fum_aud,
            m.avg_spread_percent, m.net_flows_aud, m.value_traded_aud, m.distribution_frequency, m.listing_date,
-           m.report_month, m.return_1y AS reported_1y_latest,
+           m.report_month, m.return_1m AS asx_return_1m, m.return_3m AS asx_return_3m,
+           m.return_6m AS asx_return_6m, m.return_1y AS asx_return_1y, m.return_3y AS asx_return_3y,
+           m.return_5y AS asx_return_5y, m.return_10y AS asx_return_10y,
+           m.return_since_inception AS asx_return_since_inception, m.distribution_yield AS asx_distribution_yield,
+           m.raw ? 'Invests in other ETFs' AS fund_of_funds,
            p1.close_price AS current_price, p1.price_date, p2.close_price AS previous_close,
            f.as_of_date, f.first_price_date, f.return_1m, f.return_3m, f.return_6m, f.return_1y, f.return_3y,
            f.return_5y, f.return_10y, f.return_since_inception, f.distributions_12m, f.distribution_yield_12m,
@@ -68,7 +72,6 @@ def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None) 
         row["held"] = position.units if position else None
         row["watchlists"] = watched.get(row["asx_code"], [])
         row["security_type"] = "ETF"
-        row.pop("reported_1y_latest")
         out.append(row)
     return out
 

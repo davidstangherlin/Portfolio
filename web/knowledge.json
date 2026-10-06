@@ -1198,7 +1198,8 @@
    "definition": "The ASX's monthly list of every exchange traded product, with its issuer, category, fees, size, flows, spread and performance. Sift's source for which ETFs exist and their fund facts.",
    "body": [
     "The ASX publishes it each month, usually by the seventh business day of the next month. Each night until last month's report is loaded, Sift looks for it: first in the data/asx_reports folder, then on the ASX website. Once it's loaded, nothing is downloaded until the next month.",
-    "Every ETF it lists is added to Sift; one it no longer lists is marked inactive and its history is kept. Listed investment companies and trusts (LICs and LITs) are left out.",
+    "Its returns (1 month, 1, 3 and 5 years) come from Bloomberg with dividends reinvested gross, that is including franking credits. Sift's own returns count cash distributions only, so for a franked Australian fund the ASX figure is usually a little higher. Each ETF's page shows both.",
+    "Every ETF it lists is added to Sift with its category (the report's section headings, such as Equity - Australia), issuer, fee, size, flows, spread and yield; one it no longer lists is marked inactive and its history is kept. Listed investment companies and trusts (LICs and LITs), A-REITs, infrastructure funds and the benchmark index rows are left out. Funds marked ^ invest in other ETFs, which the ETF's page notes.",
     "If the download doesn't work, save the spreadsheet from the ASX website into data/asx_reports and the next nightly run loads it. To check how a file is read without loading it, run python -m src.etf.run_etfs --inspect followed by the file name."
    ],
    "aliases": [
@@ -1210,7 +1211,11 @@
    "related": [
     "etf",
     "data-chip"
-   ]
+   ],
+   "labels": [
+    "ASX report"
+   ],
+   "hover": "The returns in the ASX's monthly report, to its month end, from Bloomberg. They include franking credits (gross dividends reinvested), so for franked Australian funds they run a little above Sift's cash-only figures."
   },
   {
    "id": "etf-screener",

@@ -604,5 +604,7 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 @media (max-width: 480px) {
   .perf-table .long { display: none; }
   .perf-table .short { display: inline; }
-  .perf-table th, .perf-table td { padding-left: 6px; padding-right: 6px; }
+  table.grid.perf-table th, table.grid.perf-table td { padding-left: 4px; padding-right: 4px; font-size: 12px; letter-spacing: 0; }
 }
+.grid .clip { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.grid.etf-table th { white-space: normal; }

@@ -10,7 +10,7 @@ from openpyxl import Workbook
 
 from src.etf import asx_report
 from src.etf.asx_report import ReportError, match_field, month_from_name, read_report, report_links
-from tests.unit._etf_report import build_report
+from tests.unit._etf_report import build_asx_2026, build_report
 
 
 @pytest.mark.parametrize("name,expected", [
@@ -113,7 +113,7 @@ def test_fractions_without_a_percent_format_are_scaled(tmp_path):
     assert report.rows["AAA"]["return_1y"] == Decimal("10.0")
     assert report.rows["AAA"]["fum_aud"] == Decimal("50000000")
     notes = " ".join(report.sheets[0].notes)
-    assert "mer_percent" in notes and "return_1y" in notes and "millions" in notes
+    assert "mer_percent" in notes and "returns" in notes and "millions" in notes
 
 
 def test_month_found_in_a_title_cell(tmp_path):
@@ -181,3 +181,30 @@ def test_local_file_is_picked_up(tmp_path):
 def test_expected_month():
     assert asx_report.expected_month(date(2026, 10, 6)) == date(2026, 9, 1)
     assert asx_report.expected_month(date(2026, 1, 20)) == date(2025, 12, 1)
+
+
+def test_the_real_2026_layout(tmp_path):
+    """Built to match the July 2026 report: categories from section rows,
+    fractions scaled, index rows, other sheets and footnotes left out."""
+    report = read_report(build_asx_2026(tmp_path))
+    assert report.month == date(2026, 7, 1)
+    assert sorted(report.rows) == ["G200", "GOLD", "HACK", "NDQ", "VAS"]  # not XJO, AFI or the notes
+    assert set(report.skipped_sheets) == {"Spotlight ETPs", "Spotlight LIC List", "Spotlight A-REITS  List",
+                                          "Spotlight Infra  List"}
+    vas = report.rows["VAS"]
+    assert vas["category"] == "Equity - Australia" and vas["product_type"] == "ETF"
+    assert vas["mer_percent"] == Decimal("0.07")                 # already a percent
+    assert vas["fum_aud"] == Decimal("26170070000.00")
+    assert vas["net_flows_aud"] == Decimal("412500000.0")
+    assert vas["value_traded_aud"] == Decimal("900000000.5")
+    assert vas["avg_spread_percent"] == Decimal("0.0223")        # a fraction, scaled
+    assert vas["distribution_yield"] == Decimal("2.93")
+    assert vas["return_1y"] == Decimal("6.71") and vas["return_5y"] == Decimal("9.06")
+    assert report.rows["HACK"]["return_1y"] == Decimal("115.12")  # one 115% year doesn't stop the scaling
+    assert report.rows["GOLD"]["category"] == "Commodity" and report.rows["GOLD"]["product_type"] == "Structured product"
+    assert report.rows["HACK"]["product_type"] == "Active ETF"
+    assert report.rows["G200"]["raw"][asx_report.FUND_OF_FUNDS] is True
+    assert asx_report.FUND_OF_FUNDS not in vas["raw"]
+    assert report.rows["G200"].get("return_3y") is None          # "n/a"
+    notes = " ".join(report.sheets[0].notes)
+    assert "category: taken from the section headings" in notes and "returns: written as fractions" in notes

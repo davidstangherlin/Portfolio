@@ -62,3 +62,62 @@ def build_report(folder: Path, name: str = "asx-investment-products-aug-2026.xls
     path = Path(folder) / name
     wb.save(path)
     return path
+
+
+def build_asx_2026(folder: Path, name: str = "asx-investment-products-july-2026-abs.xlsx") -> Path:
+    """The layout of the real report (July 2026): sheets named "Spotlight
+    ...", the list starting in column B under seven blank rows, a title row,
+    a group row (Activity, Prices, Returns), categories as section rows
+    between the funds, "^" in column A for funds that hold other ETFs,
+    returns, yields and spreads as plain fractions, MER as a percent, index
+    rows and footnotes at the end, and LIC, A-REIT and infrastructure
+    sheets in the same layout."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Spotlight ETPs"
+    ws.append([])
+    ws.append([None, "ETP Summary - July 2026"])
+    lst = wb.create_sheet("Spotlight ETP List")
+    for _ in range(7):
+        lst.append([])
+    lst.append([None, "Exchange Traded Product Summary - July 2026", None, None, None, "Transaction days: 23"])
+    lst.append([None, "IRESS Watchlist: /ETFASX", None, None, None, "Activity", None, None, None, None, "Prices", "Returns"])
+    lst.append([None, "ASX \nCode", "Type", "Issuer", "Fund Name", "  MER (% p.a)\n##", "FUM ($m)#", "FUM ($m) Change",
+                "Funds Inflow / Outflow ($m) **", "Transacted Value ($)", "% Spread*", "Last ($)",
+                "Historical Distribution Yield", "1 Month Total Return", "1 Year Total Return",
+                "3 Year Total Return (ann.)", "5 Year Total Return (ann.)"])
+    rows = [
+        ("Equity - Australia", None),
+        (None, ["VAS", "ETF", "Vanguard", "Vanguard Australian Shares Index ETF", 0.07, 26170.07, 300.1, 412.5, 900000000.5,
+                0.000223, 110.5, 0.0293, 0.012, 0.0671, 0.091, 0.0906]),
+        ("^", ["G200", "Complex", "Betashares", "Betashares Wealthbuilder Aus200 Geared Complex ETF", 0.35, 120.5, 3.1, 4.2,
+               5000000, 0.0011, 12.3, 0.021, 0.03, 0.15, "n/a", "n/a"]),
+        ("Equity - Global", None),
+        (None, ["NDQ", "ETF", "Betashares", "Betashares Nasdaq 100 ETF", 0.48, 8714.88, 50.0, 60.0, 300000000,
+                0.000326, 50.1, 0.0153, 0.02, 0.1071, 0.21, 0.1519]),
+        (None, ["HACK", "Active", "Betashares", "Betashares Global Cybersecurity ETF", 0.67, 900.0, 1.0, 2.0, 1000000,
+                0.0009, 14.0, 0.005, -0.01, 1.1512, 0.25, 0.18]),
+        ("Commodity ", None),
+        (None, ["GOLD", "SP", "Global X", "Global X Physical Gold", 0.4, 5476.49, 10.0, 20.0, 80000000,
+                0.000387, 40.0, 0, 0.04, 0.1327, 0.15, 0.1809]),
+        ("Australian Indices", None),
+        (None, ["XJO", "Index", "S&P/ASX 200", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", 0.01, 0.06, 0.09, 0.08]),
+    ]
+    for mark, row in rows:
+        if row is None:
+            lst.append([None, mark])
+        else:
+            lst.append([mark] + row)
+    lst.append([])
+    lst.append([None, "Type: ETF = Exchange Transacted Fund, SP = Structured Product"])
+    lst.append([None, "^  Identifies an ETF that invests in whole or in part into another ETF admitted to ASX."])
+    for title in ("Spotlight LIC List", "Spotlight A-REITS  List", "Spotlight Infra  List"):
+        other = wb.create_sheet(title)
+        for _ in range(9):
+            other.append([])
+        other.append([None, "ASX \nCode", "Type", "Fund Name", "Mkt Cap ($m)"])
+        other.append([None, "Equity - Australia"])
+        other.append([None, "AFI", "Shares", "Australian Foundation Investment Company", 8421.43])
+    path = Path(folder) / name
+    wb.save(path)
+    return path

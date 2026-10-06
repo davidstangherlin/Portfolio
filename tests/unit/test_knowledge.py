@@ -24,7 +24,7 @@ UI_LABELS = [
     # ETFs (§26)
     "ETF", "Fee", "Fund size", "Spread", "Net flows", "1-year return", "3-year return", "5-year return",
     "10-year return", "Yield (12 months)", "Unit price", "Day move", "Category", "Issuer", "Category average",
-    "Reference fund",
+    "Reference fund", "ASX report",
 ]
 
 

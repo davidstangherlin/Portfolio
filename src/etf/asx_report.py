@@ -52,9 +52,14 @@ _MONTH_WORD = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|no
 _YEAR_MONTH = re.compile(r"(20\d\d)[\-_](0[1-9]|1[0-2])(?!\d)")
 _CODE = re.compile(r"^[A-Z0-9]{3,6}$")
 
-_SKIP_SHEETS = ("lic", "lit", "listed investment", "mfund", "m-fund", "reit", "infrastructure", "unlisted")
-_ETP_SHEETS = ("etp", "etf", "exchange traded", "spotlight")
+_SKIP_SHEETS = ("lic", "lit", "listed investment", "mfund", "m-fund", "reit", "infra", "unlisted", "issuer")
+_ETP_SHEETS = ("etp", "etf", "exchange traded")
 _SKIP_TYPES = ("lic", "lit", "listed investment", "mfund", "m-fund")
+_SKIP_TYPE_EXACT = {"index"}   # benchmark index rows listed among the funds, not funds
+# The report's own type abbreviations, spelt out.
+TYPE_NAMES = {"SP": "Structured product", "ETF": "ETF", "Active": "Active ETF", "Complex": "Complex ETF"}
+FUND_OF_FUNDS_MARK = "^"       # "an ETF that invests in whole or in part into another ETF admitted to ASX"
+FUND_OF_FUNDS = "Invests in other ETFs"
 _CODE_LABELS = {"asx code", "code", "ticker", "asx ticker", "etp code", "asx code ticker", "asx ticker code"}
 
 PERCENT_FIELDS = ("mer_percent", "avg_spread_percent", "distribution_yield")
@@ -62,10 +67,12 @@ RETURN_FIELDS = ("return_1m", "return_3m", "return_6m", "return_1y", "return_3y"
                  "return_since_inception")
 MONEY_FIELDS = ("fum_aud", "net_flows_aud", "value_traded_aud")
 TEXT_FIELDS = ("fund_name", "issuer", "product_type", "category", "sub_category", "benchmark", "distribution_frequency")
-# Not percent-formatted and every value at or below this: the column is a
-# fraction (0.0007 for 0.07%), so it's multiplied by 100.
-_FRACTION_LIMIT = {"mer_percent": Decimal("0.05"), "avg_spread_percent": Decimal("0.05"),
-                   "distribution_yield": Decimal("0.3"), **{f: Decimal("1.5") for f in RETURN_FIELDS}}
+# Not percent-formatted and the typical (median) value below this: the
+# column holds fractions (0.0007 for 0.07%), so it's multiplied by 100.
+# Judged on the median, so one fund with a 200% year can't hide it, and
+# all the return columns are judged together, so a flat month can't either.
+_FRACTION_MEDIAN = {"mer_percent": Decimal("0.05"), "avg_spread_percent": Decimal("0.02"),
+                    "distribution_yield": Decimal("0.3"), "returns": Decimal("0.5")}
 _PERIODS = {(1, "m"): "return_1m", (3, "m"): "return_3m", (6, "m"): "return_6m", (12, "m"): "return_1y",
             (1, "y"): "return_1y", (3, "y"): "return_3y", (5, "y"): "return_5y", (10, "y"): "return_10y"}
 _PERIOD = re.compile(r"(\d+)\s*(m|mo|mth|mths|month|months|y|yr|yrs|year|years)(?![a-z])")
@@ -240,7 +247,7 @@ def match_field(label: str) -> str | None:
         return "avg_spread_percent"
     if "flow" in n:
         return "net_flows_aud"
-    if "value traded" in n or "turnover" in n or "trading value" in n or ("value" in words and "traded" in words):
+    if "value traded" in n or "transacted value" in n or "turnover" in n or "trading value" in n or ("value" in words and "traded" in words):
         return "value_traded_aud"
     if "mer" in words or "icr" in words or "fee" in n or "management cost" in n or "expense" in n:
         return "mer_percent"
@@ -365,7 +372,7 @@ def _raw_value(value):
 def _skip_type(value) -> bool:
     """A product type that isn't an ETP (an LIC, LIT or mFund listed on the same sheet)."""
     text = _norm(_clean(value))
-    return any(re.search(rf"(?<![a-z]){re.escape(s)}(?![a-z])", text) for s in _SKIP_TYPES)
+    return text in _SKIP_TYPE_EXACT or any(re.search(rf"(?<![a-z]){re.escape(s)}(?![a-z])", text) for s in _SKIP_TYPES)
 
 
 def _sheet_wanted(name: str, all_names: list[str]) -> bool:
@@ -404,8 +411,14 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
     data_rows = [(r, cells[r], formats[r]) for r in range(first_data, len(cells))]
     by_field = {c.field: c for c in columns if c.field}
     type_col = by_field.get("product_type")
+    category_col = by_field.get("category")
     out: dict[str, dict] = {}
+    section = None
     for _, row, fmt in data_rows:
+        filled = [v for v in row if _clean(v)]
+        if len(filled) == 1 and isinstance(filled[0], str) and not _is_code(filled[0]):
+            section = _clean(filled[0])  # a section heading such as "Equity - Australia"
+            continue
         if code_col >= len(row) or not _is_code(row[code_col]):
             continue
         if type_col and type_col.index < len(row) and _skip_type(row[type_col.index]):
@@ -432,8 +445,16 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
                 item.setdefault("_pct_format", set())
                 if is_pct:
                     item["_pct_format"].add(col.field)
+        if FUND_OF_FUNDS_MARK in {_clean(v) for i, v in enumerate(row) if i < len(columns) and not columns[i].label}:
+            item["raw"][FUND_OF_FUNDS] = True
+        if category_col is None and section:
+            item["category"] = section
+        if item.get("product_type"):
+            item["product_type"] = TYPE_NAMES.get(item["product_type"], item["product_type"])
         out[code] = item
     read.rows = len(out)
+    if category_col is None and any(r.get("category") for r in out.values()):
+        read.notes.append("category: taken from the section headings between the rows")
     _fix_fractions(read, out)
     _fix_money(read, out)
     for item in out.values():
@@ -442,13 +463,16 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
 
 
 def _fix_fractions(read: SheetRead, rows: dict[str, dict]) -> None:
-    for f, limit in _FRACTION_LIMIT.items():
-        values = [r[f] for r in rows.values() if r.get(f) is not None and f not in r.get("_pct_format", ())]
-        if len(values) >= 5 and max(abs(v) for v in values) <= limit:
+    for group, limit in _FRACTION_MEDIAN.items():
+        fields = RETURN_FIELDS if group == "returns" else (group,)
+        values = [abs(r[f]) for r in rows.values() for f in fields
+                  if r.get(f) is not None and f not in r.get("_pct_format", ())]
+        if len(values) >= 5 and statistics.median(values) < limit:
             for r in rows.values():
-                if r.get(f) is not None and f not in r.get("_pct_format", ()):
-                    r[f] = r[f] * 100
-            read.notes.append(f"{f}: written as fractions, multiplied by 100")
+                for f in fields:
+                    if r.get(f) is not None and f not in r.get("_pct_format", ()):
+                        r[f] = r[f] * 100
+            read.notes.append(f"{'returns' if group == 'returns' else group}: written as fractions, multiplied by 100")
 
 
 def _fix_money(read: SheetRead, rows: dict[str, dict]) -> None:
@@ -528,7 +552,8 @@ def describe(report: Report) -> str:
         lines.extend(f"  note: {n}" for n in s.notes)
     if report.skipped_sheets:
         lines.append(f"\nSkipped sheets: {', '.join(report.skipped_sheets)}")
-    mapped = {c.field for s in report.sheets for c in s.columns if c.field}
+    mapped = {c.field for s in report.sheets for c in s.columns if c.field} | \
+        {k for item in report.rows.values() for k, v in item.items() if v is not None}
     missing = [f for f in ("fund_name", "issuer", "category", "mer_percent", "fum_aud", "return_1y") if f not in mapped]
     if missing:
         lines.append(f"\nNot found: {', '.join(missing)}")

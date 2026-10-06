@@ -1716,13 +1716,13 @@ const etfState = { q: "", category: "", issuer: "", watchlist: "", held: false, 
 const ETF_COLUMNS = [
   { key: "asx_code", label: "ETF", value: (r) => r.asx_code },
   { key: "category", label: "Category", cls: "opt3", value: (r) => r.category },
-  { key: "issuer", label: "Issuer", cls: "opt", value: (r) => r.issuer },
+  { key: "issuer", label: "Issuer", cls: "opt4", value: (r) => r.issuer },
   { key: "mer_percent", label: "Fee", num: true, value: (r) => r.mer_percent },
   { key: "fum_aud", label: "Fund size", num: true, cls: "opt2", value: (r) => r.fum_aud },
   { key: "return_1y", label: "1-year return", num: true, value: (r) => r.return_1y },
-  { key: "return_3y", label: "3-year return", num: true, cls: "opt", value: (r) => r.return_3y },
+  { key: "return_3y", label: "3-year return", num: true, cls: "opt3", value: (r) => r.return_3y },
   { key: "return_5y", label: "5-year return", num: true, cls: "opt2", value: (r) => r.return_5y },
-  { key: "return_10y", label: "10-year return", num: true, cls: "opt", value: (r) => r.return_10y },
+  { key: "return_10y", label: "10-year return", num: true, cls: "opt3", value: (r) => r.return_10y },
   { key: "distribution_yield_12m", label: "Yield (12 months)", num: true, value: (r) => r.distribution_yield_12m },
   { key: "avg_spread_percent", label: "Spread", num: true, cls: "opt", value: (r) => r.avg_spread_percent },
 ];
@@ -1731,14 +1731,14 @@ function etfScreenerRow(r) {
   return rowTo(etfHref(r.asx_code),
     h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
       h("div", { class: "name", text: r.company_name || "" })),
-    h("td", { class: "opt3", text: r.category }),
-    h("td", { class: "opt", text: r.issuer || NA }),
+    h("td", { class: "opt3" }, h("div", { class: "clip", title: r.category, text: r.category })),
+    h("td", { class: "opt4" }, h("div", { class: "clip", title: r.issuer || "", text: r.issuer || NA })),
     h("td", { class: "num", text: pct(r.mer_percent, 2) }),
     h("td", { class: "num opt2", text: fundSize(r.fum_aud) }),
     retCell(r.return_1y),
-    retCell(r.return_3y, "opt"),
+    retCell(r.return_3y, "opt3"),
     retCell(r.return_5y, "opt2"),
-    retCell(r.return_10y, "opt"),
+    retCell(r.return_10y, "opt3"),
     h("td", { class: "num", text: pct(r.distribution_yield_12m, 1) }),
     h("td", { class: "num opt", text: pct(r.avg_spread_percent, 2) }));
 }
@@ -1822,7 +1822,7 @@ async function renderEtfs() {
       select("Issuer", "issuer", d.issuers.map((i) => [i, i]), "All issuers"),
       d.watchlists.length ? select("Watchlist", "watchlist", [["*", "On any watchlist"], ...d.watchlists.map((w) => [w.name, `Watchlist: ${w.name}`])], "All ETFs") : null,
       held, count),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid" }, h("thead", {}, headRow), tbody)),
+    h("div", { class: "table-wrap" }, h("table", { class: "grid etf-table" }, h("thead", {}, headRow), tbody)),
     more);
   refresh();
   window.scrollTo(0, 0);
@@ -1872,18 +1872,20 @@ function performanceCard(d, compareSelect) {
   const series = [{ name: e.asx_code, color: "--s1", values: ETF_PERIODS.map(([k]) => e[k]) },
     { name: `${e.category} average`, color: "--s2", values: ETF_PERIODS.map(([k]) => avg[k] ?? null) }];
   if (ref) series.push({ name: ref.asx_code, color: "--s3", values: ETF_PERIODS.map(([k]) => ref[k]) });
-  const heads = ["Period", e.asx_code, "Category average", ref ? ref.asx_code : "Reference fund"];
+  const heads = ["Period", e.asx_code, "Category average", ref ? ref.asx_code : "Reference fund", "ASX report"];
   const table = h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
     h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const th = h("th", { class: i ? "num" : null, tabindex: 0, text: x });
-      return i === 2 ? withHelp(th, "Category average") : i === 3 ? withHelp(th, "Reference fund") : th;
+      const short = { "Category average": "Category", "ASX report": "ASX" }[x];
+      const th = h("th", { class: i ? "num" : null, tabindex: 0 }, short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x);
+      return i === 2 ? withHelp(th, "Category average") : i === 3 ? withHelp(th, "Reference fund") : i === 4 ? withHelp(th, "ASX report") : th;
     }))),
     h("tbody", {}, ETF_PERIODS.map(([k, label], i) => h("tr", { class: "static" },
       h("td", {}, h("span", { class: "long", text: label }), h("span", { class: "short", text: cats[i] })),
-      retCell(e[k]), retCell(avg[k] ?? null), retCell(ref ? ref[k] : null))))));
+      retCell(e[k]), retCell(avg[k] ?? null), retCell(ref ? ref[k] : null), retCell(e[`asx_${k}`] ?? null))))));
   const gapNote = e.report_gap ? h("p", { class: "hint note", text:
     `Check: Sift's 1-year return to the end of ${toDate(e.check_month).toLocaleDateString("en-AU", { month: "long", year: "numeric" })} is ${signedPct(e.check_return_1y)}, ` +
-    `the ASX report says ${signedPct(e.reported_return_1y)}. A gap of more than ${fmt(d.report_gap_points, 0)} points usually means a missing distribution or price, or the ASX working it out another way.` }) : null;
+    `the ASX report says ${signedPct(e.reported_return_1y)}. The ASX counts franking credits, so for a franked Australian fund its figure runs higher; ` +
+    `a gap of more than ${fmt(d.report_gap_points, 0)} points can also mean a missing distribution or price.` }) : null;
   const c = card("Performance", "Total return with distributions reinvested. Over a year, shown as a yearly rate.",
     h("div", { class: "compare-row" }, h("label", { text: "Compare with " }), compareSelect, " ", helpLink("reference-fund")),
     gapNote,
@@ -1982,7 +1984,8 @@ async function renderEtf(code, query) {
       h("span", { class: "ticker mono", text: e.asx_code }),
       h("span", { class: "tag", text: e.category }),
       watchButton(e.asx_code, d.watchlists)),
-    h("p", { class: "co-sub", text: ["ETF", e.issuer, e.product_type !== "ETF" ? e.product_type : null, e.benchmark ? `tracks ${e.benchmark}` : null].filter(Boolean).join("  |  ") }),
+    h("p", { class: "co-sub", text: ["ETF", e.issuer, e.product_type !== "ETF" ? e.product_type : null, e.benchmark ? `tracks ${e.benchmark}` : null,
+      e.fund_of_funds ? "invests in other ETFs" : null].filter(Boolean).join("  |  ") }),
     h("div", { class: "stats" },
       statTile("Unit price", money(e.current_price), null, e.price_date ? `as at ${longDate(e.price_date)}${e.day_change_percent !== null ? `, ${signedPct(e.day_change_percent, 2)} on the day` : ""}` : null),
       statTile("Fee", pct(e.mer_percent, 2), null, e.mer_percent !== null ? `${money(e.mer_percent * 100, 0)} a year on $10,000` : "not in the ASX report"),
@@ -2072,17 +2075,17 @@ function etfWatchTable(d, items, editing, remove) {
   const heads = ["ETF", "Unit price", "Day move", "1-year return", "Yield (12 months)", "Triggers", "Note", ""];
   return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
     h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const cls = [i >= 1 && i <= 4 ? "num" : "", i === 2 || i === 6 ? "opt" : ""].join(" ").trim() || null;
+      const cls = [i >= 1 && i <= 4 ? "num" : "", i === 2 || i === 6 ? "opt4" : ""].join(" ").trim() || null;
       return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
     }))),
     h("tbody", {}, items.map((e) => rowTo(etfHref(e.asx_code),
       h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
       h("td", { class: "num", text: money(e.price) }),
-      retCell(e.day_change_percent, "opt"),
+      retCell(e.day_change_percent, "opt4"),
       retCell(e.return_1y),
       h("td", { class: "num", text: pct(e.distribution_yield_12m, 1) }),
       h("td", {}, triggerList(e.triggers)),
-      h("td", { class: "opt" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
+      h("td", { class: "opt4" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
       h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
 }
 
