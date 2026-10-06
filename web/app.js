@@ -139,8 +139,19 @@ function svgLabelHelp(textEl, label, text, ix, iy) {
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".info, .info-svg")) hideTip(); });
 
 /* ---------- data ---------- */
+/* Every response carries the version of Sift's page files. If it changes
+   while this tab is open (after a git pull), the page reloads itself on
+   the next click, so it never runs old code against a new server. */
+let siftVersion = null, siftUpdated = false;
+function noteVersion(res) {
+  const v = res.headers.get("X-Sift-Version");
+  if (!v) return;
+  if (siftVersion === null) siftVersion = v;
+  else if (v !== siftVersion) siftUpdated = true;
+}
 async function getJSON(url) {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
+  noteVersion(res);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `Request failed (${res.status})`);
@@ -2253,9 +2264,17 @@ function helpLink(id) {
   if (!e) return null;
   // Opens in a new tab, so the page you were reading (a scenario being
   // edited, a filtered screener) stays as it was.
-  return h("a", { class: "help-link", href: `#/help/${id}`, target: "_blank", rel: "noopener",
+  const href = `#/help/${id}`;
+  return h("a", { class: "help-link", href, target: "_blank", rel: "noopener",
     title: `Help: ${e.title} (opens in a new tab)`, "aria-label": `Help: ${e.title}, opens in a new tab`, text: "?",
-    onclick: (ev) => ev.stopPropagation() });
+    onclick: (ev) => {
+      // Opened here rather than left to the link, so nothing around it can
+      // turn it into a same-tab jump. Ctrl or middle click still work as usual.
+      ev.stopPropagation();
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button !== 0) return;
+      ev.preventDefault();
+      window.open(new URL(href, location.href).href, "_blank", "noopener");
+    } });
 }
 const withHelpLink = (text, id) => [text, " ", helpLink(id)];
 
@@ -2598,6 +2617,7 @@ const ROUTES = [
 let previousPage = null;
 let currentHash = null;
 function route() {
+  if (siftUpdated) { location.reload(); return; }
   hideTip();
   closeMenus();
   slots.length = 0;

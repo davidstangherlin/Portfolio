@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import hashlib
 import logging
 import os
 import re
@@ -599,6 +600,13 @@ def scenario_info(scenario) -> dict:
             "updated_at": scenario.updated_at}
 
 
+def web_version() -> str:
+    """Changes whenever a page file changes (a git pull): sent with every
+    response so an open Sift tab knows to reload itself."""
+    stamps = [f"{p.name}:{p.stat().st_mtime_ns}" for p in sorted(WEB_DIR.glob("*")) if p.is_file()]
+    return hashlib.sha1("|".join(stamps).encode()).hexdigest()[:12]
+
+
 def create_app(password: str | None = None) -> FastAPI:
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -615,6 +623,7 @@ def create_app(password: str | None = None) -> FastAPI:
             logger.exception("Error serving %s", request.url.path)
             return JSONResponse({"detail": error_message(exc)}, status_code=500, headers={"Cache-Control": "no-store"})
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Sift-Version"] = web_version()
         return response
 
     @app.get("/api/status")

@@ -147,3 +147,12 @@ def test_a_month_loaded_before_lics_is_loaded_again(db_session, tmp_path, caplog
     db_session.commit()
     assert asx_report.ensure_latest(db_session, today, lambda url: None, tmp_path / "empty") is None
     assert "loaded by an older version of Sift" in caplog.text
+
+
+def test_an_open_page_learns_when_sift_is_updated(db_session):
+    """Every response names the web files' version, so a tab left open
+    reloads itself after an update instead of running the old code."""
+    client = TestClient(gui.create_app())
+    first = client.get("/api/companies").headers["X-Sift-Version"]
+    assert first and client.get("/").headers["X-Sift-Version"] == first
+    assert client.get("/api/lics").headers["Cache-Control"] == "no-store"
