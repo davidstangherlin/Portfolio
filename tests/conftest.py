@@ -35,7 +35,7 @@ SCHEMA_PATH = REPO_ROOT / "db" / "schema.sql"
 
 # Truncated between every DB-backed test for isolation - children first,
 # via CASCADE, same tables README.md's "Full teardown/reset" documents.
-_TABLES = "companies, daily_prices, financial_reports, valuation_metrics, holdings, portfolios, dividend_payments, signal_snapshots, signal_outcomes, track_record_monthly, watchlists, watchlist_items, scenarios, etf_monthly, etf_performance"
+_TABLES = "companies, daily_prices, financial_reports, valuation_metrics, holdings, portfolios, dividend_payments, signal_snapshots, signal_outcomes, track_record_monthly, watchlists, watchlist_items, scenarios, etf_monthly, etf_performance, asx_report_loads"
 
 
 def _connect(dbname: str | None = None):

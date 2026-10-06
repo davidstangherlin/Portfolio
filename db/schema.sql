@@ -324,6 +324,19 @@ ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS nta_date DATE;
 ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS nta_premium_percent NUMERIC(8, 2);
 ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS performance_fee VARCHAR(10);
 
+-- 5g. ASX REPORT LOADS (docs/AS_BUILT.md §25.2)
+-- Which version of the report reader loaded each month. When the reader
+-- learns to take more from the report (as it did for LICs), the newest
+-- month is loaded again from the saved file, so nothing waits a month.
+CREATE TABLE IF NOT EXISTS asx_report_loads (
+    report_month DATE PRIMARY KEY,
+    source_file VARCHAR(255),
+    reader_version INT NOT NULL,
+    etfs INT NOT NULL DEFAULT 0,
+    lics INT NOT NULL DEFAULT 0,
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5f. ETF PERFORMANCE (docs/AS_BUILT.md §25)
 -- Sift's own figures from daily prices and distributions
 -- (src/etf/performance.py), recalculated nightly; one row per ETF.

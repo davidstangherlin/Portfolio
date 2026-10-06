@@ -411,6 +411,10 @@ and LIC sections on the dashboard, in portfolios and in watchlists (with a "disc
 at least X%" trigger). An LIC in `allords.txt` moves out of the share screener the first time
 the report loads; the ETF step fetches its prices. See docs/AS_BUILT.md §27.
 
+**LICs page empty?** The report has to be loaded by the current version of Sift. After a
+`git pull`, restart `gui.py` and run `python -m src.etf.run_etfs` with the report saved in
+`data\asx_reports\`: a month loaded by an older version is loaded again automatically.
+
 How the data is collected:
 
 - **Which ETFs, and their fund facts** (issuer, category, fees, size, flows, spread, the

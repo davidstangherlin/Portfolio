@@ -32,7 +32,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urljoin
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from src.ingestion.dividend_history import add_months
@@ -46,6 +46,10 @@ REPORT_PAGE = "https://www.asx.com.au/issuers/investment-products/asx-investment
 REPORT_BASE = "https://www.asx.com.au/content/dam/asx/issuers/asx-investment-products-reports"
 REPORT_DIR = Path(__file__).resolve().parents[2] / "data" / "asx_reports"
 LATE_DAY = 15  # still missing after this day of the month: worth a warning
+# Raised whenever the reader starts taking more from the report: 1 ETFs,
+# 2 the real July 2026 layout (§25.1), 3 LICs (§27). A month loaded by an
+# older reader is loaded again from its saved file (§25.2).
+READER_VERSION = 3
 
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 _MONTH_WORD = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s_\-]*'?(20\d\d|\d\d)(?!\d)", re.I)
@@ -662,6 +666,13 @@ def load_report(session, path: Path, month: date | None = None) -> LoadResult:
                                 .values(is_active=False))
     if reclassified:
         logger.warning("Reclassified from the ASX report (shares now treated as ETFs or LICs): %s", ", ".join(reclassified))
+    lic_count = len([c for c in report.lics if c not in report.rows])
+    session.execute(text("""
+        INSERT INTO asx_report_loads (report_month, source_file, reader_version, etfs, lics)
+        VALUES (:m, :f, :v, :e, :l)
+        ON CONFLICT (report_month) DO UPDATE SET source_file = EXCLUDED.source_file, reader_version = EXCLUDED.reader_version,
+            etfs = EXCLUDED.etfs, lics = EXCLUDED.lics, loaded_at = CURRENT_TIMESTAMP
+    """), {"m": report.month, "f": Path(path).name, "v": READER_VERSION, "e": len(report.rows), "l": lic_count})
     return LoadResult(report.month, len(report.rows), added, reclassified, deactivated, reactivated,
                       len([c for c in report.lics if c not in report.rows]))
 
@@ -675,18 +686,51 @@ def expected_month(today: date) -> date:
     return add_months(today.replace(day=1), -1)
 
 
+def loaded_by(session, month: date) -> int:
+    """The reader version that loaded `month`; 0 if it was loaded before
+    versions were recorded."""
+    return session.execute(text("SELECT reader_version FROM asx_report_loads WHERE report_month = :m"),
+                           {"m": month}).scalar_one_or_none() or 0
+
+
+def file_for(month: date, folder: Path = REPORT_DIR) -> Path | None:
+    """The saved spreadsheet for `month` in the reports folder, if there is one."""
+    if not folder.is_dir():
+        return None
+    return next((p for p in sorted(folder.glob("*.xlsx")) if month_from_name(p.name) == month), None)
+
+
+def reload_if_outdated(session, folder: Path = REPORT_DIR) -> LoadResult | None:
+    """Load the newest month again if an older reader loaded it, so what
+    the reader has since learnt (LICs, for one) arrives now rather than
+    with next month's report. Needs that month's file in the folder."""
+    have = latest_loaded(session)
+    if have is None or loaded_by(session, have) >= READER_VERSION:
+        return None
+    path = file_for(have, folder)
+    if path is None:
+        logger.warning("The %s report was loaded by an older version of Sift and its file isn't in %s. Save it there "
+                       "(or run python -m src.etf.run_etfs --report FILE) to pick up LICs and the other additions.",
+                       f"{have:%B %Y}", folder)
+        return None
+    logger.info("Loading the %s report again with the current reader (it was loaded by an older one)", f"{have:%B %Y}")
+    return load_report(session, path, have)
+
+
 def ensure_latest(session, today: date, fetch=_get, folder: Path = REPORT_DIR) -> LoadResult | None:
     """The nightly step: if last month's report isn't loaded yet, load it
     from the reports folder (a file saved by hand) or download it. Does
-    nothing, without touching the network, once it's loaded."""
+    nothing, without touching the network, once it's loaded. First, a
+    month loaded by an older reader is loaded again (reload_if_outdated)."""
+    reloaded = reload_if_outdated(session, folder)
     have = latest_loaded(session)
     if have is not None and have >= expected_month(today):
-        return None
+        return reloaded
     found = local_newer(have, folder) or download_newer(have, today, fetch, folder)
     if found is None:
         log = logger.warning if today.day > LATE_DAY else logger.info
         log("ASX report for %s not available yet (have %s). Download it from %s into %s if this persists.",
             f"{expected_month(today):%B %Y}", f"{have:%B %Y}" if have else "none", REPORT_PAGE, folder)
-        return None
+        return reloaded
     month, path = found
     return load_report(session, path, month)

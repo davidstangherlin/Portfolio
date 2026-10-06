@@ -117,3 +117,33 @@ def test_lics_get_prices_and_performance_from_the_etf_step(lics):
     afi = TestClient(gui.create_app()).get("/api/lic/AFI").json()["etf"]
     assert afi["return_5y"] is not None and afi["distribution_yield_12m"] > 0
     assert date.fromisoformat(afi["as_of_date"]) >= date.today() - timedelta(days=5)
+
+
+def test_a_month_loaded_before_lics_is_loaded_again(db_session, tmp_path, caplog):
+    """The user's case: July loaded by the ETF-only reader, so no LICs, and
+    the nightly step never reloads a month it already has."""
+    from sqlalchemy import text
+    folder = tmp_path / "reports"
+    folder.mkdir()
+    path = build_asx_2026(folder)
+    asx_report.load_report(db_session, path)
+    # Make it look like the old reader did it: no LICs, no record of the reader.
+    db_session.execute(text("DELETE FROM companies WHERE security_type = 'LIC'"))
+    db_session.execute(text("DELETE FROM asx_report_loads"))
+    db_session.commit()
+    today = date(2026, 8, 20)  # July is the newest report there could be: nothing new to fetch
+    assert db_session.query(Company).filter_by(security_type="LIC").count() == 0
+
+    result = asx_report.ensure_latest(db_session, today, lambda url: None, folder)
+    db_session.commit()
+    assert result is not None and result.lics == 5
+    assert db_session.query(Company).filter_by(security_type="LIC").count() == 5
+    assert asx_report.loaded_by(db_session, date(2026, 7, 1)) == asx_report.READER_VERSION
+    # Up to date now: nothing more happens.
+    assert asx_report.ensure_latest(db_session, today, lambda url: None, folder) is None
+
+    # Without the file to hand, it says what to do instead of failing.
+    db_session.execute(text("UPDATE asx_report_loads SET reader_version = 1"))
+    db_session.commit()
+    assert asx_report.ensure_latest(db_session, today, lambda url: None, tmp_path / "empty") is None
+    assert "loaded by an older version of Sift" in caplog.text

@@ -1811,7 +1811,8 @@ async function renderFunds(kind) {
   const d = await getJSON(`/api/${F.api}s`);
   if (!d.rows.length) {
     app.replaceChildren(pageHead(F.nouns, null), h("p", { class: "empty" },
-      `No ${F.nouns} yet. They arrive with the ASX's monthly report, loaded by the nightly job. `,
+      `No ${F.nouns} yet. They come from the ASX's monthly report: save it in the data\\asx_reports folder and run `,
+      h("code", { text: "python -m src.etf.run_etfs" }), " (or wait for tonight's run). ",
       h("a", { href: "#/help/asx-etf-report", text: "How the list is loaded" }), "."));
     return;
   }
