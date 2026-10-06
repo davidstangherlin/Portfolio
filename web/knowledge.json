@@ -84,7 +84,7 @@
    "category": "guides",
    "definition": "The chip next to the search box shows the date of the latest prices and valuations, refreshed by a job each night.",
    "body": [
-    "Each night at 6 pm the scheduled job updates the database schema, downloads prices and financial statements, recalculates every valuation, records that night's signals, scores earlier signals whose results are due, and writes the action report.",
+    "Each night at 6 pm the scheduled job updates the database schema, downloads prices and financial statements, collects ETF prices and distributions (and, once a month, the ASX's ETF report), recalculates every valuation, records that night's signals, scores earlier signals whose results are due, and writes the action report.",
     "The chip is green when the data is current. It turns amber with a ! when the latest valuations are older than the last weekday's close (the job didn't run, or it was a public holiday) or when the last run crashed or didn't finish. Hover it to see when the last run started and finished and how many companies it couldn't update; a few each night is normal.",
     "If a page shows Could not load, the message under it says why. A message about a missing table or column means the database needs updating: restart python gui.py, or run python -m src.apply_schema."
    ],
@@ -1153,7 +1153,44 @@
    "glossary": "acronym",
    "abbreviation": "ETF",
    "full": "Exchange traded fund",
-   "definition": "A fund that trades on a stock exchange like a share, usually tracking an index."
+   "definition": "A fund that trades on a stock exchange like a share, usually tracking an index.",
+   "body": [
+    "Sift collects every ETF listed on the ASX: its fund facts each month from the ASX Investment Products report, and its prices and distributions each night.",
+    "ETFs aren't valued like companies. A fund has no cash flow or dividend policy of its own to value, so ETFs are left out of the estimated value, the four value tests, the score wheel and the track record, and are judged on cost, size, distributions and performance instead.",
+    "Performance is Sift's own total return: one unit bought at the start, each distribution reinvested at the close on its ex-date, valued at the latest close. Periods over a year are shown as a yearly rate. It's measured from the prices actually traded, so distributions are counted once.",
+    "Each month Sift also measures the 1-year return at the report's month end and sets it beside the ASX's own figure. A gap of more than 2 points usually means a missing distribution or a bad price, or a report figure worked out a different way."
+   ],
+   "aliases": [
+    "exchange traded fund",
+    "exchange traded product",
+    "etp",
+    "index fund"
+   ],
+   "related": [
+    "asx-etf-report",
+    "lic"
+   ]
+  },
+  {
+   "id": "asx-etf-report",
+   "title": "ASX Investment Products report",
+   "category": "market",
+   "definition": "The ASX's monthly list of every exchange traded product, with its issuer, category, fees, size, flows, spread and performance. Sift's source for which ETFs exist and their fund facts.",
+   "body": [
+    "The ASX publishes it each month, usually by the seventh business day of the next month. Each night until last month's report is loaded, Sift looks for it: first in the data/asx_reports folder, then on the ASX website. Once it's loaded, nothing is downloaded until the next month.",
+    "Every ETF it lists is added to Sift; one it no longer lists is marked inactive and its history is kept. Listed investment companies and trusts (LICs and LITs) are left out.",
+    "If the download doesn't work, save the spreadsheet from the ASX website into data/asx_reports and the next nightly run loads it. To check how a file is read without loading it, run python -m src.etf.run_etfs --inspect followed by the file name."
+   ],
+   "aliases": [
+    "investment products report",
+    "etp report",
+    "etf list",
+    "asx report"
+   ],
+   "related": [
+    "etf",
+    "data-chip"
+   ]
   },
   {
    "id": "lic",

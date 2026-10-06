@@ -340,7 +340,8 @@ def status_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR)
     """The data-date chip in the menu bar: how fresh the prices and
     valuations are, and how the last nightly run went."""
     as_of = session.execute(select(func.max(ValuationMetric.as_of_date))).scalar_one()
-    prices = session.execute(select(func.max(DailyPrice.price_date))).scalar_one()
+    prices = session.execute(select(func.max(DailyPrice.price_date)).join(Company)
+                             .where(Company.security_type == "SHARE")).scalar_one()
     expected = _previous_weekday(today)
     return {
         "as_of": as_of,

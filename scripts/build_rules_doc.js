@@ -126,7 +126,7 @@ add(
   bullet("**Cheap is not enough.** A low price is always checked against the direction and quality of the underlying business before it can earn a BUY."),
   bullet("**Every action explains itself.** Fixed, published thresholds and a stated reason for every suggestion, rather than an opaque score."),
   h2("2.3 Daily operating cycle"),
-  p("The scheduled job runs after ASX close (6:00 pm) and performs six steps in order: apply any database schema updates, ingest prices and financials, recalculate every valuation, record that night's signals for the track record, score earlier signals whose 1, 3, 6 or 12 months have passed (section 11.4), and produce the action report. Each step runs even if an earlier one has problems. Output is written to a timestamped log in the logs folder and kept for 30 days."),
+  p("The scheduled job runs after ASX close (6:00 pm) and performs seven steps in order: apply any database schema updates, ingest prices and financials, collect ETF prices and distributions and, once a month, the ASX's ETF report (section 11.7), recalculate every valuation, record that night's signals for the track record, score earlier signals whose 1, 3, 6 or 12 months have passed (section 11.4), and produce the action report. Each step runs even if an earlier one has problems. Output is written to a timestamped log in the logs folder and kept for 30 days."),
 );
 
 // 3. Data inputs
@@ -362,6 +362,17 @@ add(
   bullet("**What-if scenarios.** A scenario changes one or more settings and is run against today's data alongside the live settings, showing which companies' actions, valuation status or estimated value would change."),
   bullet("**Guard rails.** A scenario is refused if the discount rate is not above terminal growth, if ADEQUATE earnings quality is set above STRONG, or if a score wheel threshold is not stricter than its value test."),
   bullet("**Nothing live changes.** Scenarios are for exploring only. The nightly job, screener, actions and track record always use the live settings in this document; the margin of safety trend in a scenario stays at its live value."),
+  h2("11.7 Exchange traded funds (ETFs)"),
+  p("Every exchange traded product listed on the ASX is collected, but ETFs are not valued, tested, scored or tracked as companies: a fund has no cash flow or dividend policy of its own to value. They are judged on cost, size, distributions and performance."),
+  table(["Item", "Rule"], [
+    ["ETF list and fund facts", "From the ASX Investment Products report, monthly. Each night until last month's report is loaded, Sift looks in data/asx_reports and then on the ASX website. ETFs the newest report no longer lists are marked inactive; their history is kept. LICs and LITs are excluded."],
+    ["Report columns", "Matched by their headings (issuer, category, benchmark, fee, fund size, flows, spread, performance), not by position. Percent cells are read as percents; fractions written as plain numbers are converted. Every column is also kept as written."],
+    ["Prices and distributions", "Yahoo Finance, nightly. The full history the first time an ETF is seen, then the last month. Closes are the prices actually traded (split-adjusted only); a split refetches the full history once."],
+    ["Total return", "One unit bought at the close on the start date, each distribution reinvested at the close on its ex-date (or the next close), valued at the latest close. 1, 3 and 6 months and 1 year as is; 3, 5 and 10 years and since first price (when over a year) as a yearly rate."],
+    ["Missing periods", "No figure unless there is a close within 10 days of the period's start and end, so a fund younger than the period shows nothing."],
+    ["Trailing yield", "Cash distributions with ex-dates in the last 12 months, divided by the latest close. All distributions count, including year-end distributions of gains."],
+    ["Check against the ASX", "Each month Sift's 1-year return at the report's month end is set beside the report's figure. A gap of more than 2 points is listed in the nightly log."],
+  ], [0.25, 0.75]),
 );
 
 // 12. Holdings and CGT

@@ -10,6 +10,7 @@ from src.models.base import Base
 from src.models.company import Company
 from src.models.daily_price import DailyPrice
 from src.models.dividend_payment import DividendPayment
+from src.models.etf import EtfMonthly, EtfPerformance
 from src.models.financial_report import FinancialReport
 from src.models.holding import Holding
 from src.models.portfolio import Portfolio
@@ -23,6 +24,8 @@ __all__ = [
     "Company",
     "DailyPrice",
     "DividendPayment",
+    "EtfMonthly",
+    "EtfPerformance",
     "FinancialReport",
     "Holding",
     "Portfolio",

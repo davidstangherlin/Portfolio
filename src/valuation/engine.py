@@ -525,6 +525,7 @@ def run_valuation(
     stmt = select(Company).where(Company.is_active.is_(True))
     if asx_codes:
         stmt = select(Company).where(Company.asx_code.in_(asx_codes))
+    stmt = stmt.where(Company.security_type == "SHARE")  # ETFs aren't valued as companies (§25)
 
     companies = list(session.execute(stmt).scalars())
     total = len(companies)

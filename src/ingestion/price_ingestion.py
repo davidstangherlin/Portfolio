@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
+from decimal import Decimal
 
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,56 @@ def upsert_daily_price(session: Session, company_id, bar) -> None:
     session.execute(stmt)
 
 
+BATCH = 1000
+
+
+def upsert_daily_prices(session: Session, company_id, bars) -> None:
+    """upsert_daily_price() for many bars, a thousand rows per statement
+    (a full ETF history is thousands of rows)."""
+    for start in range(0, len(bars), BATCH):
+        stmt = insert(DailyPrice).values([
+            {"company_id": company_id, "price_date": b.price_date, "close_price": b.close_price,
+             "volume": b.volume, "market_cap": b.market_cap} for b in bars[start:start + BATCH]])
+        session.execute(stmt.on_conflict_do_update(
+            index_elements=[DailyPrice.company_id, DailyPrice.price_date],
+            set_={"close_price": stmt.excluded.close_price, "volume": stmt.excluded.volume,
+                  "market_cap": stmt.excluded.market_cap}))
+
+
+FULL_HISTORY = "max"
+SPLIT_TOLERANCE = Decimal("0.01")
+
+
+def _history_matches(session, company, bars, splits) -> bool:
+    """Whether the stored closes before the earliest split already agree
+    with the newly fetched split-adjusted ones (true once a split has been
+    refetched, so it's done once, not every night it stays in the window)."""
+    first_split = min(d for d, _ in splits)
+    before = [b for b in bars if b.price_date < first_split]
+    if not before:
+        return False
+    bar = before[-1]
+    stored = session.execute(select(DailyPrice.close_price).where(
+        DailyPrice.company_id == company.company_id, DailyPrice.price_date == bar.price_date)).scalar_one_or_none()
+    return stored is not None and abs(stored - bar.close_price) <= bar.close_price * SPLIT_TOLERANCE
+
+
+def fetch_bars(session, client: YahooClient, company, period: str, include_market_cap: bool = True):
+    """Fetch `period` of prices; returns (bars, whether they're the full
+    history). A split in that period changes every earlier split-adjusted
+    close, so the stored history is replaced with a full refetch rather
+    than left half-adjusted."""
+    bars = client.get_price_history(period=period, include_market_cap=include_market_cap)
+    if client.last_splits and period != FULL_HISTORY and not _history_matches(session, company, bars, client.last_splits):
+        logger.info("%s split %s: refetching its full price history", client.asx_code,
+                    ", ".join(f"{d} ({r})" for d, r in client.last_splits))
+        full = client.get_price_history(period=FULL_HISTORY, include_market_cap=include_market_cap)
+        if full:
+            session.execute(delete(DailyPrice).where(DailyPrice.company_id == company.company_id))
+            return full, True
+    return bars, period == FULL_HISTORY
+
+
 def ingest_daily_prices(
     session: Session, asx_codes: list[str], period: str = "1mo", delay_seconds: float = 0.0
 ) -> dict[str, int]:
@@ -53,9 +105,8 @@ def ingest_daily_prices(
         try:
             client = YahooClient(asx_code)
             company = get_or_create_company(session, asx_code, client=client)
-            bars = client.get_price_history(period=period)
-            for bar in bars:
-                upsert_daily_price(session, company.company_id, bar)
+            bars, _ = fetch_bars(session, client, company, period)
+            upsert_daily_prices(session, company.company_id, bars)
             session.commit()
             logger.info("[%d/%d] Ingested %d price bars for %s", i, total, len(bars), asx_code)
             results[asx_code] = len(bars)

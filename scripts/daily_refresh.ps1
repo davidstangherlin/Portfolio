@@ -8,6 +8,7 @@
     Runs, in order:
         0. src.apply_schema              (bring the database up to the code's schema)
         1. src.ingestion.run_ingestion   (prices + fundamentals for the watchlist)
+        1b. src.etf.run_etfs             (ASX ETF report if due, ETF prices and distributions, ETF performance)
         2. src.valuation.run_valuation   (recompute every company's metrics)
         3. src.tracking.record_signals   (tonight's signals, for the track record)
         4. src.tracking.score_signals    (score signals whose 1/3/6/12 months have passed; prune)
@@ -62,6 +63,11 @@ python -m src.apply_schema 2>&1 |
 Write-Log ""
 Write-Log "--- Ingestion ---"
 python -m src.ingestion.run_ingestion --tickers-file $WatchlistFile --delay 0.5 2>&1 |
+    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+
+Write-Log ""
+Write-Log "--- ETFs ---"
+python -m src.etf.run_etfs 2>&1 |
     ForEach-Object { Add-Content -Path $LogFile -Value $_ }
 
 Write-Log ""

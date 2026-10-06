@@ -12,3 +12,6 @@ asx*.txt
 watchlist*.txt
 node_modules/
 .coverage
+
+# Downloaded ASX Investment Products reports (src/etf/asx_report.py) - fetched, not code.
+data/asx_reports/

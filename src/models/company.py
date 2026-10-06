@@ -29,6 +29,7 @@ class Company(Base):
     country: Mapped[str | None] = mapped_column(String(100))
     trading_currency: Mapped[str | None] = mapped_column(String(3))
     financial_currency: Mapped[str | None] = mapped_column(String(3))
+    security_type: Mapped[str] = mapped_column(String(5), nullable=False, default="SHARE")  # SHARE or ETF
 
     daily_prices: Mapped[list["DailyPrice"]] = relationship(
         back_populates="company", cascade="all, delete-orphan"

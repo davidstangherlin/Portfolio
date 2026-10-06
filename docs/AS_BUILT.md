@@ -5,9 +5,9 @@
 | **Repository** | `davidstangherlin/Portfolio` |
 | **Default branch** | `main` |
 | **Document purpose** | Fault-finding, disaster recovery / rebuild, and third-party (e.g. ChatGPT) code design review |
-| **Document version** | 2.1 |
+| **Document version** | 2.2 |
 | **Date** | 2026-10-06 (first issued 2026-09-15) |
-| **Covers commits** | `d60ef53` (schema) to the admin console (2026-10-06); §15 has the full history |
+| **Covers commits** | `d60ef53` (schema) to ETF collection (2026-10-06); §15 has the full history |
 
 ---
 
@@ -21,9 +21,10 @@ Around that core:
 - **Watchlists** (§22) follow companies without owning them, with notes and price or value triggers.
 - **Track record** (§21) records what Sift said every night and scores it after 1, 3, 6 and 12 months against the average screened company, so the rules are judged on results.
 - **Knowledge base** (§23): one file, `web/knowledge.json`, supplies the Help page, every hover explanation and the glossary of the Word rules document.
+- **ETFs** (§25): every ASX exchange traded fund collected alongside the shares: its fund facts monthly from the ASX's own report, prices and distributions nightly with full history, and Sift's own total returns from 1 month to 10 years. Not valued or scored as companies.
 - **Admin console** (§24): every setting, formula and threshold in one registry, shown with its Help entry; every company figure shown step by step; and what-if scenarios that compare different settings with live on today's data without changing anything live.
 
-**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete. 428 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
+**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete, and stage 1 of ETFs (collection) is built. 508 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
 
 **Architecture:**
 
@@ -86,6 +87,7 @@ Portfolio/
 │   │   ├── portfolio.py                Portfolio model - a named owner with a tax type (§19.1)
 │   │   ├── watchlist.py                Watchlist and WatchlistItem models (§22)
 │   │   ├── signal_snapshot.py          SignalSnapshot model - what Sift said each night (§21)
+│   │   ├── etf.py                      EtfMonthly and EtfPerformance models (§25)
 │   │   ├── scenario.py                 Scenario model - a saved what-if: name, notes, changed settings (§24)
 │   │   └── valuation_metric.py         ValuationMetric model
 │   ├── ingestion/                      Yahoo Finance → database
@@ -112,6 +114,11 @@ Portfolio/
 │   ├── admin/                          Admin console (§24)
 │   │   ├── scenarios.py                What-if runs on cached inputs, live vs scenario comparison, saving
 │   │   └── workings.py                 A company's figures step by step, and the sensitivity grid
+│   ├── etf/                            ETFs (§25)
+│   │   ├── asx_report.py               Finds, downloads and reads the ASX Investment Products report; loads the ETF list
+│   │   ├── prices.py                   Nightly ETF prices and distributions, full history the first time
+│   │   ├── performance.py              Total returns 1 month to 10 years, trailing yield, check against the report
+│   │   └── run_etfs.py                 CLI entrypoint; nightly step 1b (§16); --inspect, --report
 │   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
 │   ├── screening/
 │   │   ├── actions.py                  Suggested action + reason per company (§9.1)
@@ -151,6 +158,10 @@ Portfolio/
 │   │   ├── test_knowledge.py           The knowledge base: IDs, links, hover labels, placeholders, glossary (§23)
 │   │   ├── test_trade_input.py         Browser input checks, CGT discount by tax type, the cross-site write guard
 │   │   ├── test_watchlist_triggers.py  Trigger thresholds and entry checks (§22)
+│   │   ├── _etf_report.py              Builds spreadsheets shaped like the ASX report, in two layouts
+│   │   ├── test_asx_report.py          Reading the ASX report: headings, groups, units, download fallbacks (§25)
+│   │   ├── test_etf_performance.py     Total returns, reinvestment, annualising, trailing yield (§25)
+│   │   ├── test_yahoo_prices.py        Closes as traded, with splits and distributions (§25)
 │   │   ├── test_settings.py            The settings registry: live values pinned, ranges, guard rails, modules read it (§24)
 │   └── integration/                    Needs a real local PostgreSQL instance
 │       ├── test_schema.py              Idempotent apply, view column coverage
@@ -162,6 +173,7 @@ Portfolio/
 │       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
 │       ├── test_track_record.py        Scoring against made-up history, summary, deletion, report rules (§21)
 │       ├── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
+│       ├── test_etfs.py                ETF loading, kept out of share screens, backfill, splits, performance (§25)
 │       └── test_admin.py               Scenarios match live when unchanged, workings match the engine, admin API (§24)
 └── docs/
     ├── AS_BUILT.md                     This document
@@ -169,7 +181,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code (2026-10-06):** about 6,850 lines across 55 Python files, 2,800 lines of web front end (`web/`) and 390 lines of SQL, plus `tests/`: 428 tests (318 unit, 110 integration) in 29 files, of which 83 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
+**Total custom code (2026-10-06):** about 8,000 lines across 61 Python files, 2,800 lines of web front end (`web/`) and 460 lines of SQL, plus `tests/`: 508 tests (390 unit, 118 integration) in 34 files, of which 84 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -778,7 +790,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 
 ### 10.14 Web GUI, Portfolios, Watchlists, Track Record and Admin Console (2026-10-05 to 2026-10-06)
 
-- **428 tests** (318 unit, 110 integration), up from 156 at §10.13. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **508 tests** (390 unit, 118 integration), up from 156 at §10.13. ETF collection (§25) added 80: reading the ASX report in two layouts, the performance maths, the raw-price change and the database steps end to end. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
 - **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
 - **Coverage check** (`coverage run -m pytest`, re-run 2026-10-06): 87% of statements overall; 95% to 97% for the admin console's modules (`src/settings.py`, `src/admin/`); 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
 - **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
@@ -819,6 +831,8 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 28 | Watchlist triggers are a state, not an alert | A trigger shows while it's true (dashboard, watchlist page) and disappears when it stops being true; nothing is sent, and a trigger met and lost between two visits isn't recorded | By design for now. The nightly signal record (§21) could later keep trigger history if wanted |
 | 29 | The benchmark is the plain average of the screened companies, not an index | Small companies count as much as large ones, so a BUY list tilted to large companies is judged against a small-company-heavy average; brokerage, tax and timing within the day are ignored | By design: it measures whether the rules pick better companies from the ones they look at, which an index wouldn't. A market-capitalisation-weighted benchmark could be added alongside |
 | 30 | What-if scenarios are judged on today's data only, and keep momentum at its live value | A scenario shows what would change tonight, not whether it would have done better over the past year; a scenario that moves the margin of safety a lot is shown with the live trend | By design for phases 1 and 2 (§24). Phase 4 (backtesting a scenario against the track record's history) would answer the first; nothing changes live until a scenario is deliberately published (phase 3, not built) |
+| 31 | Share prices stored before 2026-10-06 were dividend-adjusted a month at a time | Closes in the month before each ex-date were scaled down by that dividend and older ones weren't, leaving a small step at each ex-date in charts, the 52-week range and the 200-day average | Fixed for new prices (§25). To clean the existing history once: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 2y` |
+| 32 | The ETF report reader was built without seeing the real spreadsheet | A heading worded differently from anything expected is kept in `raw` but not mapped to its column | Run `python -m src.etf.run_etfs --inspect` on the first downloaded report and adjust `match_field()` for anything not found (§25) |
 
 ---
 
@@ -955,10 +969,13 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | **Stage 4:** the track record is scored (§21): `signal_outcomes` and `track_record_monthly`, nightly step 4 (`score_signals`), and the Track record page's verdict panel with confidence and the order check, By month, What did I miss and Calls that saved money, What should I look at now, and a rules-version filter; the dashboard shows the headline BUY result. Found and fixed before release: `db/schema.sql` created `signal_outcomes` before the `signal_snapshots` it refers to, which only fails on a brand-new database, so every existing test database missed it; a new test now builds the schema from nothing. Also fixed the period buttons not showing which was selected. 312 tests pass (11 new). Checked against 13 months of made-up history in headless Chromium |
 | 2026-10-05 | User asked whether to add a searchable knowledge base from the glossary and build documents. Chose user help only, inside Sift, as the single source for the hover text and the Word glossary, without AI question-answering. Added `web/knowledge.json` (78 entries: every hover explanation, acronym and glossary term, merged one per concept, plus guides to each part of Sift), a Help page with search, topic filters and deep links, term search in the menu bar, and `scripts/build_rules_doc.js` (the Word document's builder, until then only in a temporary build workspace). The rebuilt Word document matches the previous one except one glossary row now sorted correctly. Browser checks found and fixed two bugs: every Help entry opening on a deep link, and SMSF opening the Portfolios guide instead of its own entry. 402 tests pass (85 new) |
 | 2026-10-06 | User asked to view every formula, calculation and metric in an admin console, adjust them and run hypothetical models. Chose phases 1 and 2 (view with workings; a what-if lab on today's data, nothing live changes), all four groups of settings and the same password, and asked for links to the Help entry for each concept. Added `src/settings.py` (29 settings, one source for every module, live values unchanged and pinned by tests), `src/admin/` (show workings with a sensitivity grid; scenario runs on cached inputs compared with live), the `scenarios` table, the Model and rules and What-if scenarios pages, a Show workings card on every company page, five Help entries in a new Admin topic, a pink ? link from every setting and working step to its Help entry, and §11.6 plus the two new glossary terms in the Word rules document. A no-change scenario reproduces live exactly. 428 tests pass (26 new). §24 |
+| 2026-10-06 | User asked how to collect the ASX's ETFs into the database like the shares. Chose all four uses (price holdings, compare and screen, look-through value, watchlists), every ASX ETF, the ASX monthly report as the source with the download automated as far as possible, AMIT cost base adjustments included, and 1 to 10-year performance; agreed four stages and built stage 1. Added `companies.security_type`, `etf_monthly` and `etf_performance`, `src/etf/` (the ASX report finder, downloader and heading-based reader with `--inspect`; nightly prices and distributions with a full-history backfill; total returns 1 month to 10 years with a check against the report), nightly step 1b, ETFs kept out of share valuation and the screener view, and Help entries. Found and fixed while building it: Yahoo prices were stored dividend-adjusted a month at a time (known-issue #31), and a split left price history half-adjusted. 508 tests pass (80 new). §25 |
 
 ---
 
 ## 16. Automation (`scripts/daily_refresh.ps1`)
+
+**Step 1b, ETFs (added 2026-10-06):** `python -m src.etf.run_etfs` runs after share ingestion: last month's ASX Investment Products report if it isn't loaded yet, then prices and distributions for every active ETF (full history the first time), then ETF performance (§25). A report that isn't out yet or can't be downloaded is logged and the step carries on.
 
 **Step 4, Track Record (added 2026-10-05):** `python -m src.tracking.score_signals` scores every signal whose 1, 3, 6 or 12 months the prices have reached, rebuilds the monthly summary, then deletes detail older than 14 whole months (§21). Re-running it scores nothing twice. Suggested Actions is now step 5.
 
@@ -1039,6 +1056,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 24. **Admin console.** *"With the app I want to be able to view all of the formulas calculations and metrics in an admin console. I'd like the ability to adjust them and run some hypothetical models."* Then chose phases 1 and 2, all four groups of settings and the same password, and *"Continue with the build as designed. Add links to the knowledge base article that references the concept."* → §24.
 
+25. **ETFs.** *"How do we collect the ETF's available on the ASX into a database like the shares?"* Then chose all four uses, every ASX ETF, the ASX monthly report with the download automated, AMIT included now, and *"There will be a lot of performance data to add in. 1 yr, 5 yr, 10yr perf. etc."*; agreed four stages and *"yes"* to starting stage 1. → §25.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -1095,6 +1114,20 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Searchable knowledge base (§23):** ✅ Done 2026-10-05.
 
 **Admin console, phases 1 and 2 (§24):** ✅ Done 2026-10-06.
+
+**ETFs stage 1, collection (§25):** ✅ Done 2026-10-06.
+
+**Check the first ASX report load (on the PC, once):**
+> "Here's the output of `python -m src.etf.run_etfs --inspect` on this month's ASX report: [paste]. Fix any heading that wasn't matched, then confirm the ETF count and a few funds' fees and returns against the ASX website."
+
+**ETFs stage 2 (screener, ETF pages, watchlists, portfolio pricing):**
+> "Start ETF stage 2: an ETF screener and a page per ETF (cost, size, spread, distributions, performance against its category and a reference fund), ETFs in watchlists with a yield trigger, and ETF parcels in portfolios. Help entries for every new measure."
+
+**ETFs stage 3 (AMIT):**
+> "Start ETF stage 3: enter each year's AMIT cost base increase or decrease per ETF from the annual tax statement, spread across the parcels held at 30 June, with a decrease beyond the cost base becoming a capital gain."
+
+**ETFs stage 4 (look-through value):**
+> "Start ETF stage 4: for ETFs tracking an S&P/ASX index Sift covers, a market-cap-weighted look-through margin of safety, earnings quality and score from Sift's own share valuations."
 
 **Publish a scenario as the live rules (phase 3, only once the track record supports it):**
 > "Add a way to publish a saved scenario as the live settings, with a confirmation, a record of who changed what and when, a new RULES_VERSION so the track record judges the new rules separately, and a one-click way back."
@@ -1332,3 +1365,49 @@ Each setting carries its group, label, unit, allowed range, formula, where it's 
 - A scenario is judged on today's data only; it can't yet say how it would have done in the past (phase 4).
 - Momentum stays live, as above, so a scenario that changes the margin of safety a lot shows the live trend beside it.
 - The cache is per server process; the first run after the nightly job (or a restart) gathers inputs again, which takes a few seconds for 500 companies.
+
+---
+
+## 25. ETFs, Stage 1: Collection (`src/etf/`, added 2026-10-06)
+
+**Purpose.** Bring every ASX exchange traded fund into the database alongside the shares: which ETFs exist and their fund facts each month, their daily prices and distributions with full history, and their performance over 1 month to 10 years. Stage 1 of four agreed with the user: (1) collect, (2) an ETF screener, page per ETF, watchlists and portfolio pricing, (3) AMIT cost base adjustments in the CGT records, (4) look-through value for Australian share ETFs. Stages 2 to 4 are not built yet.
+
+**Model.**
+- `companies.security_type` is `SHARE` (default) or `ETF` (checked by the database). ETFs live in `companies` so they share `daily_prices`, `dividend_payments`, watchlist entries and holdings with shares. The ticker is the code plus `.AX`; trading and statement currency AUD.
+- `etf_monthly`: one row per ETF per report month, kept for good: fund name, issuer, product type, category and sub-category, benchmark, MER, fund size, net flows, average spread, value traded, distribution yield and frequency, listing date, the report's own 1, 3 and 6-month and 1, 3, 5 and 10-year and since-inception returns, the source file, and `raw` (every column of the row as written, so nothing the ASX publishes is lost if a heading isn't recognised). Percents are whole-number percents (0.07 = 0.07%), money in AUD.
+- `etf_performance`: one row per ETF, recalculated nightly: Sift's own total returns for the same periods, distributions in the last 12 months and the trailing yield, the first price date, and the check against the report (below).
+
+**The ETF list: the ASX Investment Products report (`src/etf/asx_report.py`).**
+- **Source.** The ASX's monthly report, a spreadsheet published by about the seventh business day of the next month, listing every exchange traded product.
+- **Getting it (`ensure_latest`).** Each night, until last month's report is loaded: the newest spreadsheet in `data/asx_reports/` (gitignored) newer than what's loaded, so a file saved by hand is used first; otherwise the report page is read for its spreadsheet links and the newest one downloaded; if the page can't be read, the expected addresses for the last two months are tried (the PDFs live under `/content/dam/asx/issuers/asx-investment-products-reports/<year>/pdf/`; the spreadsheet folder is assumed alongside). Downloads use `curl_cffi` (installed with yfinance) with a browser fingerprint. Once last month's report is loaded, no request is made until the next month. Not available yet is logged as INFO until the 15th, then as a WARNING; neither turns the dashboard's run status red.
+- **Reading it.** The layout isn't a published format, so nothing depends on fixed rows or columns. ETP sheets are picked by name (LIC, LIT, mFund, A-REIT and infrastructure sheets skipped). The heading row is the first with an ASX code column; a group heading above (a merged "Performance" over "1 Month", "1 Year") is carried into each column's label, and a sub-heading row below is picked up too. A column's own heading decides its field; a bare period ("1 Year") or an unrecognised heading takes its meaning from the group heading, so "1 Year" under Flows is a flow and under Performance a return. Percents come from the cell's percent format; a column that isn't percent-formatted with every value at or below a fraction limit (0.05 for fees and spreads, 0.3 for yields, 1.5 for returns) is multiplied by 100. Money is scaled by its label ($m, $b, $000), and a fund size column with no unit but a median under $100,000 is read as millions. Rows need a code written in capitals (so Total and Average rows drop out) and a product type that isn't an LIC, LIT or mFund.
+- **Loading it (`load_report`).** Every ETP becomes or stays an ETF (a code already known as a share is reclassified, with a WARNING), and gets that month's `etf_monthly` row; re-loading a month replaces it. When the report is the newest loaded, active ETFs it no longer lists are marked inactive (their history stays) and returning ones reactivated.
+- **Checking a file.** `python -m src.etf.run_etfs --inspect FILE` prints each sheet's heading row, every column's label and the field it was matched to, notes on scaling, fields not found and three sample rows, without loading anything. `--report FILE [--month YYYY-MM]` loads a file by hand.
+
+**Prices and distributions (`src/etf/prices.py`).** One Yahoo request per active ETF brings closes, splits and distributions. An ETF with no stored prices gets its full history (the one-off backfill behind the 10-year returns); after that, the last month. Distributions go into `dividend_payments` with none held out as abnormal (a fund's year-end distribution of gains is part of its return, unlike a company's one-off). Prices are written a thousand rows per statement.
+
+**Prices are now stored as traded, for shares too.** yfinance's default (`auto_adjust=True`) scales every earlier close down by each later dividend. Fetched a month at a time, that left the stored history with a step at each ex-date (the month before it scaled down, everything older not), and a total return built from such closes plus distributions would count distributions twice. `YahooClient.get_price_history()` now asks for `auto_adjust=False`: closes are split-adjusted only. The track record was unaffected in practice (its start price is the snapshot price and its end price is fetched within days of the horizon, both effectively unadjusted), but charts, the 52-week range and the 200-day average carried the steps. Existing share history keeps them until refetched (known-issue #31).
+
+**Splits (`fetch_bars`, shares and ETFs).** A split changes every earlier split-adjusted close. When a fetch includes a split and the stored close before it no longer matches the fetched one (more than 1% apart), the stored prices are deleted and the full history refetched; for an ETF its distributions are replaced too. The check means it happens once, not every night the split stays in the month's window.
+
+**Performance (`src/etf/performance.py`).**
+- **Total return:** one unit bought at the close on the start date (the last close on or before it), each distribution reinvested at the close on its ex-date (or the next close, if the ex-date has none), valued at the end date's close.
+- **Periods:** 1, 3 and 6 months and 1 year as they are; 3, 5 and 10 years as a yearly rate over their nominal years; since first price as a yearly rate over its actual length once it's over a year. No figure without a close within 10 days of the period's start and end, so a fund younger than the period shows nothing rather than a shorter period's return.
+- **Trailing yield:** distributions with ex-dates in the 12 months to the latest close (the one exactly 12 months ago excluded), divided by that close.
+- **As at:** the latest ETF price date.
+- **Check against the ASX:** each ETF's 1-year return measured at its latest report's month end, stored beside the report's figure. The nightly log lists ETFs more than 2 points apart: usually a distribution Yahoo missed, a bad price, or the report working its figure out another way (for example from net asset value).
+
+**Kept apart from shares.** `run_valuation` values only `SHARE`s. The `asx_value_screener` view adds `security_type = 'SHARE'`, so ETFs stay out of the screener, menu search, company pages, signals, the track record's average and what-if scenarios, all of which read the view. The menu's latest price date counts shares only. Portfolio pages already value any parcel with a price, so ETF parcels are valued once ETF prices are loaded (stage 2 adds their own figures).
+
+**Nightly step 1b (§16).** `python -m src.etf.run_etfs`: the report if due, then prices and distributions (0.5 seconds between ETFs), then performance. A report failure is logged and the prices still run. The first night fetches about 400 full histories (an estimated 10 to 15 minutes, once); after that a few minutes.
+
+**Tests.**
+- `tests/unit/test_asx_report.py`: month from a name or title cell, page links, heading matching, group headings, both layouts, fraction and $m scaling, skipped sheets and rows, the download fallbacks and the local folder. It reads spreadsheets built in two plausible layouts by `tests/unit/_etf_report.py`.
+- `tests/unit/test_etf_performance.py`: reinvestment, ex-dates without a close, stale periods, annualising, young funds and the trailing yield.
+- `tests/unit/test_yahoo_prices.py`: closes as traded, with splits and distributions.
+- `tests/integration/test_etfs.py`: loading, re-loading, retiring and reclassifying; the monthly check that doesn't touch the network once loaded; ETFs out of valuation and the view; the security type check; the backfill, monthly fetch and one-off split refetch for an ETF and a share; and performance with the report check.
+
+**Limits.**
+- The real spreadsheet couldn't be opened from the build environment (the ASX site is blocked there, as Yahoo is, §10.7), so the reader was built for plausible layouts and tested on those. The first run on the user's PC should start with `--inspect` on a downloaded report.
+- Yahoo's ETF distributions are occasionally late or missing; the report check is there to catch it.
+- Performance is before tax and ignores franking and brokerage, like the track record (known-issue #29).

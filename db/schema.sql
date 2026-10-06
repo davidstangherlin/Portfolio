@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS companies (
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100);
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS trading_currency VARCHAR(3);    -- share price currency (AUD on the ASX)
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS financial_currency VARCHAR(3);  -- currency the statements are published in
+-- SHARE or ETF (docs/AS_BUILT.md §25). ETFs share the price and distribution
+-- tables with shares but are never valued, screened or scored as shares.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS security_type VARCHAR(5) NOT NULL DEFAULT 'SHARE'
+    CHECK (security_type IN ('SHARE', 'ETF'));
 
 -- 2. DAILY MARKET PRICE & VOLUMES
 CREATE TABLE IF NOT EXISTS daily_prices (
@@ -268,6 +272,71 @@ CREATE TABLE IF NOT EXISTS scenarios (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5e. ETF FACTS (docs/AS_BUILT.md §25)
+-- One row per ETF per month from the ASX Investment Products report
+-- (src/etf/asx_report.py): what the ASX says about the fund that month.
+-- Kept for good, so fees, size and reported returns have a history.
+-- Percent columns are whole-number percents (0.07 = 0.07%); money in AUD.
+-- `raw` keeps every column of the report row, headed as in the report,
+-- so nothing the ASX publishes is lost if a column isn't mapped.
+CREATE TABLE IF NOT EXISTS etf_monthly (
+    company_id UUID NOT NULL REFERENCES companies(company_id) ON DELETE CASCADE,
+    report_month DATE NOT NULL,                  -- first day of the month the report covers
+    fund_name VARCHAR(255),
+    issuer VARCHAR(120),
+    product_type VARCHAR(80),
+    category VARCHAR(120),
+    sub_category VARCHAR(120),
+    benchmark VARCHAR(255),
+    mer_percent NUMERIC(7, 3),
+    fum_aud NUMERIC(18, 2),
+    net_flows_aud NUMERIC(18, 2),
+    avg_spread_percent NUMERIC(8, 3),
+    value_traded_aud NUMERIC(18, 2),
+    distribution_yield NUMERIC(8, 2),
+    distribution_frequency VARCHAR(40),
+    listing_date DATE,
+    return_1m NUMERIC(10, 2),
+    return_3m NUMERIC(10, 2),
+    return_6m NUMERIC(10, 2),
+    return_1y NUMERIC(10, 2),
+    return_3y NUMERIC(10, 2),
+    return_5y NUMERIC(10, 2),
+    return_10y NUMERIC(10, 2),
+    return_since_inception NUMERIC(10, 2),
+    raw JSONB NOT NULL DEFAULT '{}',
+    source_file VARCHAR(255),
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (company_id, report_month)
+);
+
+-- 5f. ETF PERFORMANCE (docs/AS_BUILT.md §25)
+-- Sift's own figures from daily prices and distributions
+-- (src/etf/performance.py), recalculated nightly; one row per ETF.
+-- Total returns with distributions reinvested on the ex-date, in percent;
+-- 3, 5 and 10 years and since first price (when over a year) annualised.
+-- check_* compare Sift's 1-year return at the report's month end with
+-- the ASX report's own figure.
+CREATE TABLE IF NOT EXISTS etf_performance (
+    company_id UUID PRIMARY KEY REFERENCES companies(company_id) ON DELETE CASCADE,
+    as_of_date DATE NOT NULL,
+    first_price_date DATE,
+    return_1m NUMERIC(10, 2),
+    return_3m NUMERIC(10, 2),
+    return_6m NUMERIC(10, 2),
+    return_1y NUMERIC(10, 2),
+    return_3y NUMERIC(10, 2),
+    return_5y NUMERIC(10, 2),
+    return_10y NUMERIC(10, 2),
+    return_since_inception NUMERIC(10, 2),
+    distributions_12m NUMERIC(12, 4),
+    distribution_yield_12m NUMERIC(8, 2),
+    check_month DATE,
+    check_return_1y NUMERIC(10, 2),
+    reported_return_1y NUMERIC(10, 2),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that
@@ -381,7 +450,8 @@ JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)
 JOIN valuation_metrics v ON c.company_id = v.company_id
     AND v.as_of_date = (SELECT MAX(as_of_date) FROM valuation_metrics WHERE company_id = c.company_id)
-WHERE c.is_active = TRUE;
+WHERE c.is_active = TRUE
+  AND c.security_type = 'SHARE';  -- ETFs are kept out of the share screener (§25)
 
 -- INDEXES FOR SPEED
 CREATE INDEX IF NOT EXISTS idx_companies_asx ON companies(asx_code);

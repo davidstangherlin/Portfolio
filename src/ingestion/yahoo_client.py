@@ -85,6 +85,10 @@ class YahooClient:
         self.asx_code = asx_code.strip().upper()
         self.symbol = to_yahoo_symbol(self.asx_code)
         self._ticker = yf.Ticker(self.symbol)
+        # Filled by get_price_history() from the same request: splits and
+        # cash distributions in the period fetched, oldest first.
+        self.last_splits: list[tuple[date, Decimal]] = []
+        self.last_dividends: list[Payment] = []
 
     def get_profile(self) -> dict:
         """Company name / sector / industry / country / currencies, for populating `companies`."""
@@ -102,11 +106,20 @@ class YahooClient:
             "financial_currency": info.get("financialCurrency"),  # the statements' currency
         }
 
-    def get_price_history(self, period: str = "1mo") -> list[PriceBar]:
+    def get_price_history(self, period: str = "1mo", include_market_cap: bool = True) -> list[PriceBar]:
         """Daily close/volume/market-cap bars for the given yfinance period
-        (e.g. '1mo', '6mo', '1y', 'max')."""
+        (e.g. '1mo', '6mo', '1y', 'max').
+
+        Closes are the prices actually traded (adjusted for splits only).
+        yfinance's default also scales every earlier close down by each
+        later dividend, which, refetched a month at a time, left a step in
+        the stored history at each ex-date and would count distributions
+        twice in a total return (docs/AS_BUILT.md §25). Splits and cash
+        distributions in the period are kept in last_splits and
+        last_dividends."""
+        self.last_splits, self.last_dividends = [], []
         try:
-            history = self._ticker.history(period=period, interval="1d")
+            history = self._ticker.history(period=period, interval="1d", auto_adjust=False, actions=True)
         except Exception:
             logger.exception("Failed to fetch price history for %s", self.symbol)
             return []
@@ -114,11 +127,21 @@ class YahooClient:
         if history is None or history.empty:
             return []
 
+        for column, target in (("Stock Splits", self.last_splits), ("Dividends", self.last_dividends)):
+            if column not in history:
+                continue
+            for idx, value in history[column].items():
+                amount = _to_decimal(float(value)) if pd.notna(value) else None
+                if amount:
+                    day = idx.date() if hasattr(idx, "date") else idx
+                    target.append((day, amount) if column == "Stock Splits" else Payment(ex_date=day, amount=amount))
+
         shares_outstanding = None
-        try:
-            shares_outstanding = self._ticker.get_info().get("sharesOutstanding")
-        except Exception:
-            logger.debug("sharesOutstanding unavailable for %s", self.symbol, exc_info=True)
+        if include_market_cap:
+            try:
+                shares_outstanding = self._ticker.get_info().get("sharesOutstanding")
+            except Exception:
+                logger.debug("sharesOutstanding unavailable for %s", self.symbol, exc_info=True)
 
         bars: list[PriceBar] = []
         for idx, row in history.iterrows():

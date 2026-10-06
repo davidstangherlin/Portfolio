@@ -42,6 +42,11 @@ src/
     actions.py                suggested action + reason for each company
     scores.py                 score wheel checks for the web GUI
     enriched.py               screener rows with scores and valuation status (GUI and track record)
+  etf/
+    asx_report.py             finds, downloads and reads the ASX Investment Products report
+    prices.py                 nightly ETF prices and distributions (full history the first time)
+    performance.py            ETF total returns, 1 month to 10 years, and trailing yield
+    run_etfs.py               CLI entrypoint (nightly step, --inspect, --report)
   admin/
     scenarios.py              what-if runs compared with live, on today's data
     workings.py               a company's figures step by step, and the sensitivity grid
@@ -383,6 +388,45 @@ Nothing live changes: a run writes nothing, and the nightly job, screener, dashb
 record keep using the live settings in `src/settings.py`. Changing a live setting is still a
 code change (edit `src/settings.py`, run `pytest`, commit). See docs/AS_BUILT.md §24.
 
+## ETFs
+
+Every ETF listed on the ASX is collected alongside the shares (stage 1 of 4: collection; the
+ETF screener and pages come in stage 2). See docs/AS_BUILT.md §25.
+
+- **Which ETFs, and their fund facts** (issuer, category, fees, size, flows, spread, the
+  ASX's own performance figures) come from the ASX Investment Products report, a spreadsheet
+  the ASX publishes monthly. The nightly job loads last month's report as soon as it's out:
+  it looks in `data/asx_reports/` first, then downloads it from the ASX website.
+- **Prices and distributions** come from Yahoo Finance nightly, with each ETF's full history
+  the first time it's seen (the first night takes 10 to 15 minutes longer than usual).
+- **Performance** is Sift's own total return with distributions reinvested, for 1, 3 and 6
+  months, 1, 3, 5 and 10 years and since first price (yearly rates beyond a year), plus the
+  trailing 12-month yield. Each month it's checked against the ASX's figure.
+- ETFs aren't valued or scored like companies, so they don't appear in the screener.
+
+**First run, on your PC.** Download the latest spreadsheet from the
+[ASX report page](https://www.asx.com.au/issuers/investment-products/asx-investment-products-monthly-report)
+into `data\asx_reports\`, then:
+```
+pip install -r requirements.txt                                     # adds openpyxl, to read the spreadsheet
+python -m src.apply_schema                                          # add the ETF tables now
+python -m src.etf.run_etfs --inspect data\asx_reports\<file>.xlsx   # check how it's read; loads nothing
+python -m src.etf.run_etfs                                          # load it, backfill prices, performance
+```
+`--inspect` lists every column and what it was matched to. If something important shows
+"(kept in raw only)" or "Not found", that heading needs adding to `match_field()` in
+`src/etf/asx_report.py`; keep the output to work from.
+
+**If the download stops working**, save the spreadsheet into `data\asx_reports\` by hand;
+the next nightly run picks it up. Or load it straight away with
+`python -m src.etf.run_etfs --report <file>` (add `--month 2026-09` if the file name
+doesn't include the month).
+
+**Price history is now stored as traded.** Until now Yahoo's prices were stored with past
+dividends taken off a month at a time, leaving a small step at each ex-date. New prices are
+stored as traded. To clean the existing share history once (a few minutes):
+`python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 2y`
+
 ## Recording Your Holdings (CGT)
 
 Record trades in the browser (Sift's Portfolios pages, above) or with `portfolio.py`; both
@@ -428,22 +472,24 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers, 428 tests in all:
+Two tiers, 508 tests in all:
 
-- **`tests/unit/`** (318 tests) - no database connection at all, so these run in about a
+- **`tests/unit/`** (390 tests) - no database connection at all, so these run in about a
   second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
   the score wheel, dividend history and currency conversion, franking, CGT arithmetic
   (including the discount by tax type), browser input checks and the cross-site write guard,
   watchlist triggers, the dashboard's log reading and stale-data rule, the settings registry
-  (live values pinned, guard rails), and the knowledge base behind the Help page (one check
+  (live values pinned, guard rails), reading the ASX ETF report (two layouts), ETF total
+  returns, and the knowledge base behind the Help page (one check
   per entry).
-- **`tests/integration/`** (110 tests) - the parts that genuinely need a real database: the
+- **`tests/integration/`** (118 tests) - the parts that genuinely need a real database: the
   schema (re-applied, upgraded from an older version, and built from nothing), ingestion
   upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
   web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password
   and same-page guards), signal recording, track record scoring against 13 months of
   made-up history, and the admin console (a scenario with no changes matches live exactly,
-  workings match the engine). `tests/conftest.py` creates an `asx_test` database and applies
+  workings match the engine), and ETFs (loading reports, kept out of the screener, backfill,
+  splits, performance). `tests/conftest.py` creates an `asx_test` database and applies
   `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to point at a
   different instance) - it never touches whatever database your `.env` points at.
 
@@ -457,7 +503,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → valuation → signal record → track record scoring → screener, logging everything to a timestamped file
+schema update → ingestion → ETFs → valuation → signal record → track record scoring → screener, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step runs even if
 a previous one hit problems, so a transient Yahoo Finance network error
 during ingestion doesn't block valuation/screener from running against
