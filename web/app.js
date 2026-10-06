@@ -615,6 +615,24 @@ function card(title, hint, ...children) {
   return h("section", { class: "card" }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, children);
 }
 
+/* What the company does: the first two sentences of Yahoo's business
+   summary, with "more" to read the rest. */
+function aboutCompany(c) {
+  if (!c.business_summary) return null;
+  const short = c.business_summary_short || c.business_summary;
+  const text = h("span", { text: short });
+  if (short === c.business_summary) return h("p", { class: "co-about" }, text);
+  let open = false;
+  const toggle = h("button", { type: "button", class: "link-btn", text: "more", "aria-expanded": "false",
+    onclick: () => {
+      open = !open;
+      text.textContent = open ? c.business_summary : short;
+      toggle.textContent = open ? "less" : "more";
+      toggle.setAttribute("aria-expanded", String(open));
+    } });
+  return h("p", { class: "co-about" }, text, " ", toggle);
+}
+
 async function renderCompany(code) {
   hideTip();
   slots.length = 0;
@@ -747,6 +765,7 @@ async function renderCompany(code) {
       badge(c.action),
       watchButton(c.asx_code, d.watchlists)),
     h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
+    aboutCompany(c),
     h("p", { class: "reason", text: c.action_reason }),
     summaryStrip(c, d.model),
     modelNote(d.model),

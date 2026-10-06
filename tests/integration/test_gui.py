@@ -265,3 +265,17 @@ def test_knowledge_base_is_served_behind_the_password(seeded):
     assert client.get("/static/knowledge.json").status_code == 401
     kb = client.get("/static/knowledge.json", headers=_auth("s3cret-pass")).json()
     assert {"categories", "entries"} <= set(kb)
+
+
+def test_company_page_has_a_short_description_with_the_rest_on_request(seeded):
+    from src.models import Company
+    company = seeded.query(Company).filter_by(asx_code="GOOD").one()
+    company.business_summary = "Good Ltd. mines iron ore. It sells to China. It was founded in 1901."
+    seeded.commit()
+    c = TestClient(gui.create_app()).get("/api/company/GOOD").json()["company"]
+    assert c["business_summary_short"] == "Good Ltd. mines iron ore. It sells to China."
+    assert c["business_summary"].endswith("founded in 1901.")
+    company.business_summary = ""  # Yahoo has none
+    seeded.commit()
+    c = TestClient(gui.create_app()).get("/api/company/GOOD").json()["company"]
+    assert c["business_summary"] is None and c["business_summary_short"] is None

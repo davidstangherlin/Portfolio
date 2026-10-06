@@ -207,3 +207,33 @@ def test_dividend_payments_are_stored_with_one_offs_flagged(db_session, monkeypa
     rows = db_session.execute(select(DividendPayment).order_by(DividendPayment.ex_date)).scalars().all()
     assert [(r.ex_date.isoformat(), r.abnormal) for r in rows] == [
         ("2024-06-12", False), ("2025-01-15", False), ("2025-03-18", True), ("2025-06-11", False)]
+
+
+class _SummaryClient:
+    def __init__(self, profile):
+        self.profile, self.calls = profile, 0
+
+    def get_profile(self):
+        self.calls += 1
+        return self.profile
+
+
+def test_business_summary_is_backfilled_once_and_a_missing_one_is_not_asked_for_again(db_session):
+    base = {"country": "Australia", "trading_currency": "AUD", "financial_currency": "AUD"}
+    company = _company(db_session, "SUM", country="Australia")
+    client = _SummaryClient({**base, "business_summary": "Sum Ltd makes things."})
+    ensure_profile(company, client)
+    ensure_profile(company, client)
+    assert company.business_summary == "Sum Ltd makes things." and client.calls == 1
+
+    none = _company(db_session, "NON", country="Australia")
+    client = _SummaryClient({**base, "business_summary": ""})
+    ensure_profile(none, client)
+    ensure_profile(none, client)
+    assert none.business_summary == "" and client.calls == 1
+
+    failed = _company(db_session, "ERR", country="Australia")
+    ensure_profile(failed, _SummaryClient({}))  # fetch failed: try again next run
+    assert failed.business_summary is None
+    created = get_or_create_company(db_session, "NEW", client=_SummaryClient({**base, "business_summary": "New."}))
+    assert created.business_summary == "New."

@@ -91,7 +91,8 @@ class YahooClient:
         self.last_dividends: list[Payment] = []
 
     def get_profile(self) -> dict:
-        """Company name / sector / industry / country / currencies, for populating `companies`."""
+        """Company name / sector / industry / country / currencies / business
+        summary, for populating `companies`."""
         try:
             info = self._ticker.get_info()
         except Exception:  # yfinance raises a variety of network/parsing errors
@@ -104,6 +105,7 @@ class YahooClient:
             "country": info.get("country"),
             "trading_currency": info.get("currency"),  # the share price's currency (AUD on the ASX)
             "financial_currency": info.get("financialCurrency"),  # the statements' currency
+            "business_summary": (info.get("longBusinessSummary") or "").strip(),
         }
 
     def get_price_history(self, period: str = "1mo", include_market_cap: bool = True) -> list[PriceBar]:

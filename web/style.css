@@ -268,6 +268,8 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .co-head h1 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
 .ticker { font-size: 12px; font-weight: 600; color: var(--muted); border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 1px 7px; }
 .co-sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+.co-about { font-size: 14px; line-height: 1.5; max-width: 78ch; margin: 8px 0 0; }
+.co-about .link-btn { margin: 0; font-size: 13px; }
 .reason { margin: 8px 0 14px; color: var(--ink-2); }
 
 .stats {

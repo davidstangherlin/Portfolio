@@ -982,6 +982,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-06 | User reported LICs missing. Cause: the July report had been loaded before the LIC update, and the nightly step only loads newer months. Added `asx_report_loads` and `READER_VERSION`: a month loaded by an older reader is loaded again from its saved file (§25.2). The empty LICs page now says what to run. |
 | 2026-10-06 | User asked for the pink ? help links to open the Help page in a new tab. `helpLink()` (every pink ?) now opens its Help entry in a new tab, so the page being read (an edited scenario, a filtered screener) stays as it was. |
 | 2026-10-06 | User reported the pink ? still not opening a new tab in Chrome on the LICs page. It did in testing; the open tab was most likely still running the code from before the update. Every response now carries `X-Sift-Version` (a fingerprint of the web files), and an open page reloads itself on the next click once that changes, so updates reach a tab left open. `helpLink()` now opens the tab itself (`window.open`), keeping Ctrl-click and middle-click as normal. |
+| 2026-10-06 | User asked for a short description of each company in the screener, and chose the first two sentences with "more", on the company page only, filled by the nightly run. Added `companies.business_summary` from Yahoo's business summary, backfilled once per company by `ensure_profile()`, and shown under the sector line. 564 tests pass (5 new). §28 |
 
 ---
 
@@ -1518,3 +1519,12 @@ Each setting carries its group, label, unit, allowed range, formula, where it's 
 - NTA is monthly and about a month old when the report comes out; the live premium mixes today's price with that NTA. Post-tax NTA (in the separate LIC NTA report) isn't used.
 - Yields are cash only; most Australian LICs pay fully franked dividends, so their grossed-up yield is higher.
 - No suggested actions or scores for LICs; a wide discount can persist or widen for good reason (fees, performance, liquidity), so it's a prompt to look, not a signal.
+
+## 28. Company Descriptions (`src/ingestion/common.py`, `gui.py`, added 2026-10-06)
+
+Each company page shows what the company does, under the sector, industry and country line.
+
+- **Source.** Yahoo Finance's business summary (`longBusinessSummary`), read with the rest of the company profile and stored in `companies.business_summary`.
+- **When it's filled.** A new company gets it when it's first added. Existing companies get it on the next nightly run: `ensure_profile()` fetches the profile once for any company without one, the same way country and currencies were backfilled. `NULL` means not fetched yet; `''` means Yahoo has none, so it isn't asked for again every night. A failed fetch leaves it `NULL` to retry.
+- **What's shown.** The first two sentences (`short_summary()` in `gui.py`, `SUMMARY_SENTENCES = 2`), with **more** to read Yahoo's full text and **less** to fold it again. Full stops after common abbreviations (Ltd., Pty., Inc., Mt., e.g., U.S.) don't count as sentence ends. A summary of two sentences or fewer is shown whole with no link. No summary, no paragraph.
+- **Scope.** Shares only. ETF and LIC pages are unchanged.

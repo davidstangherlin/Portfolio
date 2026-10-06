@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS companies (
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100);
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS trading_currency VARCHAR(3);    -- share price currency (AUD on the ASX)
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS financial_currency VARCHAR(3);  -- currency the statements are published in
+-- What the company does, per Yahoo's business summary (AS_BUILT §28). NULL
+-- means not fetched yet; '' means fetched and Yahoo has none.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_summary TEXT;
 -- SHARE, ETF (docs/AS_BUILT.md §25) or LIC (§27, listed investment companies
 -- and trusts). ETFs and LICs share the price and distribution tables with
 -- shares but are never valued, screened or scored as shares.

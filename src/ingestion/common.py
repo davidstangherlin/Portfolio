@@ -27,6 +27,7 @@ def get_or_create_company(session: Session, asx_code: str, client: YahooClient |
         country=profile.get("country"),
     )
     _fill_currencies(company, profile)
+    _fill_summary(company, profile)
     session.add(company)
     session.flush()  # assign company_id without ending the caller's transaction
     return company
@@ -45,13 +46,22 @@ def _fill_currencies(company: Company, profile: dict) -> None:
         company.financial_currency = profile.get("financial_currency") or company.trading_currency
 
 
+def _fill_summary(company: Company, profile: dict) -> None:
+    """'' when Yahoo has no summary, so it isn't asked again every night;
+    an empty profile (fetch failed) leaves it unset so the next run retries."""
+    if profile and company.business_summary is None:
+        company.business_summary = profile.get("business_summary") or ""
+
+
 def ensure_profile(company: Company, client: YahooClient) -> None:
-    """Backfill `country` and the two currency columns for companies
-    created before those columns existed. One profile request per company,
-    once; after that the stored values are reused."""
-    if company.country is not None and company.financial_currency is not None and company.trading_currency is not None:
+    """Backfill `country`, the two currency columns and the business
+    summary for companies created before those columns existed. One profile
+    request per company, once; after that the stored values are reused."""
+    if company.country is not None and company.financial_currency is not None \
+            and company.trading_currency is not None and company.business_summary is not None:
         return
     profile = client.get_profile()
     if company.country is None:
         company.country = profile.get("country")
     _fill_currencies(company, profile)
+    _fill_summary(company, profile)

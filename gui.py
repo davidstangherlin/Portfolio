@@ -209,6 +209,30 @@ def _model_assumptions(method: str | None) -> dict | None:
     return {"method": method, "growth_rate": m.DEFAULT_GROWTH_RATE, "stage1_years": m.DEFAULT_STAGE1_YEARS,
             "terminal_growth_rate": m.DEFAULT_TERMINAL_GROWTH_RATE, "discount_rate": m.DEFAULT_DISCOUNT_RATE}
 
+SUMMARY_SENTENCES = 2  # the company page shows this many, with "more" for the rest
+# A full stop after one of these (or after a single capital, as in "U.S.")
+# doesn't end a sentence.
+_NOT_A_SENTENCE_END = {"ltd", "pty", "inc", "co", "corp", "no", "st", "mt", "dr", "mr", "mrs", "ms", "approx",
+                       "est", "e.g", "i.e", "vs", "etc", "jr", "sr", "nz", "u.s", "u.k", "p.l.c", "n.v", "s.a"}
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(])")
+
+
+def short_summary(text: str | None, sentences: int = SUMMARY_SENTENCES) -> str | None:
+    """The first `sentences` sentences of Yahoo's business summary, or the
+    whole thing when it's no longer than that."""
+    if not text:
+        return None
+    kept, start = [], 0
+    for m in _SENTENCE_END.finditer(text):
+        last_word = text[start:m.start()].rsplit(None, 1)[-1].rstrip(".!?").lower()
+        if last_word in _NOT_A_SENTENCE_END or len(last_word) == 1:
+            continue
+        kept.append(text[start:m.start()])
+        start = m.end()
+        if len(kept) == sentences:
+            return " ".join(kept)
+    return text
+
 
 def company_payload(session, asx_code: str, today: date) -> dict | None:
     args = screener_defaults([])
@@ -249,6 +273,8 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         row[field] = getattr(metric, field)
     row["industry"] = company.industry
     row["country"] = company.country
+    row["business_summary"] = company.business_summary or None
+    row["business_summary_short"] = short_summary(company.business_summary)
     row["trading_currency"] = company.trading_currency
     row["financial_currency"] = company.financial_currency
     row["as_of_date"] = metric.as_of_date

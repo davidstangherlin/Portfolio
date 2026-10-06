@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,7 @@ class Company(Base):
     country: Mapped[str | None] = mapped_column(String(100))
     trading_currency: Mapped[str | None] = mapped_column(String(3))
     financial_currency: Mapped[str | None] = mapped_column(String(3))
+    business_summary: Mapped[str | None] = mapped_column(Text)  # None: not fetched yet; '': Yahoo has none
     security_type: Mapped[str] = mapped_column(String(5), nullable=False, default="SHARE")  # SHARE, ETF or LIC
 
     daily_prices: Mapped[list["DailyPrice"]] = relationship(
