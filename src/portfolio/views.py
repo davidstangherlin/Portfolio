@@ -54,26 +54,27 @@ def security_types(session, codes: set[str]) -> dict[str, str]:
     ).all())
 
 
-ETF_FIELDS = ("category", "return_1y", "distribution_yield_12m", "mer_percent")
+ETF_FIELDS = ("category", "return_1y", "distribution_yield_12m", "mer_percent", "premium_now")
+KINDS = ("SHARE", "ETF", "LIC")
 
 
-def with_types(lines: list[dict], types: dict[str, str], etfs: dict[str, dict]) -> list[dict]:
-    """Mark each line SHARE or ETF; an ETF line also gets its category,
-    1-year return, yield and fee, which its section shows instead of an
-    action."""
+def with_types(lines: list[dict], types: dict[str, str], funds: dict[str, dict]) -> list[dict]:
+    """Mark each line SHARE, ETF or LIC; an ETF or LIC line also gets its
+    category, 1-year return, yield, fee and (LICs) premium or discount to
+    NTA, which its section shows instead of an action."""
     for line in lines:
         kind = types.get(line["asx_code"], "SHARE")
         line["security_type"] = kind
-        if kind == "ETF":
-            etf = etfs.get(line["asx_code"], {})
-            line.update({k: etf.get(k) for k in ETF_FIELDS})
+        if kind != "SHARE":
+            fund = funds.get(line["asx_code"], {})
+            line.update({k: fund.get(k) for k in ETF_FIELDS})
     return lines
 
 
 def sections(lines: list[dict]) -> dict[str, dict]:
-    """Totals for the shares and the ETFs separately."""
+    """Totals for the shares, the ETFs and the LICs separately."""
     out = {}
-    for kind in ("SHARE", "ETF"):
+    for kind in KINDS:
         mine = [line for line in lines if line.get("security_type", "SHARE") == kind]
         out[kind] = totals(mine) | {"holdings": len(mine)}
     return out
@@ -217,11 +218,13 @@ def portfolio_detail(session, portfolio: Portfolio, rows_by_code: dict[str, dict
     types = security_types(session, codes)
     with_types(lines, types, etfs or {})
     etf_codes = {c for c, t in types.items() if t == "ETF"}
+    lic_codes = {c for c, t in types.items() if t == "LIC"}
     return {
         "portfolio": portfolio_info(portfolio),
         "totals": totals(lines),
         "sections": sections(lines),
         "etf_codes": sorted(etf_codes),
+        "lic_codes": sorted(lic_codes),
         "positions": lines,
         "parcels": [_parcel(p, closes, gets_discount) for p in parcels],
         "sales": [_sale(p, gets_discount) for p in reversed(sold)],

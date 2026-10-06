@@ -139,12 +139,12 @@ def update_performance(session, as_at: date | None = None) -> int:
     Returns the number of ETFs written."""
     if as_at is None:
         as_at = session.execute(select(DailyPrice.price_date).join(Company)
-                                .where(Company.security_type == "ETF")
+                                .where(Company.security_type.in_(("ETF", "LIC")))
                                 .order_by(DailyPrice.price_date.desc()).limit(1)).scalar_one_or_none()
         if as_at is None:
             return 0
     etfs = session.execute(select(Company.company_id, Company.asx_code).where(
-        Company.security_type == "ETF", Company.is_active.is_(True)).order_by(Company.asx_code)).all()
+        Company.security_type.in_(("ETF", "LIC")), Company.is_active.is_(True)).order_by(Company.asx_code)).all()
     written = 0
     for company_id, code in etfs:
         h = load_history(session, company_id)

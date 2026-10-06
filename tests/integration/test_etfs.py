@@ -31,8 +31,9 @@ def _company(session, code, kind="SHARE"):
 def test_load_report_creates_etfs_and_monthly_rows(db_session, tmp_path):
     result = asx_report.load_report(db_session, build_report(tmp_path))
     db_session.commit()
-    assert result.month == date(2026, 8, 1) and result.etfs == 5
-    assert result.added == ["GOLD", "HACK", "IOZ", "NDQ", "VAS"]
+    assert result.month == date(2026, 8, 1) and result.etfs == 5 and result.lics == 1
+    assert result.added == ["GOLD", "HACK", "IOZ", "NDQ", "VAS", "ARG"]  # ETFs, then the LIC sheet's ARG
+    assert db_session.execute(select(Company.security_type).where(Company.asx_code == "ARG")).scalar_one() == "LIC"
     vas = db_session.execute(select(Company).where(Company.asx_code == "VAS")).scalar_one()
     assert (vas.security_type, vas.ticker, vas.trading_currency, vas.is_active) == ("ETF", "VAS.AX", "AUD", True)
     assert vas.company_name == "Vanguard Australian Shares Index ETF"
@@ -45,7 +46,7 @@ def test_load_report_creates_etfs_and_monthly_rows(db_session, tmp_path):
     again = asx_report.load_report(db_session, build_report(tmp_path))
     db_session.commit()
     assert again.added == []
-    assert db_session.execute(text("SELECT COUNT(*) FROM etf_monthly")).scalar_one() == 5
+    assert db_session.execute(text("SELECT COUNT(*) FROM etf_monthly")).scalar_one() == 6
 
 
 def test_newer_report_retires_and_reclassifies(db_session, tmp_path):

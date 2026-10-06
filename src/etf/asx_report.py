@@ -52,12 +52,15 @@ _MONTH_WORD = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|no
 _YEAR_MONTH = re.compile(r"(20\d\d)[\-_](0[1-9]|1[0-2])(?!\d)")
 _CODE = re.compile(r"^[A-Z0-9]{3,6}$")
 
-_SKIP_SHEETS = ("lic", "lit", "listed investment", "mfund", "m-fund", "reit", "infra", "unlisted", "issuer")
+_SKIP_SHEETS = ("mfund", "m-fund", "reit", "infra", "unlisted", "issuer")
 _ETP_SHEETS = ("etp", "etf", "exchange traded")
-_SKIP_TYPES = ("lic", "lit", "listed investment", "mfund", "m-fund")
+_LIC_SHEETS = ("lic", "listed investment")
+_SKIP_TYPES = {"ETF": ("lic", "lit", "listed investment", "mfund", "m-fund"), "LIC": ("mfund", "m-fund")}
 _SKIP_TYPE_EXACT = {"index"}   # benchmark index rows listed among the funds, not funds
-# The report's own type abbreviations, spelt out.
-TYPE_NAMES = {"SP": "Structured product", "ETF": "ETF", "Active": "Active ETF", "Complex": "Complex ETF"}
+# The report's own type abbreviations, spelt out. On the LIC sheet, Shares
+# is a listed investment company and Units a listed investment trust.
+TYPE_NAMES = {"ETF": {"SP": "Structured product", "ETF": "ETF", "Active": "Active ETF", "Complex": "Complex ETF"},
+              "LIC": {"Shares": "LIC", "Units": "LIT"}}
 FUND_OF_FUNDS_MARK = "^"       # "an ETF that invests in whole or in part into another ETF admitted to ASX"
 FUND_OF_FUNDS = "Invests in other ETFs"
 _CODE_LABELS = {"asx code", "code", "ticker", "asx ticker", "etp code", "asx code ticker", "asx ticker code"}
@@ -66,13 +69,16 @@ PERCENT_FIELDS = ("mer_percent", "avg_spread_percent", "distribution_yield")
 RETURN_FIELDS = ("return_1m", "return_3m", "return_6m", "return_1y", "return_3y", "return_5y", "return_10y",
                  "return_since_inception")
 MONEY_FIELDS = ("fum_aud", "net_flows_aud", "value_traded_aud")
-TEXT_FIELDS = ("fund_name", "issuer", "product_type", "category", "sub_category", "benchmark", "distribution_frequency")
+TEXT_FIELDS = ("fund_name", "issuer", "product_type", "category", "sub_category", "benchmark", "distribution_frequency",
+               "performance_fee")
+DATE_FIELDS = ("listing_date", "nta_date")
 # Not percent-formatted and the typical (median) value below this: the
 # column holds fractions (0.0007 for 0.07%), so it's multiplied by 100.
 # Judged on the median, so one fund with a 200% year can't hide it, and
 # all the return columns are judged together, so a flat month can't either.
 _FRACTION_MEDIAN = {"mer_percent": Decimal("0.05"), "avg_spread_percent": Decimal("0.02"),
-                    "distribution_yield": Decimal("0.3"), "returns": Decimal("0.5")}
+                    "distribution_yield": Decimal("0.3"), "nta_premium_percent": Decimal("1"),
+                    "returns": Decimal("0.5")}
 _PERIODS = {(1, "m"): "return_1m", (3, "m"): "return_3m", (6, "m"): "return_6m", (12, "m"): "return_1y",
             (1, "y"): "return_1y", (3, "y"): "return_3y", (5, "y"): "return_5y", (10, "y"): "return_10y"}
 _PERIOD = re.compile(r"(\d+)\s*(m|mo|mth|mths|month|months|y|yr|yrs|year|years)(?![a-z])")
@@ -111,7 +117,8 @@ def report_links(html: str, base: str = REPORT_PAGE) -> list[tuple[date, str]]:
 
 def guessed_urls(month: date) -> list[str]:
     mon, year = _MONTHS[month.month - 1], month.year
-    names = (f"asx-investment-products-{mon}-{year}.xlsx", f"asx-investment-products-{mon}-{year}-abs.xlsx")
+    full = month.strftime("%B").lower()
+    names = [f"asx-investment-products-{m}-{year}{suffix}.xlsx" for m in dict.fromkeys((full, mon)) for suffix in ("-abs", "")]
     return [f"{REPORT_BASE}/{year}/{folder}/{name}" for folder in ("excel", "xlsx") for name in names]
 
 
@@ -198,14 +205,16 @@ class SheetRead:
     columns: list[Column]
     rows: int = 0
     notes: list[str] = field(default_factory=list)
+    kind: str = "ETF"
 
 
 @dataclass
 class Report:
     month: date | None
-    rows: dict[str, dict]          # code -> fields (+ "raw")
+    rows: dict[str, dict]          # ETFs: code -> fields (+ "raw")
     sheets: list[SheetRead]
     skipped_sheets: list[str]
+    lics: dict[str, dict] = field(default_factory=dict)  # LICs and LITs, the same way
 
 
 def _clean(value) -> str:
@@ -228,6 +237,14 @@ def match_field(label: str) -> str | None:
     words = set(n.split())
     if n in _CODE_LABELS or (n.endswith(" code") and ("asx" in words or "etp" in words)):
         return "code"
+    if "nta" in words:  # LICs: net tangible assets, as at the NTA date
+        if "prem" in n or "disc" in n or "premium" in n or "discount" in n:
+            return "nta_premium_percent"
+        if "date" in words:
+            return "nta_date"
+        return None if "post" in words else "nta_pre_tax"
+    if "outperf" in n or "performance fee" in n:
+        return "performance_fee"
     if "since inception" in n or n.endswith(" si") or n == "si" or "inception to date" in n:
         if not any(w in n for w in _NOT_RETURN):
             return "return_since_inception"
@@ -251,7 +268,7 @@ def match_field(label: str) -> str | None:
         return "value_traded_aud"
     if "mer" in words or "icr" in words or "fee" in n or "management cost" in n or "expense" in n:
         return "mer_percent"
-    if "fum" in words or "funds under management" in n or "market cap" in n or "net assets" in n \
+    if "fum" in words or "funds under management" in n or "market cap" in n or "mkt cap" in n or "net assets" in n \
             or ("fund" in words and "size" in words):
         return "fum_aud"
     if ("listing" in words or "listed" in words or "inception" in words or "list" in words) and "date" in words:
@@ -369,22 +386,28 @@ def _raw_value(value):
     return value
 
 
-def _skip_type(value) -> bool:
-    """A product type that isn't an ETP (an LIC, LIT or mFund listed on the same sheet)."""
+def _skip_type(value, kind: str = "ETF") -> bool:
+    """A product type that doesn't belong on this list: a benchmark index,
+    or (on an ETP sheet) an LIC, LIT or mFund."""
     text = _norm(_clean(value))
-    return text in _SKIP_TYPE_EXACT or any(re.search(rf"(?<![a-z]){re.escape(s)}(?![a-z])", text) for s in _SKIP_TYPES)
+    return text in _SKIP_TYPE_EXACT or any(re.search(rf"(?<![a-z]){re.escape(s)}(?![a-z])", text) for s in _SKIP_TYPES[kind])
 
 
-def _sheet_wanted(name: str, all_names: list[str]) -> bool:
+def sheet_kind(name: str, all_names: list[str]) -> str | None:
+    """ETF for an ETP sheet, LIC for the LIC list, None to skip. Sheets are
+    picked by name; if no sheet is named as an ETP list, any sheet that
+    isn't an LIC or skipped one is tried as one."""
     n = name.lower()
     if any(s in n for s in _SKIP_SHEETS):
-        return False
+        return None
+    if re.search(r"(?<![a-z])(lic|lics)(?![a-z])", n) or "listed investment" in n:
+        return "LIC"
     named_etp = [x for x in all_names if any(s in x.lower() for s in _ETP_SHEETS)
                  and not any(s in x.lower() for s in _SKIP_SHEETS)]
-    return not named_etp or name in named_etp
+    return "ETF" if not named_etp or name in named_etp else None
 
 
-def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[SheetRead, dict[str, dict]] | None:
+def _read_sheet(name: str, cells: list[list], formats: list[list], kind: str = "ETF") -> tuple[SheetRead, dict[str, dict]] | None:
     header = _find_header(cells)
     if header is None:
         return None
@@ -406,7 +429,7 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
         if f:
             used.add(f)
         columns.append(Column(i, label, f))
-    read = SheetRead(name, header + 1, columns)
+    read = SheetRead(name, header + 1, columns, kind=kind)
 
     data_rows = [(r, cells[r], formats[r]) for r in range(first_data, len(cells))]
     by_field = {c.field: c for c in columns if c.field}
@@ -421,7 +444,7 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
             continue
         if code_col >= len(row) or not _is_code(row[code_col]):
             continue
-        if type_col and type_col.index < len(row) and _skip_type(row[type_col.index]):
+        if type_col and type_col.index < len(row) and _skip_type(row[type_col.index], kind):
             continue
         code = _clean(row[code_col]).removesuffix(".AX")
         item: dict = {"raw": {}}
@@ -435,7 +458,7 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
             if col.field in TEXT_FIELDS:
                 text = _clean(value)
                 item[col.field] = text or None
-            elif col.field == "listing_date":
+            elif col.field in DATE_FIELDS:
                 item[col.field] = _as_date(value)
             elif col.field in MONEY_FIELDS:
                 number = _number(value)
@@ -450,7 +473,7 @@ def _read_sheet(name: str, cells: list[list], formats: list[list]) -> tuple[Shee
         if category_col is None and section:
             item["category"] = section
         if item.get("product_type"):
-            item["product_type"] = TYPE_NAMES.get(item["product_type"], item["product_type"])
+            item["product_type"] = TYPE_NAMES[kind].get(item["product_type"], item["product_type"])
         out[code] = item
     read.rows = len(out)
     if category_col is None and any(r.get("category") for r in out.values()):
@@ -508,9 +531,11 @@ def read_report(path: Path, month: date | None = None) -> Report:
     except Exception as exc:  # not a spreadsheet, or corrupt
         raise ReportError(f"{Path(path).name} can't be opened as a spreadsheet: {exc}") from None
     names = list(book.sheetnames)
-    sheets, skipped, rows, all_cells = [], [], {}, []
+    sheets, skipped, all_cells = [], [], []
+    found_by_kind: dict[str, dict[str, dict]] = {"ETF": {}, "LIC": {}}
     for name in names:
-        if not _sheet_wanted(name, names):
+        kind = sheet_kind(name, names)
+        if kind is None:
             skipped.append(name)
             continue
         ws = book[name]
@@ -519,12 +544,13 @@ def read_report(path: Path, month: date | None = None) -> Report:
             cells.append([c.value for c in row])
             formats.append([getattr(c, "number_format", None) for c in row])
         all_cells.append(cells)
-        result = _read_sheet(name, cells, formats)
+        result = _read_sheet(name, cells, formats, kind)
         if result is None:
             skipped.append(name)
             continue
         read, found = result
         sheets.append(read)
+        rows = found_by_kind[kind]
         for code, item in found.items():
             if code in rows:  # listed on two sheets: keep what each adds
                 for k, v in item.items():
@@ -535,29 +561,33 @@ def read_report(path: Path, month: date | None = None) -> Report:
             else:
                 rows[code] = item
     book.close()
-    if not rows:
+    if not found_by_kind["ETF"] and not found_by_kind["LIC"]:
         raise ReportError(f"No ETP list found in {Path(path).name}: no sheet has an ASX code column "
                           f"(sheets: {', '.join(names)})")
-    return Report(month or month_from_name(Path(path).name) or _month_in_cells(all_cells), rows, sheets, skipped)
+    return Report(month or month_from_name(Path(path).name) or _month_in_cells(all_cells), found_by_kind["ETF"],
+                  sheets, skipped, found_by_kind["LIC"])
 
 
 def describe(report: Report) -> str:
     """What --inspect prints: how each sheet was read."""
     lines = [f"Report month: {report.month:%B %Y}" if report.month else "Report month: not found (use --month)"]
     for s in report.sheets:
-        lines.append(f"\nSheet '{s.name}': heading on row {s.header_row}, {s.rows} ETPs")
+        lines.append(f"\nSheet '{s.name}': heading on row {s.header_row}, {s.rows} {'LICs and LITs' if s.kind == 'LIC' else 'ETPs'}")
         for c in s.columns:
             if c.label:
                 lines.append(f"  {c.label[:60]:<60} -> {c.field or '(kept in raw only)'}")
         lines.extend(f"  note: {n}" for n in s.notes)
     if report.skipped_sheets:
         lines.append(f"\nSkipped sheets: {', '.join(report.skipped_sheets)}")
-    mapped = {c.field for s in report.sheets for c in s.columns if c.field} | \
-        {k for item in report.rows.values() for k, v in item.items() if v is not None}
-    missing = [f for f in ("fund_name", "issuer", "category", "mer_percent", "fum_aud", "return_1y") if f not in mapped]
-    if missing:
-        lines.append(f"\nNot found: {', '.join(missing)}")
-    sample = list(report.rows.items())[:3]
+    for kind, rows, needed in (("ETPs", report.rows, ("fund_name", "issuer", "category", "mer_percent", "fum_aud", "return_1y")),
+                               ("LICs", report.lics, ("fund_name", "category", "nta_pre_tax", "nta_premium_percent", "return_1y"))):
+        if not rows:
+            continue
+        mapped = {k for item in rows.values() for k, v in item.items() if v is not None}
+        missing = [f for f in needed if f not in mapped]
+        if missing:
+            lines.append(f"\n{kind}: not found: {', '.join(missing)}")
+    sample = list(report.rows.items())[:3] + list(report.lics.items())[:2]
     for code, item in sample:
         shown = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in item.items() if k != "raw" and v is not None}
         lines.append(f"\n{code}: {shown}")
@@ -574,19 +604,20 @@ class LoadResult:
     reclassified: list[str]
     deactivated: list[str]
     reactivated: list[str]
+    lics: int = 0
 
 
-def _etf_company(session, code: str, name: str | None) -> tuple[Company, str | None]:
+def _fund_company(session, code: str, name: str | None, kind: str) -> tuple[Company, str | None]:
     company = session.execute(select(Company).where(Company.asx_code == code)).scalar_one_or_none()
     if company is None:
-        company = Company(ticker=f"{code}.AX", asx_code=code, company_name=(name or code)[:255], security_type="ETF",
+        company = Company(ticker=f"{code}.AX", asx_code=code, company_name=(name or code)[:255], security_type=kind,
                           trading_currency="AUD", financial_currency="AUD", is_active=True)
         session.add(company)
         session.flush()
         return company, "added"
     change = None
-    if company.security_type != "ETF":
-        company.security_type, change = "ETF", "reclassified"
+    if company.security_type != kind:
+        company.security_type, change = kind, "reclassified"
     elif not company.is_active:
         company.is_active, change = True, "reactivated"
     if name and company.company_name != name[:255]:
@@ -595,17 +626,20 @@ def _etf_company(session, code: str, name: str | None) -> tuple[Company, str | N
 
 
 def load_report(session, path: Path, month: date | None = None) -> LoadResult:
-    """Load one report: every ETP becomes (or stays) an ETF in `companies`
-    with that month's row in `etf_monthly`. When it's the newest report
-    loaded, ETFs it no longer lists are marked inactive (their history is
-    kept). Re-loading a month replaces that month's rows."""
+    """Load one report: every ETP becomes (or stays) an ETF in `companies`,
+    and every LIC or LIT an LIC (§27), each with that month's row in
+    `etf_monthly`. When it's the newest report loaded, ETFs and LICs it no
+    longer lists are marked inactive (their history is kept). Re-loading a
+    month replaces that month's rows."""
     report = read_report(path, month)
     if report.month is None:
         raise ReportError(f"Can't tell which month {Path(path).name} covers; give it with --month YYYY-MM")
     newest = session.execute(select(func.max(EtfMonthly.report_month))).scalar_one()
     added, reclassified, reactivated = [], [], []
-    for code, item in sorted(report.rows.items()):
-        company, change = _etf_company(session, code, item.get("fund_name"))
+    listed = [(code, item, "ETF") for code, item in sorted(report.rows.items())] + \
+             [(code, item, "LIC") for code, item in sorted(report.lics.items()) if code not in report.rows]
+    for code, item, kind in listed:
+        company, change = _fund_company(session, code, item.get("fund_name"), kind)
         {"added": added, "reclassified": reclassified, "reactivated": reactivated}.get(change, []).append(code)
         values = {k: v for k, v in item.items() if k in EtfMonthly.__table__.columns}
         values.update(company_id=company.company_id, report_month=report.month, source_file=Path(path).name)
@@ -616,16 +650,20 @@ def load_report(session, path: Path, month: date | None = None) -> LoadResult:
                 | {"loaded_at": func.current_timestamp()}))
     deactivated = []
     if newest is None or report.month >= newest:
-        gone = session.execute(select(Company).where(
-            Company.security_type == "ETF", Company.is_active.is_(True),
-            Company.asx_code.not_in(list(report.rows)))).scalars().all()
-        deactivated = sorted(c.asx_code for c in gone)
-        if gone:
-            session.execute(update(Company).where(Company.company_id.in_([c.company_id for c in gone]))
-                            .values(is_active=False))
+        for kind, codes in (("ETF", report.rows), ("LIC", report.lics)):
+            if not codes:
+                continue  # a report without that list says nothing about those funds
+            gone = session.execute(select(Company).where(
+                Company.security_type == kind, Company.is_active.is_(True),
+                Company.asx_code.not_in(list(codes)))).scalars().all()
+            deactivated += sorted(c.asx_code for c in gone)
+            if gone:
+                session.execute(update(Company).where(Company.company_id.in_([c.company_id for c in gone]))
+                                .values(is_active=False))
     if reclassified:
-        logger.warning("Now treated as ETFs (were shares): %s", ", ".join(reclassified))
-    return LoadResult(report.month, len(report.rows), added, reclassified, deactivated, reactivated)
+        logger.warning("Reclassified from the ASX report (shares now treated as ETFs or LICs): %s", ", ".join(reclassified))
+    return LoadResult(report.month, len(report.rows), added, reclassified, deactivated, reactivated,
+                      len([c for c in report.lics if c not in report.rows]))
 
 
 def latest_loaded(session) -> date | None:

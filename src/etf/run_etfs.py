@@ -50,7 +50,7 @@ def _month(text: str | None) -> date | None:
 
 
 def _summary(result: asx_report.LoadResult) -> str:
-    parts = [f"ASX report for {result.month:%B %Y}: {result.etfs} ETPs"]
+    parts = [f"ASX report for {result.month:%B %Y}: {result.etfs} ETPs, {result.lics} LICs and LITs"]
     for label, codes in (("new", result.added), ("now ETFs", result.reclassified),
                          ("no longer listed", result.deactivated), ("listed again", result.reactivated)):
         if codes:
@@ -91,12 +91,12 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_prices:
             results = ingest_etf_prices(session, args.codes, period=args.period, delay_seconds=args.delay)
             empty = [c for c, n in results.items() if n == 0]
-            logger.info("ETF prices: %d/%d returned data%s", len(results) - len(empty), len(results),
+            logger.info("ETF and LIC prices: %d/%d returned data%s", len(results) - len(empty), len(results),
                         f" - none for: {', '.join(empty[:30])}" if empty else "")
 
         written = performance.update_performance(session)
         session.commit()
-        logger.info("ETF performance updated for %d ETFs", written)
+        logger.info("Performance updated for %d ETFs and LICs", written)
         differences = performance.report_differences(session)
         if differences:
             logger.info("1-year return differs from the ASX report by more than 2 points for %d ETFs: %s",

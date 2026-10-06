@@ -39,7 +39,7 @@ def test_names_are_unique_and_entries_update_in_place(seeded):
 
 def test_only_valued_companies_can_be_watched(seeded):
     w = lists.create_watchlist(seeded, "Ideas")
-    with pytest.raises(lists.WatchlistError, match="isn't a company Sift values or an ETF it follows"):
+    with pytest.raises(lists.WatchlistError, match="isn't a company Sift values or an ETF or LIC it follows"):
         lists.save_entry(seeded, w, "NOPE", lists.entry_fields({}))
 
 
@@ -66,7 +66,7 @@ def test_browser_flow_and_where_watchlists_show(seeded):
     detail = client.get(base).json()
     assert [(e["asx_code"], e["triggered"]) for e in detail["items"]] == [("GOOD", True), ("DEAR", False)]  # triggered first
     assert client.get("/api/watchlists").json()["watchlists"] == [
-        {"watchlist_id": w["watchlist_id"], "name": "Ideas", "companies": 2, "etfs": 0, "triggered": 1}]
+        {"watchlist_id": w["watchlist_id"], "name": "Ideas", "companies": 2, "etfs": 0, "lics": 0, "triggered": 1}]
 
     rows = {r["asx_code"]: r for r in client.get("/api/screener").json()["rows"]}
     assert rows["GOOD"]["watchlists"] == ["Ideas"]

@@ -7,6 +7,7 @@ in dollars (layout "flat")."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -111,7 +112,31 @@ def build_asx_2026(folder: Path, name: str = "asx-investment-products-july-2026-
     lst.append([])
     lst.append([None, "Type: ETF = Exchange Transacted Fund, SP = Structured Product"])
     lst.append([None, "^  Identifies an ETF that invests in whole or in part into another ETF admitted to ASX."])
-    for title in ("Spotlight LIC List", "Spotlight A-REITS  List", "Spotlight Infra  List"):
+    lic = wb.create_sheet("Spotlight LIC List")
+    for _ in range(8):
+        lic.append([])
+    lic.append(["IRESS Watchlist: /XIC", None, None, None, None, "Activity"] + [None] * 10 + ["Prices", None, "Prices", None, None, "Returns"])
+    lic.append(["ASX  Code", "Type", "Fund Name", None, None, "  MER (% p.a)", "Outperf Fee", "Mkt Cap ($m)#", "Mkt Cap ($m) Change",
+                "Transacted Value ($)", "Transacted Volume", "Number  of Transactions", "Monthly Liquidity %",
+                "Prem/Disc % NTA (pre-tax) at NTA Date", "NTA Date", None, "NTA Price", "Last Close", "Year High", "Year Low", None,
+                "Historical Distribution Yield", "1 Month Total Return", "1 Year Total Return", "3 Year Total Return (ann.)",
+                "5 Year Total Return (ann.)"])
+    lic.append(["Equity - Australia"])
+    lic.append(["AFI", "Shares", "Australian Foundation Investment Company Limited", None, None, 0.16, "No", "8,421.43", 151.6,
+                139328499.04, 20146298, 31453, 0.0165, -0.11097, datetime(2026, 6, 30), None, 7.93, 7.05, 7.46, 6.33, None,
+                0.03759, -0.02979, -0.04817, 0.03894, 0.009144])
+    lic.append(["WAM", "Shares", "WAM Capital Limited", None, None, 1, "Yes", "1,792.67", 5.0, 1000000, 100, 10, 0.01, 0.0525,
+                datetime(2026, 6, 30), None, 1.43, 1.505, 1.6, 1.3, None, 0.0826, 0.01, 0.12, 0.05, 0.04])
+    for code, name_, prem in (("ARG", "Argo Investments Limited", -0.143), ("BKI", "BKI Investment Company Limited", -0.08)):
+        lic.append([code, "Shares", name_, None, None, 0.18, "No", "1,533.56", 1.0, 1000000, 100, 10, 0.01, prem,
+                    datetime(2026, 6, 30), None, 10.84, 9.29, 9.59, 8.45, None, 0.02, -0.026, 0.026, 0.066, 0.047])
+    lic.append(["Fixed Income - Australian Dollar"])
+    lic.append(["MXT", "Units", "Metrics Master Income Trust", None, None, 0.86, "No", "2,365.92", 1.0, 1000000, 100, 10, 0.01,
+                0.0021, datetime(2026, 6, 30), None, 2.0, 2.004, 2.02, 1.98, None, 0.0811, 0.007, 0.085, 0.08, 0.07])
+    lic.append(["Australian Indices"])
+    lic.append(["XJOAI", "Index", "S&P/ASX 200 Accumulation Index", None, None, "n/a", "n/a", "n/a"])
+    lic.append(["NTA data is provided by Bloomberg."])
+    for title in ("Spotlight A-REITS  List", "Spotlight Infra  List"):
         other = wb.create_sheet(title)
         for _ in range(9):
             other.append([])

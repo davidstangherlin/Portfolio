@@ -22,10 +22,12 @@ CREATE TABLE IF NOT EXISTS companies (
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(100);
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS trading_currency VARCHAR(3);    -- share price currency (AUD on the ASX)
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS financial_currency VARCHAR(3);  -- currency the statements are published in
--- SHARE or ETF (docs/AS_BUILT.md §25). ETFs share the price and distribution
--- tables with shares but are never valued, screened or scored as shares.
-ALTER TABLE companies ADD COLUMN IF NOT EXISTS security_type VARCHAR(5) NOT NULL DEFAULT 'SHARE'
-    CHECK (security_type IN ('SHARE', 'ETF'));
+-- SHARE, ETF (docs/AS_BUILT.md §25) or LIC (§27, listed investment companies
+-- and trusts). ETFs and LICs share the price and distribution tables with
+-- shares but are never valued, screened or scored as shares.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS security_type VARCHAR(5) NOT NULL DEFAULT 'SHARE';
+ALTER TABLE companies DROP CONSTRAINT IF EXISTS companies_security_type_check;
+ALTER TABLE companies ADD CONSTRAINT companies_security_type_check CHECK (security_type IN ('SHARE', 'ETF', 'LIC'));
 
 -- 2. DAILY MARKET PRICE & VOLUMES
 CREATE TABLE IF NOT EXISTS daily_prices (
@@ -259,7 +261,9 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     PRIMARY KEY (watchlist_id, company_id)
 );
 -- ETFs only (§26): trigger when the trailing 12-month distribution yield is above this %.
-ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS yield_above NUMERIC(6, 2);
+ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS yield_above NUMERIC(6, 2);   -- ETFs and LICs (§27)
+-- LICs only (§27): trigger when the price is at least this % below the last NTA.
+ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS nta_discount_above NUMERIC(6, 2);
 
 -- 5d. SCENARIOS (admin console what-ifs, docs/AS_BUILT.md §24)
 -- A named set of setting changes to try against today's data. Only the
@@ -311,6 +315,14 @@ CREATE TABLE IF NOT EXISTS etf_monthly (
     loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (company_id, report_month)
 );
+-- LICs and LITs (§27) share this table: net tangible assets per share
+-- before tax on unrealised gains, its date, the price's premium (+) or
+-- discount (-) to it at that date, and whether there's a performance fee.
+-- For LICs, fum_aud holds market capitalisation.
+ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS nta_pre_tax NUMERIC(12, 4);
+ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS nta_date DATE;
+ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS nta_premium_percent NUMERIC(8, 2);
+ALTER TABLE etf_monthly ADD COLUMN IF NOT EXISTS performance_fee VARCHAR(10);
 
 -- 5f. ETF PERFORMANCE (docs/AS_BUILT.md §25)
 -- Sift's own figures from daily prices and distributions

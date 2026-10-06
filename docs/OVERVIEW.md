@@ -22,6 +22,7 @@ At its core, the application runs a daily pipeline across roughly 500 ASX-listed
 12. **Keeps score on itself** - every night it records what it said about every company, then checks each month's calls after 1, 3, 6 and 12 months against the average share: how often BUY beat it, what you missed, and which current signals are of a kind that has actually worked.
 13. **Shows its working, and lets you test the rules** - an admin console lists every setting and formula with a link to its Help entry, shows any company's figures step by step, and runs what-if scenarios (a higher discount rate, a stricter ROE test) against today's data to show which companies would change, without touching the live rules.
 14. **Covers ETFs too, kept apart from shares** - every ETF on the ASX, with its fees, size and category from the ASX's own monthly report, and its prices, distributions and total returns over 1 month to 10 years, checked each month against the ASX's figures. ETFs have their own screener and pages, compared against their category and a fund you choose, and their own sections on the dashboard, in portfolios and in watchlists.
+15. **Treats LICs as their own thing** - listed investment companies and trusts are judged on what matters for them: the share price against the value of what they hold (net tangible assets), alongside fees, dividends and returns, with their own screener, pages and sections.
 
 ## Why It's Helpful to Investing
 

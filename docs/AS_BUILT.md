@@ -5,9 +5,9 @@
 | **Repository** | `davidstangherlin/Portfolio` |
 | **Default branch** | `main` |
 | **Document purpose** | Fault-finding, disaster recovery / rebuild, and third-party (e.g. ChatGPT) code design review |
-| **Document version** | 2.3 |
+| **Document version** | 2.4 |
 | **Date** | 2026-10-06 (first issued 2026-09-15) |
-| **Covers commits** | `d60ef53` (schema) to ETFs in Sift (2026-10-06); §15 has the full history |
+| **Covers commits** | `d60ef53` (schema) to LICs in Sift (2026-10-06); §15 has the full history |
 
 ---
 
@@ -22,9 +22,10 @@ Around that core:
 - **Track record** (§21) records what Sift said every night and scores it after 1, 3, 6 and 12 months against the average screened company, so the rules are judged on results.
 - **Knowledge base** (§23): one file, `web/knowledge.json`, supplies the Help page, every hover explanation and the glossary of the Word rules document.
 - **ETFs** (§25): every ASX exchange traded fund collected alongside the shares: its fund facts monthly from the ASX's own report, prices and distributions nightly with full history, and Sift's own total returns from 1 month to 10 years. Not valued or scored as companies. Sift shows them under their own heading, apart from shares: an ETF screener and page per ETF, and separate ETF sections on the dashboard, in portfolios and in watchlists (§26).
+- **LICs** (§27): listed investment companies and trusts under their own heading, judged on the share price against net tangible assets (NTA), from the same ASX report.
 - **Admin console** (§24): every setting, formula and threshold in one registry, shown with its Help entry; every company figure shown step by step; and what-if scenarios that compare different settings with live on today's data without changing anything live.
 
-**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete, and stages 1 and 2 of ETFs (collection, and presenting them apart from shares) are built. 533 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
+**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete, and stages 1 and 2 of ETFs (collection, and presenting them apart from shares) are built, as are LICs (§27). 556 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
 
 **Architecture:**
 
@@ -175,6 +176,7 @@ Portfolio/
 │       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
 │       ├── test_track_record.py        Scoring against made-up history, summary, deletion, report rules (§21)
 │       ├── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
+│       ├── test_lic_gui.py             LICs: reclassified from shares, NTA premium, sections, trigger rules (§27)
 │       ├── test_etf_gui.py             ETF screener and page, ETFs apart in dashboard, portfolios, watchlists (§26)
 │       ├── test_etfs.py                ETF loading, kept out of share screens, backfill, splits, performance (§25)
 │       └── test_admin.py               Scenarios match live when unchanged, workings match the engine, admin API (§24)
@@ -184,7 +186,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code (2026-10-06):** about 8,300 lines across 62 Python files, 3,200 lines of web front end (`web/`) and 465 lines of SQL, plus `tests/`: 533 tests (409 unit, 124 integration) in 36 files, of which 98 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
+**Total custom code (2026-10-06):** about 8,500 lines across 62 Python files, 3,300 lines of web front end (`web/`) and 480 lines of SQL, plus `tests/`: 556 tests (426 unit, 130 integration) in 37 files, of which 104 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -793,7 +795,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 
 ### 10.14 Web GUI, Portfolios, Watchlists, Track Record and Admin Console (2026-10-05 to 2026-10-06)
 
-- **533 tests** (409 unit, 124 integration), up from 156 at §10.13. Presenting ETFs (§26) added 25: the ETF page helpers, the ETF APIs, and ETFs kept apart on the dashboard, in portfolios and in watchlists, plus 14 Help entries. ETF collection (§25) added 80: reading the ASX report in two layouts, the performance maths, the raw-price change and the database steps end to end. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **556 tests** (426 unit, 130 integration), up from 156 at §10.13. LICs (§27) and the real report's layout (§25.1) added 23. Presenting ETFs (§26) added 25: the ETF page helpers, the ETF APIs, and ETFs kept apart on the dashboard, in portfolios and in watchlists, plus 14 Help entries. ETF collection (§25) added 80: reading the ASX report in two layouts, the performance maths, the raw-price change and the database steps end to end. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
 - **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
 - **Coverage check** (`coverage run -m pytest`, re-run 2026-10-06): 87% of statements overall; 95% to 97% for the admin console's modules (`src/settings.py`, `src/admin/`); 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
 - **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
@@ -836,6 +838,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 30 | What-if scenarios are judged on today's data only, and keep momentum at its live value | A scenario shows what would change tonight, not whether it would have done better over the past year; a scenario that moves the margin of safety a lot is shown with the live trend | By design for phases 1 and 2 (§24). Phase 4 (backtesting a scenario against the track record's history) would answer the first; nothing changes live until a scenario is deliberately published (phase 3, not built) |
 | 31 | Share prices stored before 2026-10-06 were dividend-adjusted a month at a time | Closes in the month before each ex-date were scaled down by that dividend and older ones weren't, leaving a small step at each ex-date in charts, the 52-week range and the 200-day average | Fixed for new prices (§25). To clean the existing history once: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 2y` |
 | 32 | The ETF report reader was first built without seeing the real spreadsheet | Headings worded differently would have been kept in `raw` but not mapped | **Resolved 2026-10-06** against the real July 2026 report the user supplied (§25.1): every needed column maps, categories come from the section rows, index rows and other sheets are left out. A future change of layout would show in `--inspect` |
+| 33 | LIC NTA is monthly | The premium or discount compares today's price with NTA reported about a month earlier, so a sharp market move in between distorts it | By design for now (§27): the LIC page shows the NTA date beside the figure. A daily NTA estimate would need each LIC's holdings |
 
 ---
 
@@ -975,12 +978,13 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-06 | User asked how to collect the ASX's ETFs into the database like the shares. Chose all four uses (price holdings, compare and screen, look-through value, watchlists), every ASX ETF, the ASX monthly report as the source with the download automated as far as possible, AMIT cost base adjustments included, and 1 to 10-year performance; agreed four stages and built stage 1. Added `companies.security_type`, `etf_monthly` and `etf_performance`, `src/etf/` (the ASX report finder, downloader and heading-based reader with `--inspect`; nightly prices and distributions with a full-history backfill; total returns 1 month to 10 years with a check against the report), nightly step 1b, ETFs kept out of share valuation and the screener view, and Help entries. Found and fixed while building it: Yahoo prices were stored dividend-adjusted a month at a time (known-issue #31), and a split left price history half-adjusted. 508 tests pass (80 new). §25 |
 | 2026-10-06 | User asked for ETFs to be presented under their own heading, separate from shares, and chose the menu bar, portfolios, watchlists, and the dashboard and search, then to start stage 2 now. Added an ETFs menu item, the ETF screener and a page per ETF (performance against the category average and a chosen reference fund, growth of $10,000, unit price with distribution markers, distributions by financial year, fund facts, fund size over time), a full-width ETFs card on the dashboard, Shares and ETFs sections with subtotals in portfolios and watchlists, ETF results in search, and a yield trigger for ETFs (`watchlist_items.yield_above`) with margin of safety triggers refused for ETFs. A third chart colour (`--s3`) was validated for both themes. 14 new Help entries in a new ETFs topic. 533 tests pass (25 new). §26 |
 | 2026-10-06 | User supplied the real ASX Investment Products report (July 2026) and an ASX LIC NTA report (March 2026), with Morningstar as optional. Checked the reader against the real report: fixed the infrastructure sheet being read as ETFs, categories (section rows, not a column), benchmark index rows, "Transacted Value", type names, and a sturdier fraction check (median, returns judged together); kept the "^" fund-of-funds mark. Added an ASX report column to each ETF's performance table, and noted that the ASX's returns include franking credits. Narrowed the ETF screener for 1280px screens. Known-issue #32 resolved. §25.1 |
+| 2026-10-06 | User chose to treat LICs as their own group like ETFs, with NTA from the ASX monthly report only and no Morningstar. Added security type LIC, NTA columns, the LIC sheet reader, an LIC screener and page (premium or discount to NTA, NTA history, dividends, performance against category and a reference LIC), LICs card on the dashboard, LICs sections in portfolios and watchlists, an NTA discount trigger, LICs in search, and the share ingestion skipping ETFs and LICs. An LIC in the ticker file moves out of the share screener. Menu and phone layout adjusted for the extra menu item. 556 tests pass. §27 |
 
 ---
 
 ## 16. Automation (`scripts/daily_refresh.ps1`)
 
-**Step 1b, ETFs (added 2026-10-06):** `python -m src.etf.run_etfs` runs after share ingestion: last month's ASX Investment Products report if it isn't loaded yet, then prices and distributions for every active ETF (full history the first time), then ETF performance (§25). A report that isn't out yet or can't be downloaded is logged and the step carries on.
+**Step 1b, ETFs and LICs (added 2026-10-06):** `python -m src.etf.run_etfs` runs after share ingestion: last month's ASX Investment Products report if it isn't loaded yet, then prices and distributions for every active ETF and LIC (full history the first time), then ETF performance (§25). A report that isn't out yet or can't be downloaded is logged and the step carries on.
 
 **Step 4, Track Record (added 2026-10-05):** `python -m src.tracking.score_signals` scores every signal whose 1, 3, 6 or 12 months the prices have reached, rebuilds the monthly summary, then deletes detail older than 14 whole months (§21). Re-running it scores nothing twice. Suggested Actions is now step 5.
 
@@ -1065,6 +1069,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 26. **ETFs apart from shares.** *"When presenting ETFs I want that under the etf heading separated to shares"*. Then chose the menu bar, portfolios, watchlists, and the dashboard and search, and to start stage 2 now. → §26.
 
+27. **LICs.** Supplied an ASX LIC NTA report and the July 2026 ETF report (*"here are 2 attachments that we could use for ETF's. Morning star is optional"*), then chose LICs under their own heading, NTA from the ASX monthly report only, and no Morningstar. → §25.1, §27.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -1128,6 +1134,8 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 > "Here's the output of `python -m src.etf.run_etfs --inspect` on this month's ASX report: [paste]. Fix any heading that wasn't matched, then confirm the ETF count and a few funds' fees and returns against the ASX website."
 
 **ETFs stage 2, presented apart from shares (§26):** ✅ Done 2026-10-06.
+
+**LICs under their own heading (§27):** ✅ Done 2026-10-06.
 
 **ETFs stage 3 (AMIT):**
 > "Start ETF stage 3: enter each year's AMIT cost base increase or decrease per ETF from the annual tax statement, spread across the parcels held at 30 June, with a decrease beyond the cost base becoming a capital gain."
@@ -1302,7 +1310,7 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 **Purpose.** Follow companies without owning them, in as many named lists as you like, with a reason and a price or value level for each, so the dashboard says when one gets there.
 
-**ETFs (added 2026-10-06, §26):** watchlists hold ETFs too, shown under their own heading, with a yield trigger for ETFs (`yield_above`); a margin of safety trigger is for shares only.
+**ETFs and LICs (added 2026-10-06, §26, §27):** watchlists hold ETFs and LICs too, each under its own heading; LICs add a discount to NTA trigger (`nta_discount_above`). ETFs:, shown under their own heading, with a yield trigger for ETFs (`yield_above`); a margin of safety trigger is for shares only.
 
 **Model.** `watchlists` (name, unique ignoring case and repeated spaces) and `watchlist_items` keyed `(watchlist_id, company_id)`: optional `note` (up to 500 characters), `mos_above` (percent, may be negative) and `price_below` (above zero). Both foreign keys cascade, so deleting a list deletes its entries and nothing else. Entries reference `companies`, so only companies Sift values can be watched; adding any other code is refused with a pointer to the nightly ticker file (`allords.txt`). That file and these lists are different things: the file decides what gets valued, a list decides what you follow.
 
@@ -1468,3 +1476,38 @@ Each setting carries its group, label, unit, allowed range, formula, where it's 
 - Category averages are plain averages of the ETFs in the category that have a figure, not weighted by size.
 - The reference fund isn't remembered between visits; it's in the page address.
 - Yields and returns are before franking and tax (known-issue #29).
+
+---
+
+## 27. LICs: Listed Investment Companies and Trusts (`src/etf/`, `web/`, added 2026-10-06)
+
+**Purpose.** The user supplied an ASX LIC NTA report alongside the ETF report, and chose to treat LICs as a third group under their own heading, apart from shares and ETFs, with NTA figures taken from the ASX monthly report only (no separate LIC NTA file), and no Morningstar data (it needs a paid licence). An LIC is a listed company (or, for an LIT, a trust) whose business is holding other investments; with a fixed number of shares, its price can sit well above or below the value of what it holds. The value measure is therefore the share price against **net tangible assets (NTA)**, not a cash flow valuation, which doesn't fit a company whose assets are other shares.
+
+**Source.** The "Spotlight LIC List" sheet of the same ASX Investment Products report (§25.1). Headings: ASX Code, Type (Shares = LIC, Units = LIT, CDI for a foreign-domiciled one), Fund Name, MER (% p.a), Outperf Fee (Yes/No), Mkt Cap ($m, written with commas), flows and trading, **Prem/Disc % NTA (pre-tax) at NTA Date** (a fraction), **NTA Date**, **NTA Price**, last close, year high and low, distribution yield and 1-month, 1, 3 and 5-year total returns (Bloomberg, gross dividends). Categories are section rows, as on the ETP sheet; the Australian Indices section is left out. The July 2026 report gives 91 LICs and LITs (68 LIC, 22 LIT, 1 CDI); AFI reads as NTA $7.93 at 30 June 2026, an 11.1% discount, market cap $8.4 billion, fee 0.16%, no performance fee.
+
+**Model.**
+- `companies.security_type` gains `LIC` (the check constraint is dropped and re-added, so an existing database upgrades in place).
+- `etf_monthly` and `etf_performance` hold LICs as well as ETFs (the names are kept so existing databases don't need migrating). New `etf_monthly` columns: `nta_pre_tax`, `nta_date`, `nta_premium_percent`, `performance_fee`. For LICs, `fum_aud` holds market capitalisation.
+- `watchlist_items.nta_discount_above`: an LIC trigger, met while the price is at least that many percent below the last NTA.
+
+**Reading and loading (`asx_report.py`).** `sheet_kind()` sends ETP sheets to the ETF reader and the LIC sheet to the same reader with LIC rules: NTA headings (`nta_premium_percent`, `nta_date`, `nta_pre_tax`; post-tax NTA ignored), "Outperf Fee" before the fee rule, "Mkt Cap" as size, Shares/Units shown as LIC/LIT, premium fractions scaled on the median like the other percents. `load_report()` creates or keeps each as security type LIC. **An LIC already in the nightly ticker file as a share is reclassified** (logged as a WARNING), which takes it out of the share valuation, screener, signals and the track record's average; its past signals stay in the track record. LICs the newest report no longer lists are marked inactive, separately from ETFs.
+
+**Prices, dividends and performance.** The nightly ETF step (§16 step 1b) now fetches prices and dividends for active LICs too, with the same full-history backfill and total-return figures. The share ingestion (`run_ingestion`) skips any code that is an ETF or LIC, so an LIC in `allords.txt` isn't fetched twice or given financial statements.
+
+**Premium or discount now (`views.premium_now`).** The latest close against the last reported NTA, in percent; until an LIC has prices stored, the ASX report's own figure at the NTA date (`premium_basis` says which). NTA is monthly, so the figure compares today's price with NTA at the end of the previous month or so.
+
+**In Sift.**
+- **Menu:** **LICs** next to ETFs. The LIC screener (`#/lics`, `/api/lics`) lists every active LIC with category, premium/discount to NTA (deepest discount first by default), fee, performance fee, market cap, 1, 3 and 5-year returns and yield; LIT marks a trust.
+- **LIC page (`#/lic/CODE`, `/api/lic/CODE?compare=`):** share price, premium/discount to NTA (against NTA $x at its date), fee with the performance fee, yield; performance against the category average, a reference LIC and the ASX report; growth of $10,000; share price with dividend markers; **premium/discount to NTA over time** (builds month by month); dividends per share by financial year; company facts. A company page for an LIC code redirects here, and search opens it.
+- **Dashboard:** an **LICs** card beside the ETFs card (LIC watchlist triggers, LIC parcels reaching the CGT discount, LICs held or watched with day move, premium/discount and 1-year return). The portfolio line splits Shares | ETFs | LICs.
+- **Portfolios and watchlists:** an **LICs** section under its own heading in each, with share price, premium/discount and yield; parcels and sales tag LIC codes. Watchlist triggers for LICs: price at or below, yield above, and discount to NTA of at least X%; the margin of safety trigger is refused.
+- **Layout:** with nine menu items, the menu folds behind the menu button below 1120px (was 1060px), menu items are tighter below 1400px, the search box keeps at least 96px, and on phones long cells and headings switch to short forms ("-14.3%", "vs NTA").
+
+**Help.** A new LICs topic: LIC (now with hover text and a guide), NTA (acronym, Word glossary), Premium/discount to NTA (Word glossary term "Discount to NTA"), performance fee, market cap, the LIC screener and an LIC's page; the getting around, dashboard, portfolios and watchlists guides mention LICs.
+
+**Tests.** `tests/integration/test_lic_gui.py`: an LIC in the share list moves to its own heading; the LIC screener and both premium bases; the LIC page and its LIC-only reference list; dashboard, portfolio and watchlist sections with the trigger rules; the share ingestion skipping ETFs and LICs; LIC prices and performance from the ETF step. `tests/unit/test_asx_report.py` covers the LIC sheet (a replica of the real layout), its headings and sheet selection.
+
+**Limits.**
+- NTA is monthly and about a month old when the report comes out; the live premium mixes today's price with that NTA. Post-tax NTA (in the separate LIC NTA report) isn't used.
+- Yields are cash only; most Australian LICs pay fully franked dividends, so their grossed-up yield is higher.
+- No suggested actions or scores for LICs; a wide discount can persist or widen for good reason (fees, performance, liquidity), so it's a prompt to look, not a signal.

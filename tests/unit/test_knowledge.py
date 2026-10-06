@@ -25,6 +25,8 @@ UI_LABELS = [
     "ETF", "Fee", "Fund size", "Spread", "Net flows", "1-year return", "3-year return", "5-year return",
     "10-year return", "Yield (12 months)", "Unit price", "Day move", "Category", "Issuer", "Category average",
     "Reference fund", "ASX report",
+    # LICs (§27)
+    "LIC", "NTA (pre-tax)", "Premium/discount to NTA", "Performance fee", "Market cap",
 ]
 
 

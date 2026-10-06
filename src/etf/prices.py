@@ -24,11 +24,14 @@ from src.models import Company, DailyPrice, DividendPayment
 logger = logging.getLogger(__name__)
 
 
+FUND_TYPES = ("ETF", "LIC")
+
+
 def active_etfs(session, codes: list[str] | None = None) -> list[tuple[Company, bool]]:
-    """(ETF, whether it has any stored prices), for every active ETF or the
-    codes given."""
+    """(fund, whether it has any stored prices), for every active ETF and
+    LIC (§27), or the codes given."""
     has_prices = exists().where(DailyPrice.company_id == Company.company_id)
-    stmt = select(Company, has_prices).where(Company.security_type == "ETF")
+    stmt = select(Company, has_prices).where(Company.security_type.in_(FUND_TYPES))
     stmt = stmt.where(Company.asx_code.in_(codes)) if codes else stmt.where(Company.is_active.is_(True))
     return [(c, bool(h)) for c, h in session.execute(stmt.order_by(Company.asx_code)).all()]
 

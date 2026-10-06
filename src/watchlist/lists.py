@@ -2,11 +2,12 @@
 with an optional note and triggers (docs/AS_BUILT.md §22, §26).
 
 An entry is triggered while its latest price is at or below its
-`price_below`, or, for a share, its margin of safety is above `mos_above`,
-or, for an ETF, its trailing 12-month distribution yield is above
-`yield_above`. Shares are judged on the screener's rows
-(src/screening/enriched.py), ETFs on the ETF screener's (src/etf/views.py).
-Only shares Sift values and ETFs it follows can be added."""
+`price_below`; or, for a share, its margin of safety is above `mos_above`;
+or, for an ETF or LIC, its trailing 12-month distribution yield is above
+`yield_above`; or, for an LIC, its price is at least `nta_discount_above`
+percent below its last NTA. Shares are judged on the screener's rows
+(src/screening/enriched.py), ETFs and LICs on theirs (src/etf/views.py).
+Only shares Sift values, and ETFs and LICs it follows, can be added."""
 
 from __future__ import annotations
 
@@ -81,7 +82,7 @@ def _company(session: Session, asx_code) -> Company:
     code = str(asx_code or "").strip().upper()
     company = session.execute(select(Company).where(Company.asx_code == code)).scalar_one_or_none() if code else None
     if company is None:
-        raise WatchlistError(f"{code or 'That'} isn't a company Sift values or an ETF it follows. "
+        raise WatchlistError(f"{code or 'That'} isn't a company Sift values or an ETF or LIC it follows. "
                              "For a share, add it to the nightly ticker file (allords.txt) first.")
     return company
 
@@ -114,22 +115,33 @@ def entry_fields(body: dict) -> dict:
         "mos_above": _optional_number(body.get("mos_above"), "the margin of safety trigger", 2, Decimal("10000"), False),
         "price_below": _optional_number(body.get("price_below"), "the price trigger", 4, Decimal("1e8"), True),
         "yield_above": _optional_number(body.get("yield_above"), "the yield trigger", 2, Decimal("10000"), False),
+        "nta_discount_above": _optional_number(body.get("nta_discount_above"), "the NTA discount trigger", 2,
+                                               Decimal("10000"), False),
     }
+
+
+# Which triggers apply to which kind of security, and what to say otherwise.
+TRIGGER_KINDS = {
+    "mos_above": ({"SHARE"}, "{code} is {a} {kind}, which has no margin of safety: use a price or yield trigger"),
+    "yield_above": ({"ETF", "LIC"}, "the yield trigger is for ETFs and LICs; for {code} use a margin of safety or price trigger"),
+    "nta_discount_above": ({"LIC"}, "the NTA discount trigger is for LICs; {code} has no NTA"),
+}
 
 
 def save_entry(session: Session, watchlist: Watchlist, asx_code, fields: dict) -> WatchlistItem:
     """Add a company to a list, or update its note and triggers if it's already on it."""
     company = _company(session, asx_code)
-    if company.security_type == "ETF" and fields.get("mos_above") is not None:
-        raise WatchlistError(f"{company.asx_code} is an ETF, which has no margin of safety: use a price or yield trigger")
-    if company.security_type != "ETF" and fields.get("yield_above") is not None:
-        raise WatchlistError(f"the yield trigger is for ETFs; for {company.asx_code} use a margin of safety or price trigger")
+    for key, (kinds, message) in TRIGGER_KINDS.items():
+        if fields.get(key) is not None and company.security_type not in kinds:
+            raise WatchlistError(message.format(code=company.asx_code, kind=company.security_type,
+                                                a="an" if company.security_type in ("ETF", "LIC") else "a"))
     item = session.get(WatchlistItem, (watchlist.watchlist_id, company.company_id))
     if item is None:
         item = WatchlistItem(watchlist_id=watchlist.watchlist_id, company_id=company.company_id)
         session.add(item)
     item.note, item.mos_above, item.price_below = fields["note"], fields["mos_above"], fields["price_below"]
     item.yield_above = fields.get("yield_above")
+    item.nta_discount_above = fields.get("nta_discount_above")
     session.flush()
     return item
 
@@ -184,4 +196,9 @@ def triggers(item: WatchlistItem, row: dict | None) -> list[dict]:
         out.append({"kind": "yield_above", "threshold": item.yield_above, "value": dy,
                     "met": dy is not None and dy > item.yield_above,
                     "label": f"Yield above {item.yield_above.normalize():f}%"})
+    if item.nta_discount_above is not None:
+        prem = row.get("premium_now") if row else None
+        out.append({"kind": "nta_discount_above", "threshold": item.nta_discount_above, "value": prem,
+                    "met": prem is not None and prem <= -item.nta_discount_above,
+                    "label": f"Discount to NTA {item.nta_discount_above.normalize():f}% or more"})
     return out

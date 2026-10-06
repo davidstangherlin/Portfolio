@@ -46,6 +46,10 @@
    "name": "ETFs"
   },
   {
+   "id": "lics",
+   "name": "LICs"
+  },
+  {
    "id": "market",
    "name": "Market and general terms"
   }
@@ -60,6 +64,7 @@
     "Dashboard: the home page. What needs your attention, what changed overnight, the top opportunities and how the track record is going.",
     "Screener: every company Sift values, with its score, margin of safety, the four value tests and a suggested action. Filter by action, sector, watchlist or held shares; click a heading to sort and a row to open the company.",
     "ETFs: every ETF on the ASX, kept apart from shares, with its fee, size, yield and returns. Click one for its page: performance against its category and a fund you choose, growth of $10,000, distributions and fund facts.",
+    "LICs: every listed investment company and trust on the ASX, kept apart from shares and ETFs, with the share price against net tangible assets (NTA), fee, yield and returns.",
     "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
     "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
     "Track record: whether Sift's suggestions have actually worked.",
@@ -120,7 +125,8 @@
     "What changed: companies whose suggested action moved since the previous night. Watchlist companies come first, then better moves. A move between actions of equal rank, or one caused by your own buying or selling, isn't listed.",
     "Top opportunities: up to six shares you don't hold, BUY first then INVESTIGATE, by score and margin of safety.",
     "Today's suggested actions: counts per action; click one to open the screener filtered to it.",
-    "ETFs: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch with today's move, 1-year return and yield."
+    "ETFs: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch with today's move, 1-year return and yield.",
+    "LICs: the same for listed investment companies and trusts, with each one's premium or discount to NTA."
    ],
    "related": [
     "suggested-action",
@@ -914,7 +920,7 @@
     "Create a portfolio from Portfolios, + New portfolio. Each has its own holdings, sales and CGT report.",
     "Archive a portfolio once everything in it is sold: its sales stay in the CGT report. A portfolio with sales can't be deleted, because sale records are kept for five years.",
     "A company counts as held, for the suggested actions, if any portfolio holds it.",
-    "Each portfolio shows its shares and its ETFs under separate headings, each with its own subtotal, above the combined total. ETF parcels are bought, sold and taxed the same way as shares."
+    "Each portfolio shows its shares, ETFs and LICs under separate headings, each with its own subtotal, above the combined total. ETF and LIC parcels are bought, sold and taxed the same way as shares."
    ],
    "aliases": [
     "SMSF",
@@ -1071,8 +1077,8 @@
    "definition": "Named lists of companies and ETFs to follow without owning them, each with an optional note and triggers.",
    "body": [
     "Add a company or ETF with Add to watchlist on its page, or from the watchlist's own page.",
-    "Triggers: price at or below $Y for either; margin of safety above X% for shares; yield above X% for ETFs (the 12-month distribution yield). A trigger met shows a tick on the watchlist page and appears on the dashboard while it stays true: share triggers under Needs attention, ETF triggers in the ETFs card.",
-    "Each watchlist shows its shares and its ETFs under separate headings, with the figures that suit each.",
+    "Triggers: price at or below $Y for any; margin of safety above X% for shares; yield above X% for ETFs and LICs (the 12-month yield); discount to NTA of at least X% for LICs. A trigger met shows a tick on the watchlist page and appears on the dashboard while it stays true: share triggers under Needs attention, ETF and LIC triggers in their own cards.",
+    "Each watchlist shows its shares, ETFs and LICs under separate headings, with the figures that suit each.",
     "Watched companies carry a pink star in the screener, and watched ETFs in the ETF screener; both can filter to one watchlist or to any.",
     "Only companies Sift values, and ETFs it follows, can be watched. Watchlists are separate from the nightly ticker file (allords.txt), which decides which companies are valued."
    ],
@@ -1460,11 +1466,136 @@
   {
    "id": "lic",
    "title": "Listed investment company (LIC)",
-   "category": "market",
+   "category": "lics",
    "glossary": "acronym",
    "abbreviation": "LIC",
    "full": "Listed investment company",
-   "definition": "An ASX-listed company whose business is investing in other shares."
+   "definition": "An ASX-listed company whose business is investing in other shares.",
+   "labels": [
+    "LIC"
+   ],
+   "hover": "A listed investment company or trust: a fund that trades on the ASX like a share, with a fixed number of shares, so its price can sit above or below the value of what it holds (its NTA).",
+   "body": [
+    "Sift follows every LIC and LIT in the ASX's monthly Investment Products report, under its own LICs heading, apart from shares and ETFs. An LIC in the nightly ticker file is moved out of the share screener, because a cash flow valuation doesn't fit a company whose assets are other shares.",
+    "LICs are judged on the share price against net tangible assets (NTA), fee and performance fee, dividends and total return. Unlike an ETF, an LIC can't create or cancel shares to keep its price near its NTA, so it can trade at a lasting discount or premium.",
+    "Most Australian LICs pay fully franked dividends; the yields shown are cash only, before franking."
+   ],
+   "aliases": [
+    "listed investment company",
+    "listed investment trust",
+    "lit",
+    "closed-end fund"
+   ],
+   "related": [
+    "nta",
+    "nta-premium",
+    "lic-screener",
+    "lic-page"
+   ],
+   "links": [
+    {
+     "text": "Open the LIC screener",
+     "href": "#/lics"
+    }
+   ]
+  },
+  {
+   "id": "nta",
+   "title": "Net tangible assets (NTA)",
+   "category": "lics",
+   "glossary": "acronym",
+   "abbreviation": "NTA",
+   "full": "Net tangible assets",
+   "labels": [
+    "NTA (pre-tax)"
+   ],
+   "definition": "What an LIC's investments are worth per share, less its liabilities, as the company reports it each month. Pre-tax NTA is before tax on gains not yet realised.",
+   "hover": "The value per share of what the LIC holds, net of liabilities, before tax on unrealised gains, at the NTA date in the ASX report (usually the end of the month before).",
+   "related": [
+    "nta-premium",
+    "lic"
+   ]
+  },
+  {
+   "id": "nta-premium",
+   "title": "Premium/discount to NTA",
+   "category": "lics",
+   "glossary": "term",
+   "glossary_title": "Discount to NTA",
+   "labels": [
+    "Premium/discount to NTA"
+   ],
+   "definition": "How far an LIC's share price sits above (premium) or below (discount) its net tangible assets per share. A discount means buying its investments for less than they're worth.",
+   "hover": "Latest share price against the last reported NTA. A discount buys the LIC's investments for less than their value; it can persist or widen, so check why. The ASX report's own figure is at its NTA date.",
+   "aliases": [
+    "discount to nta",
+    "premium to nta",
+    "nta discount"
+   ],
+   "related": [
+    "nta",
+    "lic"
+   ]
+  },
+  {
+   "id": "performance-fee",
+   "title": "Performance fee",
+   "category": "lics",
+   "labels": [
+    "Performance fee"
+   ],
+   "definition": "A fee some LIC managers charge on top of the management fee when returns beat a benchmark. Yes or No, from the ASX report."
+  },
+  {
+   "id": "market-cap",
+   "title": "Market cap",
+   "category": "lics",
+   "labels": [
+    "Market cap"
+   ],
+   "definition": "Market capitalisation: shares on issue times the share price, from the ASX report. For an LIC it differs from the value of its investments by the premium or discount to NTA."
+  },
+  {
+   "id": "lic-screener",
+   "title": "LIC screener",
+   "category": "lics",
+   "definition": "Every LIC and LIT Sift follows, with its premium or discount to NTA, fee, performance fee, market cap, returns and yield, kept apart from shares and ETFs.",
+   "body": [
+    "Sorted by premium or discount to NTA, deepest discount first; click any heading to sort by it, and a row to open the LIC.",
+    "Filter by category (the ASX's grouping, such as Equity - Australia or Fixed Income - Australian Dollar), by watchlist, or to the LICs you hold. LIT marks a listed investment trust.",
+    "There are no suggested actions or scores for LICs: those come from estimated value. The discount to NTA is the value measure instead."
+   ],
+   "aliases": [
+    "lic list",
+    "lics page"
+   ],
+   "related": [
+    "lic",
+    "nta-premium",
+    "lic-page"
+   ],
+   "links": [
+    {
+     "text": "Open the LIC screener",
+     "href": "#/lics"
+    }
+   ]
+  },
+  {
+   "id": "lic-page",
+   "title": "An LIC's page",
+   "category": "lics",
+   "definition": "Everything about one LIC: share price, premium or discount to NTA, fee, yield, performance against its category and an LIC you choose, growth of $10,000, NTA history, dividends and company facts.",
+   "body": [
+    "The premium or discount tile compares the latest share price with the last NTA in the ASX report; the company facts also give the ASX's figure at the NTA date.",
+    "Premium/discount to NTA over time builds as each month's report is loaded.",
+    "Performance, growth of $10,000 and dividends work as on an ETF's page; the reference starts as the largest other LIC in the same category."
+   ],
+   "related": [
+    "lic-screener",
+    "nta-premium",
+    "etf-page"
+   ]
   },
   {
    "id": "reit",

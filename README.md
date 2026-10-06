@@ -404,6 +404,13 @@ Every ETF listed on the ASX is collected alongside the shares and shown under it
   safety triggers are for shares only.
 - **Search** finds ETFs by code or name and opens their page.
 
+**LICs** (listed investment companies and trusts, such as AFI, ARG, WAM) come from the same
+ASX report's LIC sheet and have their own **LICs** heading, apart from shares and ETFs: an LIC
+screener sorted by discount to net tangible assets (NTA), a page per LIC with NTA history,
+and LIC sections on the dashboard, in portfolios and in watchlists (with a "discount to NTA of
+at least X%" trigger). An LIC in `allords.txt` moves out of the share screener the first time
+the report loads; the ETF step fetches its prices. See docs/AS_BUILT.md §27.
+
 How the data is collected:
 
 - **Which ETFs, and their fund facts** (issuer, category, fees, size, flows, spread, the
@@ -485,9 +492,9 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers, 533 tests in all:
+Two tiers, 556 tests in all:
 
-- **`tests/unit/`** (409 tests) - no database connection at all, so these run in about a
+- **`tests/unit/`** (426 tests) - no database connection at all, so these run in about a
   second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
   the score wheel, dividend history and currency conversion, franking, CGT arithmetic
   (including the discount by tax type), browser input checks and the cross-site write guard,
@@ -495,14 +502,15 @@ Two tiers, 533 tests in all:
   (live values pinned, guard rails), reading the ASX ETF report (two layouts), ETF total
   returns and the ETF page's figures, and the knowledge base behind the Help page (one check
   per entry).
-- **`tests/integration/`** (124 tests) - the parts that genuinely need a real database: the
+- **`tests/integration/`** (130 tests) - the parts that genuinely need a real database: the
   schema (re-applied, upgraded from an older version, and built from nothing), ingestion
   upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
   web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password
   and same-page guards), signal recording, track record scoring against 13 months of
   made-up history, and the admin console (a scenario with no changes matches live exactly,
   workings match the engine), and ETFs (loading reports, kept out of the screener, backfill,
-  splits, performance, and shown apart from shares in every page). `tests/conftest.py` creates an `asx_test` database and applies
+  splits, performance, and shown apart from shares in every page), and LICs (NTA premium, sections,
+  trigger rules). `tests/conftest.py` creates an `asx_test` database and applies
   `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to point at a
   different instance) - it never touches whatever database your `.env` points at.
 

@@ -35,8 +35,10 @@ def test_a_company_no_longer_valued_meets_nothing():
 
 def test_entry_fields_are_cleaned():
     assert entry_fields({"note": "  watch  ", "mos_above": "25%", "price_below": "$38.50"}) == {
-        "note": "watch", "mos_above": Decimal("25"), "price_below": Decimal("38.50"), "yield_above": None}
-    assert entry_fields({}) == {"note": None, "mos_above": None, "price_below": None, "yield_above": None}
+        "note": "watch", "mos_above": Decimal("25"), "price_below": Decimal("38.50"), "yield_above": None,
+        "nta_discount_above": None}
+    assert entry_fields({}) == {"note": None, "mos_above": None, "price_below": None, "yield_above": None,
+                                "nta_discount_above": None}
     assert entry_fields({"yield_above": "5.5%"})["yield_above"] == Decimal("5.5")
     assert entry_fields({"mos_above": "-10"})["mos_above"] == Decimal("-10")  # "less overvalued than -10%" is allowed
 

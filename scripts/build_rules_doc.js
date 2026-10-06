@@ -377,6 +377,15 @@ add(
     ["Category average", "For each period, the plain average of the returns of the ETFs in the same ASX category that have a figure for it."],
     ["Reference fund", "The largest other ETF by fund size in the same category, unless another is chosen on the ETF's page. Growth of $10,000 starts both funds on the same date."],
   ], [0.25, 0.75]),
+  h2("11.8 Listed investment companies and trusts (LICs)"),
+  p("LICs and LITs are listed funds with a fixed number of shares, so the share price can sit above or below the value of what they hold. Sift treats them as a third group, apart from shares and ETFs, judged on the share price against net tangible assets (NTA)."),
+  table(["Item", "Rule"], [
+    ["Source", "The LIC sheet of the ASX Investment Products report, monthly: type (LIC, LIT), category, fee, performance fee, market cap, pre-tax NTA and its date, the premium or discount at that date, yield and returns. Benchmark index rows are left out."],
+    ["Shares reclassified", "A code already valued as a share that appears on the LIC sheet becomes an LIC: it leaves the share screener, suggested actions, scores and the track record."],
+    ["Premium or discount", "Latest share price divided by the last reported NTA, less one. Until prices are stored, the report's own figure at the NTA date. Positive is a premium, negative a discount."],
+    ["Prices, dividends, returns", "As for ETFs (section 11.7), fetched by the same nightly step; dividends are cash, before franking."],
+    ["Watchlist triggers", "Price at or below $Y; 12-month yield above X%; discount to NTA of at least X% (met while the premium is at or below minus X)."],
+  ], [0.25, 0.75]),
   bullet("**Presented apart from shares.** ETFs have their own screener and page per ETF, and their own section on the dashboard, in each portfolio (with its own subtotal) and in each watchlist. They never appear in the share screener, suggested actions, scores or the track record."),
 );
 

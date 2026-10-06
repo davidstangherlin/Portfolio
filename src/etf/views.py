@@ -1,7 +1,9 @@
-"""ETF figures for the web GUI (docs/AS_BUILT.md §26): the ETF screener's
-rows, and everything an ETF's own page shows. ETFs are presented apart
-from shares throughout Sift, under their own heading, and judged on cost,
-size, distributions and performance rather than valuation.
+"""ETF and LIC figures for the web GUI (docs/AS_BUILT.md §26, §27): the
+screener rows, and everything an ETF's or LIC's own page shows. Both are
+presented apart from shares throughout Sift, each under its own heading.
+ETFs are judged on cost, size, distributions and performance; LICs (listed
+investment companies and trusts) on the same, plus the price's premium or
+discount to net tangible assets (NTA). `kind` is ETF or LIC throughout.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ _ROWS = text("""
     ), closes AS (
         SELECT company_id, price_date, close_price,
                ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY price_date DESC) AS n
-        FROM daily_prices WHERE company_id IN (SELECT company_id FROM companies WHERE security_type = 'ETF')
+        FROM daily_prices WHERE company_id IN (SELECT company_id FROM companies WHERE security_type = :kind)
     )
     SELECT c.company_id, c.asx_code, COALESCE(m.fund_name, c.company_name) AS company_name,
            m.issuer, m.product_type, m.category, m.sub_category, m.benchmark, m.mer_percent, m.fum_aud,
@@ -39,6 +41,7 @@ _ROWS = text("""
            m.return_5y AS asx_return_5y, m.return_10y AS asx_return_10y,
            m.return_since_inception AS asx_return_since_inception, m.distribution_yield AS asx_distribution_yield,
            m.raw ? 'Invests in other ETFs' AS fund_of_funds,
+           m.nta_pre_tax, m.nta_date, m.nta_premium_percent, m.performance_fee,
            p1.close_price AS current_price, p1.price_date, p2.close_price AS previous_close,
            f.as_of_date, f.first_price_date, f.return_1m, f.return_3m, f.return_6m, f.return_1y, f.return_3y,
            f.return_5y, f.return_10y, f.return_since_inception, f.distributions_12m, f.distribution_yield_12m,
@@ -48,19 +51,25 @@ _ROWS = text("""
     LEFT JOIN closes p1 ON p1.company_id = c.company_id AND p1.n = 1
     LEFT JOIN closes p2 ON p2.company_id = c.company_id AND p2.n = 2
     LEFT JOIN etf_performance f ON f.company_id = c.company_id
-    WHERE c.security_type = 'ETF' AND c.is_active = TRUE
+    WHERE c.security_type = :kind AND c.is_active = TRUE
     ORDER BY c.asx_code
 """)
 
 
-def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None) -> list[dict]:
-    """One row per active ETF: fund facts from its latest ASX report, Sift's
-    performance, the latest close and day's move, and whether you hold or
-    watch it."""
+def premium_now(price, nta) -> Decimal | None:
+    """The latest price's premium (+) or discount (-) to the last NTA, in percent."""
+    return ((price / nta - 1) * 100).quantize(Decimal("0.01")) if price and nta and nta > 0 else None
+
+
+def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None, kind: str = "ETF") -> list[dict]:
+    """One row per active ETF (or LIC): fund facts from its latest ASX
+    report, Sift's performance, the latest close and day's move, and
+    whether you hold or watch it. LIC rows also carry `premium_now`, the
+    latest price against the last reported NTA."""
     positions = position_summaries(session, today)
     watched = watched or {}
     out = []
-    for r in session.execute(_ROWS).mappings():
+    for r in session.execute(_ROWS, {"kind": kind}).mappings():
         row = dict(r)
         row["category"] = row["category"] or row["product_type"] or UNCATEGORISED
         before, now = row.pop("previous_close"), row["current_price"]
@@ -71,7 +80,12 @@ def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None) 
         position = positions.get(row["asx_code"])
         row["held"] = position.units if position else None
         row["watchlists"] = watched.get(row["asx_code"], [])
-        row["security_type"] = "ETF"
+        row["security_type"] = kind
+        # The latest price against the last NTA; until prices are stored, the
+        # ASX report's own figure at the NTA date.
+        live = premium_now(now, row["nta_pre_tax"])
+        row["premium_now"] = live if live is not None else row["nta_premium_percent"]
+        row["premium_basis"] = "latest price" if live is not None else ("NTA date" if row["nta_premium_percent"] is not None else None)
         out.append(row)
     return out
 
@@ -85,8 +99,8 @@ def category_averages(rows: list[dict]) -> dict[str, dict]:
     out = {}
     for category, members in groups.items():
         avg = {"category": category, "etfs": len(members)}
-        for key in (*RETURN_KEYS, "mer_percent", "distribution_yield_12m"):
-            values = [m[key] for m in members if m[key] is not None]
+        for key in (*RETURN_KEYS, "mer_percent", "distribution_yield_12m", "premium_now"):
+            values = [m[key] for m in members if m.get(key) is not None]
             avg[key] = (sum(values, Decimal("0")) / len(values)).quantize(Decimal("0.01")) if values else None
             avg[f"{key}_n"] = len(values)
         out[category] = avg
@@ -137,15 +151,17 @@ def distributions_by_year(h: History, today: date) -> list[dict]:
 
 def monthly_history(session, company_id) -> list[dict]:
     return [dict(r) for r in session.execute(text("""
-        SELECT report_month, fum_aud, mer_percent, net_flows_aud, avg_spread_percent, return_1y
+        SELECT report_month, fum_aud, mer_percent, net_flows_aud, avg_spread_percent, return_1y,
+               nta_pre_tax, nta_date, nta_premium_percent
         FROM etf_monthly WHERE company_id = :c ORDER BY report_month
     """), {"c": company_id}).mappings()]
 
 
 def etf_detail(session, code: str, today: date, compare: str | None = None,
-               watched: dict[str, list[str]] | None = None) -> dict | None:
-    """Everything the ETF page shows, or None if `code` isn't an active ETF."""
-    rows = etf_rows(session, today, watched)
+               watched: dict[str, list[str]] | None = None, kind: str = "ETF") -> dict | None:
+    """Everything the ETF (or LIC) page shows, or None if `code` isn't an
+    active one of that kind. The reference fund is always the same kind."""
+    rows = etf_rows(session, today, watched, kind)
     by_code = {r["asx_code"]: r for r in rows}
     row = by_code.get(code)
     if row is None:
@@ -178,8 +194,9 @@ def etf_detail(session, code: str, today: date, compare: str | None = None,
     }
 
 
-def screener_payload(session, today: date, watched: dict[str, list[str]], watchlist_names: list[str]) -> dict:
-    rows = etf_rows(session, today, watched)
+def screener_payload(session, today: date, watched: dict[str, list[str]], watchlist_names: list[str],
+                     kind: str = "ETF") -> dict:
+    rows = etf_rows(session, today, watched, kind)
     return {
         "rows": rows,
         "categories": sorted({r["category"] for r in rows}),
@@ -188,4 +205,5 @@ def screener_payload(session, today: date, watched: dict[str, list[str]], watchl
         "as_of": max((r["as_of_date"] for r in rows if r["as_of_date"]), default=None),
         "report_month": max((r["report_month"] for r in rows if r["report_month"]), default=None),
         "watchlists": [{"name": n} for n in watchlist_names],
+        "kind": kind,
     }

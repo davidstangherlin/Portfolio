@@ -122,7 +122,7 @@ button, input, select { font: inherit; color: inherit; }
   border: 1px solid var(--border); border-radius: 8px; background: var(--page); color: var(--muted);
 }
 .nav-search:focus-within { border-color: var(--accent); }
-.nav-search input { border: 0; background: transparent; outline: none; width: 170px; min-width: 0; padding: 0; color: var(--ink); }
+.nav-search input { border: 0; background: transparent; outline: none; width: 170px; min-width: 96px; padding: 0; color: var(--ink); }
 .nav-search input:invalid, .nav-search.no-match input { color: var(--critical-text); }
 /* Data date: amber when the nightly data is behind or the last run had problems */
 .data-chip {
@@ -147,9 +147,10 @@ button, input, select { font: inherit; color: inherit; }
   font-size: 12px; color: var(--muted); cursor: pointer;
 }
 .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); border-color: var(--border); box-shadow: var(--shadow); }
-@media (max-width: 1240px) { .nav-search input { width: 120px; } .data-chip .long { display: none; } }
+@media (max-width: 1400px) { .mainnav > a, .dd-btn { padding: 0 7px; } .data-chip .long { display: none; } }
+@media (max-width: 1240px) { .nav-search input { width: 120px; } }
 /* Tablet and phone: the menu folds behind the menu button */
-@media (max-width: 1060px) {
+@media (max-width: 1120px) {
   .menu-btn { display: grid; order: -1; }
   .brand { margin-right: 0; }
   .mainnav {
@@ -600,10 +601,10 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .compare-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; font-size: 13px; color: var(--ink-2); }
 .compare-row select { max-width: 100%; }
 .etf-tag { background: var(--surface-2); color: var(--ink-2); }
-.perf-table .short { display: none; }
+.grid .short { display: none; }
 @media (max-width: 480px) {
-  .perf-table .long { display: none; }
-  .perf-table .short { display: inline; }
+  .grid .long { display: none; }
+  .grid .short { display: inline; }
   table.grid.perf-table th, table.grid.perf-table td { padding-left: 4px; padding-right: 4px; font-size: 12px; letter-spacing: 0; }
 }
 .grid .clip { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }

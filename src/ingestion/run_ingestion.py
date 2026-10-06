@@ -29,9 +29,12 @@ import logging
 import sys
 from pathlib import Path
 
+from sqlalchemy import select
+
 from src.config import get_session
 from src.ingestion.fundamentals_ingestion import ingest_fundamentals
 from src.ingestion.price_ingestion import ingest_daily_prices
+from src.models import Company
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -81,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Ingesting %d ticker(s)%s", len(tickers), f" (delay {args.delay}s between each)" if args.delay else "")
 
     with get_session() as session:
+        # ETFs and LICs in the ticker file are fetched by the ETF step
+        # (src/etf/run_etfs.py) and have no statements to ingest (§25, §27).
+        funds = set(session.execute(select(Company.asx_code).where(Company.security_type != "SHARE")).scalars())
+        skipped = [t for t in tickers if t in funds]
+        tickers = [t for t in tickers if t not in funds]
+        if skipped:
+            logger.info("Skipping %d ETFs and LICs, fetched by the ETF step: %s", len(skipped), ", ".join(skipped))
         if not args.fundamentals_only:
             price_results = ingest_daily_prices(session, tickers, period=args.period, delay_seconds=args.delay)
             failed = [t for t, n in price_results.items() if n == 0]

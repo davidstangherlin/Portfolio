@@ -357,8 +357,13 @@ def status_payload(session, today: date, now: datetime, log_dir: Path = LOG_DIR)
     }
 
 
-def etf_by_code(session, today: date, watched: dict[str, list[str]] | None = None) -> dict[str, dict]:
-    return {r["asx_code"]: r for r in etf_views.etf_rows(session, today, watched)}
+def etf_by_code(session, today: date, watched: dict[str, list[str]] | None = None, kind: str = "ETF") -> dict[str, dict]:
+    return {r["asx_code"]: r for r in etf_views.etf_rows(session, today, watched, kind)}
+
+
+def funds_by_code(session, today: date, watched: dict[str, list[str]] | None = None) -> dict[str, dict]:
+    """ETF and LIC rows together, by code."""
+    return etf_by_code(session, today, watched, "ETF") | etf_by_code(session, today, watched, "LIC")
 
 
 def portfolio_payload(session, universe, today: date, etfs: dict[str, dict] | None = None) -> dict:
@@ -384,7 +389,8 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
     rows_by = {r["asx_code"]: r for r in rows}
     watched = watchlists.watched_codes(session)
     etfs = etf_by_code(session, today, watched)
-    portfolio = portfolio_payload(session, universe, today, etfs)
+    lics = etf_by_code(session, today, watched, "LIC")
+    portfolio = portfolio_payload(session, universe, today, etfs | lics)
     # What changed: companies on a watchlist first, keeping the better-first order within each group.
     changes = signal_changes(session)
     for c in changes["changes"]:
@@ -416,9 +422,10 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "action_counts": {a: sum(1 for r in rows if r["action"] == a) for a in ACTION_ORDER},
         "attention": attention,
         "triggered": triggered_entries(session, rows_by),
-        "not_screened": sorted(set(universe.positions) - screened - set(etfs)),
-        "cgt_soon": [c for c in cgt_soon if c["security_type"] != "ETF"],
+        "not_screened": sorted(set(universe.positions) - screened - set(etfs) - set(lics)),
+        "cgt_soon": [c for c in cgt_soon if c["security_type"] == "SHARE"],
         "etfs": etf_panel(session, etfs, portfolio, [c for c in cgt_soon if c["security_type"] == "ETF"]),
+        "lics": etf_panel(session, lics, portfolio, [c for c in cgt_soon if c["security_type"] == "LIC"], "LIC"),
         "cgt_soon_days": CGT_SOON_DAYS,
         "portfolio": portfolio,
         "changes": changes,
@@ -432,13 +439,14 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
 ETF_PANEL_LIMIT = 8
 
 
-def etf_panel(session, etfs: dict[str, dict], portfolio: dict, cgt_soon: list[dict]) -> dict:
-    """The dashboard's ETFs card: watchlist triggers met on ETFs, ETF
-    parcels reaching the CGT discount, and the ETFs you hold or watch with
+def etf_panel(session, etfs: dict[str, dict], portfolio: dict, cgt_soon: list[dict], kind: str = "ETF") -> dict:
+    """The dashboard's ETFs (or LICs) card: watchlist triggers met on them,
+    parcels reaching the CGT discount, and the ones you hold or watch with
     today's move, held first, then biggest move first."""
     def brief(r):
         return {k: r[k] for k in ("asx_code", "company_name", "category", "current_price", "day_change_percent",
-                                  "return_1y", "distribution_yield_12m", "watchlists")} | {"held": r["held"] is not None}
+                                  "return_1y", "distribution_yield_12m", "premium_now", "watchlists")} | \
+            {"held": r["held"] is not None}
     followed = [r for r in etfs.values() if r["held"] is not None or r["watchlists"]]
     followed.sort(key=lambda r: (r["held"] is None, -abs(r["day_change_percent"] or 0), r["asx_code"]))
     return {
@@ -447,32 +455,34 @@ def etf_panel(session, etfs: dict[str, dict], portfolio: dict, cgt_soon: list[di
         "cgt_soon": cgt_soon,
         "followed": [brief(r) for r in followed[:ETF_PANEL_LIMIT]],
         "more": max(0, len(followed) - ETF_PANEL_LIMIT),
-        "value": portfolio["sections"]["ETF"],
+        "value": portfolio["sections"][kind],
+        "kind": kind,
     }
 
 
 def companies_index(session) -> list[dict]:
-    """Code and name of every screened company and every ETF, for the menu
-    bar search; ETFs are marked so search opens their own page."""
+    """Code and name of every screened company, ETF and LIC, for the menu
+    bar search; each is marked with its type so search opens the right page."""
     rows = session.execute(text("SELECT asx_code, company_name FROM asx_value_screener ORDER BY asx_code")).all()
-    etfs = session.execute(select(Company.asx_code, Company.company_name).where(
-        Company.security_type == "ETF", Company.is_active.is_(True)).order_by(Company.asx_code)).all()
+    funds = session.execute(select(Company.asx_code, Company.company_name, Company.security_type).where(
+        Company.security_type.in_(("ETF", "LIC")), Company.is_active.is_(True)).order_by(Company.asx_code)).all()
     return [{"code": code, "name": name, "type": "SHARE"} for code, name in rows] + \
-        [{"code": code, "name": name, "type": "ETF"} for code, name in etfs]
+        [{"code": code, "name": name, "type": kind} for code, name, kind in funds]
 
 
 # ---------- watchlists (§22) ----------
 
 def _entry(item, code: str, row: dict | None) -> dict:
     found = watchlists.triggers(item, row)
-    if row and row.get("security_type") == "ETF":
+    if row and row.get("security_type") in ("ETF", "LIC"):
         return {
-            "asx_code": code, "company_name": row["company_name"], "security_type": "ETF",
+            "asx_code": code, "company_name": row["company_name"], "security_type": row["security_type"],
             "note": item.note, "price_below": item.price_below, "yield_above": item.yield_above,
+            "nta_discount_above": item.nta_discount_above,
             "added_at": item.added_at, "triggers": found, "triggered": any(t["met"] for t in found),
             "price": row["current_price"], "held": row["held"] is not None,
             **{k: row[k] for k in ("category", "day_change_percent", "return_1y", "return_5y",
-                                   "distribution_yield_12m", "mer_percent")},
+                                   "distribution_yield_12m", "mer_percent", "premium_now", "nta_pre_tax")},
         }
     return {
         "asx_code": code, "company_name": row["company_name"] if row else None, "security_type": "SHARE",
@@ -498,7 +508,8 @@ def company_watchlists(session, company_id, row: dict) -> list[dict]:
         if item is not None:
             found = watchlists.triggers(item, row)
             entry |= {"note": item.note, "mos_above": item.mos_above, "price_below": item.price_below,
-                      "yield_above": item.yield_above, "triggers": found, "triggered": any(t["met"] for t in found)}
+                      "yield_above": item.yield_above, "nta_discount_above": item.nta_discount_above,
+                      "triggers": found, "triggered": any(t["met"] for t in found)}
         out.append(entry)
     return out
 
@@ -507,12 +518,13 @@ def watchlist_summaries(session, rows: dict[str, dict]) -> list[dict]:
     """Each list with its share and ETF counts (an ETF is anything in
     `rows` marked as one) and how many entries have a trigger met."""
     counts: dict = {}
+    bucket = {"ETF": "etfs", "LIC": "lics"}
     for item, code, _ in watchlists.entries(session):
-        c = counts.setdefault(item.watchlist_id, {"companies": 0, "etfs": 0, "triggered": 0})
+        c = counts.setdefault(item.watchlist_id, {"companies": 0, "etfs": 0, "lics": 0, "triggered": 0})
         row = rows.get(code)
-        c["etfs" if row and row.get("security_type") == "ETF" else "companies"] += 1
+        c[bucket.get(row.get("security_type") if row else None, "companies")] += 1
         c["triggered"] += any(t["met"] for t in watchlists.triggers(item, row))
-    empty = {"companies": 0, "etfs": 0, "triggered": 0}
+    empty = {"companies": 0, "etfs": 0, "lics": 0, "triggered": 0}
     return [{"watchlist_id": str(w.watchlist_id), "name": w.name} | counts.get(w.watchlist_id, empty)
             for w in watchlists.list_watchlists(session)]
 
@@ -523,6 +535,7 @@ def watchlist_detail(session, watchlist, rows: dict[str, dict]) -> dict:
     return {"watchlist_id": str(watchlist.watchlist_id), "name": watchlist.name,
             "items": [e for e in items if e["security_type"] == "SHARE"],
             "etfs": [e for e in items if e["security_type"] == "ETF"],
+            "lics": [e for e in items if e["security_type"] == "LIC"],
             "axes": list(AXES), "checks_per_axis": CHECKS_PER_AXIS}
 
 
@@ -643,7 +656,7 @@ def create_app(password: str | None = None) -> FastAPI:
 
     def watch_rows(session):
         """Screener rows for shares and ETF rows for ETFs, by code: what watchlist triggers are judged on."""
-        return rows_by_code(session) | etf_by_code(session, date.today())
+        return rows_by_code(session) | funds_by_code(session, date.today())
 
     def portfolio_or_404(session, portfolio_id: str) -> Portfolio:
         try:
@@ -698,7 +711,7 @@ def create_app(password: str | None = None) -> FastAPI:
             portfolio = portfolio_or_404(session, portfolio_id)
             return JSONResponse(_json_ready(
                 portfolio_views.portfolio_detail(session, portfolio, rows_by_code(session), date.today(),
-                                                 etf_by_code(session, date.today()))))
+                                                 funds_by_code(session, date.today()))))
 
     @app.patch("/api/portfolios/{portfolio_id}")
     def api_update_portfolio(portfolio_id: str, body: dict = Body(...)):
@@ -816,7 +829,8 @@ def create_app(password: str | None = None) -> FastAPI:
             w = watchlist_or_404(session, watchlist_id)
             item = watchlists.save_entry(session, w, asx_code, watchlists.entry_fields(body))
             return {"watchlist": w.name, "asx_code": asx_code.strip().upper(), "note": item.note,
-                    "mos_above": item.mos_above, "price_below": item.price_below, "yield_above": item.yield_above}
+                    "mos_above": item.mos_above, "price_below": item.price_below, "yield_above": item.yield_above,
+                    "nta_discount_above": item.nta_discount_above}
         return change(action)
 
     @app.delete("/api/watchlists/{watchlist_id}/items/{asx_code}")
@@ -826,23 +840,38 @@ def create_app(password: str | None = None) -> FastAPI:
             return {"removed": watchlists.remove_entry(session, w, asx_code)}
         return change(action)
 
-    # ---------- ETFs (§26) ----------
-    @app.get("/api/etfs")
-    def api_etfs():
+    # ---------- ETFs (§26) and LICs (§27) ----------
+    def fund_list(kind):
         with get_session() as session:
             names = [w.name for w in watchlists.list_watchlists(session)]
             return JSONResponse(_json_ready(etf_views.screener_payload(
-                session, date.today(), watchlists.watched_codes(session), names)))
+                session, date.today(), watchlists.watched_codes(session), names, kind)))
+
+    def fund_page(asx_code, compare, kind):
+        code = asx_code.strip().upper()
+        with get_session() as session:
+            detail = etf_views.etf_detail(session, code, date.today(), compare, watchlists.watched_codes(session), kind)
+            if detail is None:
+                raise HTTPException(status_code=404, detail=f"{code} isn't an {kind} Sift follows")
+            detail["watchlists"] = company_watchlists(session, detail["etf"]["company_id"], detail["etf"])
+            detail["kind"] = kind
+            return JSONResponse(_json_ready(detail))
+
+    @app.get("/api/etfs")
+    def api_etfs():
+        return fund_list("ETF")
 
     @app.get("/api/etf/{asx_code}")
     def api_etf(asx_code: str, compare: str | None = None):
-        code = asx_code.strip().upper()
-        with get_session() as session:
-            detail = etf_views.etf_detail(session, code, date.today(), compare, watchlists.watched_codes(session))
-            if detail is None:
-                raise HTTPException(status_code=404, detail=f"{code} isn't an ETF Sift follows")
-            detail["watchlists"] = company_watchlists(session, detail["etf"]["company_id"], detail["etf"])
-            return JSONResponse(_json_ready(detail))
+        return fund_page(asx_code, compare, "ETF")
+
+    @app.get("/api/lics")
+    def api_lics():
+        return fund_list("LIC")
+
+    @app.get("/api/lic/{asx_code}")
+    def api_lic(asx_code: str, compare: str | None = None):
+        return fund_page(asx_code, compare, "LIC")
 
     # ---------- admin console (§24) ----------
     def scenario_or_404(session, scenario_id: str):

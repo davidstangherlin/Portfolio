@@ -74,7 +74,8 @@ def test_grouped_layout(tmp_path):
     report = read_report(build_report(tmp_path))
     assert report.month == date(2026, 8, 1)
     assert sorted(report.rows) == ["GOLD", "HACK", "IOZ", "NDQ", "VAS"]  # no LIC, no Total row
-    assert report.skipped_sheets == ["LIC Spotlight"]
+    assert report.skipped_sheets == []
+    assert list(report.lics) == ["ARG"]  # the LIC sheet is read separately (§27)
     vas = report.rows["VAS"]
     assert vas["fund_name"] == "Vanguard Australian Shares Index ETF"
     assert vas["issuer"] == "Vanguard" and vas["category"] == "Australian Equities"
@@ -138,7 +139,7 @@ def test_describe_shows_the_mapping(tmp_path):
     text = asx_report.describe(read_report(build_report(tmp_path)))
     assert "Report month: August 2026" in text
     assert "Fund details Management Fee" in text and "-> mer_percent" in text
-    assert "Skipped sheets: LIC Spotlight" in text
+    assert "Sheet 'LIC Spotlight'" in text and "LICs and LITs" in text
 
 
 def test_download_prefers_the_page_links_and_stops_at_what_is_loaded(tmp_path):
@@ -189,8 +190,7 @@ def test_the_real_2026_layout(tmp_path):
     report = read_report(build_asx_2026(tmp_path))
     assert report.month == date(2026, 7, 1)
     assert sorted(report.rows) == ["G200", "GOLD", "HACK", "NDQ", "VAS"]  # not XJO, AFI or the notes
-    assert set(report.skipped_sheets) == {"Spotlight ETPs", "Spotlight LIC List", "Spotlight A-REITS  List",
-                                          "Spotlight Infra  List"}
+    assert set(report.skipped_sheets) == {"Spotlight ETPs", "Spotlight A-REITS  List", "Spotlight Infra  List"}
     vas = report.rows["VAS"]
     assert vas["category"] == "Equity - Australia" and vas["product_type"] == "ETF"
     assert vas["mer_percent"] == Decimal("0.07")                 # already a percent
@@ -208,3 +208,41 @@ def test_the_real_2026_layout(tmp_path):
     assert report.rows["G200"].get("return_3y") is None          # "n/a"
     notes = " ".join(report.sheets[0].notes)
     assert "category: taken from the section headings" in notes and "returns: written as fractions" in notes
+
+
+def test_the_real_2026_lic_list(tmp_path):
+    """The LIC sheet: Shares are LICs and Units LITs, NTA and its premium
+    or discount, the performance fee flag, market cap written with commas,
+    index rows left out."""
+    lics = read_report(build_asx_2026(tmp_path)).lics
+    assert sorted(lics) == ["AFI", "ARG", "BKI", "MXT", "WAM"]
+    afi = lics["AFI"]
+    assert afi["product_type"] == "LIC" and lics["MXT"]["product_type"] == "LIT"
+    assert afi["category"] == "Equity - Australia" and lics["MXT"]["category"] == "Fixed Income - Australian Dollar"
+    assert afi["nta_pre_tax"] == Decimal("7.93") and afi["nta_date"] == date(2026, 6, 30)
+    assert afi["nta_premium_percent"] == Decimal("-11.097")       # a fraction, scaled
+    assert lics["WAM"]["nta_premium_percent"] == Decimal("5.25")
+    assert afi["performance_fee"] == "No" and lics["WAM"]["performance_fee"] == "Yes"
+    assert afi["mer_percent"] == Decimal("0.16")
+    assert afi["fum_aud"] == Decimal("8421430000.00")               # "8,421.43" in $m
+    assert afi["distribution_yield"] == Decimal("3.759") and afi["return_1y"] == Decimal("-4.817")
+
+
+@pytest.mark.parametrize("label,field", [
+    ("Prem/Disc % NTA (pre-tax) at NTA Date", "nta_premium_percent"), ("NTA Date", "nta_date"),
+    ("NTA Price", "nta_pre_tax"), ("Pre-Tax NTA ($)", "nta_pre_tax"), ("Post Tax NTA ($)", None),
+    ("Outperf Fee", "performance_fee"), ("Mkt Cap ($m)#", "fum_aud"),
+])
+def test_lic_headings(label, field):
+    assert match_field(label) == field
+
+
+def test_sheet_kinds():
+    names = ["Spotlight ETPs", "Spotlight ETPs Issuers", "Spotlight ETP List", "Spotlight LIC List",
+             "Spotlight A-REITS  List", "Spotlight Infra  List"]
+    assert [asx_report.sheet_kind(n, names) for n in names] == ["ETF", None, "ETF", "LIC", None, None]
+
+
+def test_guessed_urls_try_the_full_month_name_first():
+    urls = asx_report.guessed_urls(date(2026, 7, 1))
+    assert urls[0] == f"{asx_report.REPORT_BASE}/2026/excel/asx-investment-products-july-2026-abs.xlsx"
