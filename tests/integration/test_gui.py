@@ -129,7 +129,7 @@ def test_cgt_discount_dates_within_90_days_need_attention(seeded):
     add_parcel(seeded, "DEAR", Decimal("10"), Decimal("50.00"), date(2025, 12, 1))
     seeded.commit()
     data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0)))
-    assert data["cgt_soon"] == [{"asx_code": "DEAR", "date": "2026-12-02", "units": 10.0, "days": 58}]
+    assert data["cgt_soon"] == [{"asx_code": "DEAR", "date": "2026-12-02", "units": 10.0, "days": 58, "security_type": "SHARE"}]
 
 
 def test_status_api_flags_stale_data(seeded):
@@ -143,7 +143,7 @@ def test_status_api_flags_stale_data(seeded):
 
 def test_companies_api_feeds_the_search_box(seeded):
     assert TestClient(gui.create_app()).get("/api/companies").json() == [
-        {"code": "DEAR", "name": "DEAR Ltd"}, {"code": "GOOD", "name": "GOOD Ltd"}]
+        {"code": "DEAR", "name": "DEAR Ltd", "type": "SHARE"}, {"code": "GOOD", "name": "GOOD Ltd", "type": "SHARE"}]
 
 
 def test_dashboard_api_responds(seeded):

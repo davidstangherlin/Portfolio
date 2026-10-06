@@ -74,6 +74,21 @@ def growth(h: History, start: date, end: date) -> float | None:
     return (units * last[1] + cash) / first[1]
 
 
+def growth_index(h: History) -> list[tuple[date, float]]:
+    """The value each day of one unit bought at the first close, with
+    every distribution reinvested the way growth() does it. Divide by the
+    value on any start date to chart growth from that date."""
+    out, units, i = [], 1.0, 0
+    dists = [(d, a) for d, a in h.distributions if h.dates and d > h.dates[0]]
+    for day, close in zip(h.dates, h.closes):
+        while i < len(dists) and dists[i][0] <= day:
+            if close > 0:
+                units *= 1 + dists[i][1] / close
+            i += 1
+        out.append((day, units * close))
+    return out
+
+
 def _pct(multiple: float | None, years: float | None = None) -> Decimal | None:
     if multiple is None or multiple <= 0:
         return None

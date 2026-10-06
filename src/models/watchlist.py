@@ -36,4 +36,5 @@ class WatchlistItem(Base):
     note: Mapped[str | None] = mapped_column(Text)
     mos_above: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     price_below: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    yield_above: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))  # ETFs only (§26)
     added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())

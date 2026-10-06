@@ -42,6 +42,10 @@
    "name": "Track record"
   },
   {
+   "id": "etfs",
+   "name": "ETFs"
+  },
+  {
    "id": "market",
    "name": "Market and general terms"
   }
@@ -55,12 +59,13 @@
    "body": [
     "Dashboard: the home page. What needs your attention, what changed overnight, the top opportunities and how the track record is going.",
     "Screener: every company Sift values, with its score, margin of safety, the four value tests and a suggested action. Filter by action, sector, watchlist or held shares; click a heading to sort and a row to open the company.",
+    "ETFs: every ETF on the ASX, kept apart from shares, with its fee, size, yield and returns. Click one for its page: performance against its category and a fund you choose, growth of $10,000, distributions and fund facts.",
     "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
     "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
     "Track record: whether Sift's suggestions have actually worked.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
     "Model and rules (settings gear, Admin): every setting and formula, and what-if scenarios.",
-    "Search: type a company code or name, or a term such as franking, in the box at the top."
+    "Search: type a company or ETF code or name, or a term such as franking, in the box at the top."
    ],
    "related": [
     "data-chip",
@@ -114,7 +119,8 @@
     "Needs attention: held shares flagged SELL or REVIEW, parcels reaching the CGT discount within 90 days, held shares missing from the nightly ticker file, and watchlist triggers met.",
     "What changed: companies whose suggested action moved since the previous night. Watchlist companies come first, then better moves. A move between actions of equal rank, or one caused by your own buying or selling, isn't listed.",
     "Top opportunities: up to six shares you don't hold, BUY first then INVESTIGATE, by score and margin of safety.",
-    "Today's suggested actions: counts per action; click one to open the screener filtered to it."
+    "Today's suggested actions: counts per action; click one to open the screener filtered to it.",
+    "ETFs: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch with today's move, 1-year return and yield."
    ],
    "related": [
     "suggested-action",
@@ -907,7 +913,8 @@
     "Individual and trust: 50% CGT discount. Self-managed super fund: 33 1/3%. Company: none.",
     "Create a portfolio from Portfolios, + New portfolio. Each has its own holdings, sales and CGT report.",
     "Archive a portfolio once everything in it is sold: its sales stay in the CGT report. A portfolio with sales can't be deleted, because sale records are kept for five years.",
-    "A company counts as held, for the suggested actions, if any portfolio holds it."
+    "A company counts as held, for the suggested actions, if any portfolio holds it.",
+    "Each portfolio shows its shares and its ETFs under separate headings, each with its own subtotal, above the combined total. ETF parcels are bought, sold and taxed the same way as shares."
    ],
    "aliases": [
     "SMSF",
@@ -1061,12 +1068,13 @@
    "id": "watchlists",
    "title": "Watchlists and triggers",
    "category": "watchlists",
-   "definition": "Named lists of companies to follow without owning them, each with an optional note and triggers.",
+   "definition": "Named lists of companies and ETFs to follow without owning them, each with an optional note and triggers.",
    "body": [
-    "Add a company with Add to watchlist on its page, or from the watchlist's own page.",
-    "Triggers: margin of safety above X%, and price at or below $Y. A trigger met shows a tick on the watchlist page and appears under Needs attention on the dashboard while it stays true.",
-    "Watched companies carry a pink star in the screener, which can filter to one watchlist or to any.",
-    "Only companies Sift values can be watched. Watchlists are separate from the nightly ticker file (allords.txt), which decides which companies are valued."
+    "Add a company or ETF with Add to watchlist on its page, or from the watchlist's own page.",
+    "Triggers: price at or below $Y for either; margin of safety above X% for shares; yield above X% for ETFs (the 12-month distribution yield). A trigger met shows a tick on the watchlist page and appears on the dashboard while it stays true: share triggers under Needs attention, ETF triggers in the ETFs card.",
+    "Each watchlist shows its shares and its ETFs under separate headings, with the figures that suit each.",
+    "Watched companies carry a pink star in the screener, and watched ETFs in the ETF screener; both can filter to one watchlist or to any.",
+    "Only companies Sift values, and ETFs it follows, can be watched. Watchlists are separate from the nightly ticker file (allords.txt), which decides which companies are valued."
    ],
    "aliases": [
     "watchlist",
@@ -1149,7 +1157,7 @@
   {
    "id": "etf",
    "title": "Exchange traded fund (ETF)",
-   "category": "market",
+   "category": "etfs",
    "glossary": "acronym",
    "abbreviation": "ETF",
    "full": "Exchange traded fund",
@@ -1167,14 +1175,26 @@
     "index fund"
    ],
    "related": [
+    "etf-screener",
+    "etf-page",
     "asx-etf-report",
     "lic"
+   ],
+   "labels": [
+    "ETF"
+   ],
+   "hover": "An exchange traded fund: one trade buys a slice of many investments. Judged on fee, size, distributions and total return, not estimated value.",
+   "links": [
+    {
+     "text": "Open the ETF screener",
+     "href": "#/etfs"
+    }
    ]
   },
   {
    "id": "asx-etf-report",
    "title": "ASX Investment Products report",
-   "category": "market",
+   "category": "etfs",
    "definition": "The ASX's monthly list of every exchange traded product, with its issuer, category, fees, size, flows, spread and performance. Sift's source for which ETFs exist and their fund facts.",
    "body": [
     "The ASX publishes it each month, usually by the seventh business day of the next month. Each night until last month's report is loaded, Sift looks for it: first in the data/asx_reports folder, then on the ASX website. Once it's loaded, nothing is downloaded until the next month.",
@@ -1190,6 +1210,246 @@
    "related": [
     "etf",
     "data-chip"
+   ]
+  },
+  {
+   "id": "etf-screener",
+   "title": "ETF screener",
+   "category": "etfs",
+   "definition": "Every ETF Sift follows, with its fee, size, returns and yield, kept apart from the share screener.",
+   "body": [
+    "Click a heading to sort and a row to open the ETF. Search covers codes, names and the index a fund tracks.",
+    "Filter by category (the ASX's grouping, such as Australian Equities or Fixed Income), by issuer, by watchlist, or to the ETFs you hold.",
+    "Returns are Sift's own total returns with distributions reinvested; 3, 5 and 10 years are yearly rates. A blank means the fund is younger than the period.",
+    "There are no suggested actions or scores for ETFs: those come from estimated value, which a fund doesn't have."
+   ],
+   "aliases": [
+    "etf list",
+    "etfs page",
+    "fund screener"
+   ],
+   "related": [
+    "etf",
+    "etf-page",
+    "total-return",
+    "mer"
+   ],
+   "links": [
+    {
+     "text": "Open the ETF screener",
+     "href": "#/etfs"
+    }
+   ]
+  },
+  {
+   "id": "etf-page",
+   "title": "An ETF's page",
+   "category": "etfs",
+   "definition": "Everything about one ETF: its price, fee, size and yield, performance against its category and a fund you choose, growth of $10,000, distributions and fund facts.",
+   "body": [
+    "Performance: each period's total return beside the category average and a reference fund. The reference starts as the largest other fund in the same category; pick any ETF to compare instead.",
+    "Growth of $10,000: what $10,000 invested at the start of the period would be worth now, distributions reinvested, for this ETF and the reference fund over the same dates.",
+    "Unit price: the last 12 months, with D on each distribution's ex-date. Distributions per unit: each financial year's cash per unit.",
+    "Fund facts come from the latest ASX report; fund size over time appears once two months of reports are loaded.",
+    "If Sift's 1-year return differs from the ASX report's by more than 2 points, the page says so: usually a distribution Yahoo missed, or the ASX working it out another way."
+   ],
+   "aliases": [
+    "etf details",
+    "compare etfs",
+    "growth of 10000"
+   ],
+   "related": [
+    "etf-screener",
+    "reference-fund",
+    "category-average",
+    "total-return"
+   ]
+  },
+  {
+   "id": "mer",
+   "title": "Fee (MER)",
+   "category": "etfs",
+   "glossary": "acronym",
+   "abbreviation": "MER",
+   "full": "Management expense ratio",
+   "labels": [
+    "Fee"
+   ],
+   "definition": "The fund's yearly cost as a percent of what you have invested, taken out of the fund's assets, so it's already reflected in the unit price and returns.",
+   "hover": "Yearly management fee as a percent of your investment (the MER). 0.10% costs $10 a year on $10,000. Already taken out of the returns shown.",
+   "aliases": [
+    "management fee",
+    "expense ratio",
+    "icr",
+    "management cost"
+   ],
+   "related": [
+    "fum",
+    "total-return"
+   ]
+  },
+  {
+   "id": "fum",
+   "title": "Fund size (FUM)",
+   "category": "etfs",
+   "glossary": "acronym",
+   "abbreviation": "FUM",
+   "full": "Funds under management",
+   "labels": [
+    "Fund size"
+   ],
+   "definition": "The total value of the fund's investments, from the ASX report. Larger funds tend to trade more easily and are less likely to close.",
+   "hover": "Total funds under management, from the latest ASX report. Larger funds usually trade with tighter spreads and are less likely to be closed.",
+   "aliases": [
+    "funds under management",
+    "size",
+    "net assets"
+   ],
+   "related": [
+    "net-flows",
+    "bid-ask-spread"
+   ]
+  },
+  {
+   "id": "bid-ask-spread",
+   "title": "Bid/ask spread",
+   "category": "etfs",
+   "labels": [
+    "Spread"
+   ],
+   "definition": "The average gap between the best buying and selling prices on the ASX, as a percent of the price: a cost paid on every trade.",
+   "hover": "Average gap between the best bid and ask, as a percent of price (from the ASX report). A cost you pay each time you buy or sell.",
+   "aliases": [
+    "spread",
+    "bid ask"
+   ],
+   "related": [
+    "fum",
+    "mer"
+   ]
+  },
+  {
+   "id": "net-flows",
+   "title": "Net flows",
+   "category": "etfs",
+   "labels": [
+    "Net flows"
+   ],
+   "definition": "Money invested into the fund less money taken out, over the report month. Rising flows mean investors are adding to it.",
+   "related": [
+    "fum"
+   ]
+  },
+  {
+   "id": "total-return",
+   "title": "Total return",
+   "category": "etfs",
+   "glossary": "term",
+   "glossary_title": "Total return",
+   "labels": [
+    "1-year return",
+    "3-year return",
+    "5-year return",
+    "10-year return"
+   ],
+   "definition": "The gain over a period counting both the price change and every distribution, reinvested on its ex-date. Over a year, shown as a yearly rate.",
+   "hover": "Price change plus distributions, reinvested at the ex-date close. 3, 5 and 10 years are yearly rates. Blank: the fund is younger than the period. Worked out by Sift from daily prices.",
+   "aliases": [
+    "performance",
+    "returns",
+    "annualised return"
+   ],
+   "related": [
+    "trailing-yield",
+    "category-average",
+    "reference-fund",
+    "asx-etf-report"
+   ]
+  },
+  {
+   "id": "trailing-yield",
+   "title": "Yield (12 months)",
+   "category": "etfs",
+   "glossary": "term",
+   "glossary_title": "Trailing yield",
+   "labels": [
+    "Yield (12 months)"
+   ],
+   "definition": "Cash distributions per unit with ex-dates in the last 12 months, as a percent of the latest unit price. Franking credits aren't included.",
+   "hover": "Distributions paid in the last 12 months divided by the latest price. All distributions count, including year-end distributions of gains. Before franking.",
+   "aliases": [
+    "distribution yield",
+    "trailing yield",
+    "etf yield"
+   ],
+   "related": [
+    "total-return",
+    "etf"
+   ]
+  },
+  {
+   "id": "unit-price",
+   "title": "Unit price",
+   "category": "etfs",
+   "labels": [
+    "Unit price"
+   ],
+   "definition": "The latest closing price of one unit of the ETF on the ASX."
+  },
+  {
+   "id": "day-move",
+   "title": "Day move",
+   "category": "etfs",
+   "labels": [
+    "Day move"
+   ],
+   "definition": "The change in the unit price from the previous close to the latest close, in percent."
+  },
+  {
+   "id": "etf-category",
+   "title": "Category",
+   "category": "etfs",
+   "labels": [
+    "Category"
+   ],
+   "definition": "What the fund invests in, as the ASX groups it (for example Australian Equities, Global Equities, Fixed Income). Category averages compare funds within one category.",
+   "related": [
+    "category-average"
+   ]
+  },
+  {
+   "id": "issuer",
+   "title": "Issuer",
+   "category": "etfs",
+   "labels": [
+    "Issuer"
+   ],
+   "definition": "The company that manages the ETF, such as Vanguard, BlackRock (iShares) or Betashares."
+  },
+  {
+   "id": "category-average",
+   "title": "Category average",
+   "category": "etfs",
+   "labels": [
+    "Category average"
+   ],
+   "definition": "The average return of the ETFs in the same category, for each period, over the funds that have a figure for it.",
+   "related": [
+    "etf-category",
+    "reference-fund"
+   ]
+  },
+  {
+   "id": "reference-fund",
+   "title": "Reference fund",
+   "category": "etfs",
+   "labels": [
+    "Reference fund"
+   ],
+   "definition": "Another ETF to compare against on an ETF's page. It starts as the largest other fund in the same category; choose any ETF instead.",
+   "related": [
+    "etf-page",
+    "category-average"
    ]
   },
   {

@@ -5,9 +5,9 @@
 | **Repository** | `davidstangherlin/Portfolio` |
 | **Default branch** | `main` |
 | **Document purpose** | Fault-finding, disaster recovery / rebuild, and third-party (e.g. ChatGPT) code design review |
-| **Document version** | 2.2 |
+| **Document version** | 2.3 |
 | **Date** | 2026-10-06 (first issued 2026-09-15) |
-| **Covers commits** | `d60ef53` (schema) to ETF collection (2026-10-06); §15 has the full history |
+| **Covers commits** | `d60ef53` (schema) to ETFs in Sift (2026-10-06); §15 has the full history |
 
 ---
 
@@ -21,10 +21,10 @@ Around that core:
 - **Watchlists** (§22) follow companies without owning them, with notes and price or value triggers.
 - **Track record** (§21) records what Sift said every night and scores it after 1, 3, 6 and 12 months against the average screened company, so the rules are judged on results.
 - **Knowledge base** (§23): one file, `web/knowledge.json`, supplies the Help page, every hover explanation and the glossary of the Word rules document.
-- **ETFs** (§25): every ASX exchange traded fund collected alongside the shares: its fund facts monthly from the ASX's own report, prices and distributions nightly with full history, and Sift's own total returns from 1 month to 10 years. Not valued or scored as companies.
+- **ETFs** (§25): every ASX exchange traded fund collected alongside the shares: its fund facts monthly from the ASX's own report, prices and distributions nightly with full history, and Sift's own total returns from 1 month to 10 years. Not valued or scored as companies. Sift shows them under their own heading, apart from shares: an ETF screener and page per ETF, and separate ETF sections on the dashboard, in portfolios and in watchlists (§26).
 - **Admin console** (§24): every setting, formula and threshold in one registry, shown with its Help entry; every company figure shown step by step; and what-if scenarios that compare different settings with live on today's data without changing anything live.
 
-**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete, and stage 1 of ETFs (collection) is built. 508 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
+**Status as at 2026-10-06:** in daily use on the user's Windows PC, refreshed by Windows Task Scheduler at 6 pm (§16), against a live PostgreSQL database of about 500 companies. All four stages of the Sift build (menu bar and dashboard, portfolios, watchlists, track record), the knowledge base and the admin console (phases 1 and 2) are complete, and stages 1 and 2 of ETFs (collection, and presenting them apart from shares) are built. 533 automated tests pass (§10.14). Yahoo Finance is blocked from the development environment, so live ingestion is exercised only on the user's PC (§10.7). The track record's first results arrive about a month after recording began.
 
 **Architecture:**
 
@@ -118,6 +118,7 @@ Portfolio/
 │   │   ├── asx_report.py               Finds, downloads and reads the ASX Investment Products report; loads the ETF list
 │   │   ├── prices.py                   Nightly ETF prices and distributions, full history the first time
 │   │   ├── performance.py              Total returns 1 month to 10 years, trailing yield, check against the report
+│   │   ├── views.py                    ETF screener rows, an ETF's page, category averages, reference fund (§26)
 │   │   └── run_etfs.py                 CLI entrypoint; nightly step 1b (§16); --inspect, --report
 │   ├── apply_schema.py                 Applies db/schema.sql via .env; nightly step 0 (§16)
 │   ├── screening/
@@ -160,6 +161,7 @@ Portfolio/
 │   │   ├── test_watchlist_triggers.py  Trigger thresholds and entry checks (§22)
 │   │   ├── _etf_report.py              Builds spreadsheets shaped like the ASX report, in two layouts
 │   │   ├── test_asx_report.py          Reading the ASX report: headings, groups, units, download fallbacks (§25)
+│   │   ├── test_etf_views.py           Growth of $10,000, distributions by year, category averages (§26)
 │   │   ├── test_etf_performance.py     Total returns, reinvestment, annualising, trailing yield (§25)
 │   │   ├── test_yahoo_prices.py        Closes as traded, with splits and distributions (§25)
 │   │   ├── test_settings.py            The settings registry: live values pinned, ranges, guard rails, modules read it (§24)
@@ -173,6 +175,7 @@ Portfolio/
 │       ├── test_tracking.py            Signal snapshots: written once, stale valuations skipped, changes (§21)
 │       ├── test_track_record.py        Scoring against made-up history, summary, deletion, report rules (§21)
 │       ├── test_watchlists.py          Watchlist rules, API, and where watchlists show up (§22)
+│       ├── test_etf_gui.py             ETF screener and page, ETFs apart in dashboard, portfolios, watchlists (§26)
 │       ├── test_etfs.py                ETF loading, kept out of share screens, backfill, splits, performance (§25)
 │       └── test_admin.py               Scenarios match live when unchanged, workings match the engine, admin API (§24)
 └── docs/
@@ -181,7 +184,7 @@ Portfolio/
     └── ASX_Value_Screener_Rules_and_Methodology.docx   Every rule and threshold, with methodology and glossary
 ```
 
-**Total custom code (2026-10-06):** about 8,000 lines across 61 Python files, 2,800 lines of web front end (`web/`) and 460 lines of SQL, plus `tests/`: 508 tests (390 unit, 118 integration) in 34 files, of which 84 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
+**Total custom code (2026-10-06):** about 8,300 lines across 62 Python files, 3,200 lines of web front end (`web/`) and 465 lines of SQL, plus `tests/`: 533 tests (409 unit, 124 integration) in 36 files, of which 98 are one text check per knowledge base entry. A coverage run puts the tested share of the code at 87% overall and 90% or more for everything added since 2026-10-05; the gaps are the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers (§10.14).
 
 ---
 
@@ -790,7 +793,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 
 ### 10.14 Web GUI, Portfolios, Watchlists, Track Record and Admin Console (2026-10-05 to 2026-10-06)
 
-- **508 tests** (390 unit, 118 integration), up from 156 at §10.13. ETF collection (§25) added 80: reading the ASX report in two layouts, the performance maths, the raw-price change and the database steps end to end. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
+- **533 tests** (409 unit, 124 integration), up from 156 at §10.13. Presenting ETFs (§26) added 25: the ETF page helpers, the ETF APIs, and ETFs kept apart on the dashboard, in portfolios and in watchlists, plus 14 Help entries. ETF collection (§25) added 80: reading the ASX report in two layouts, the performance maths, the raw-price change and the database steps end to end. The admin console (§24) added 26: the settings registry (`test_settings.py`), scenarios, workings and the admin API (`test_admin.py`), and five knowledge base entries. The knowledge base (§23) added 85 of them: integrity checks in `test_knowledge.py`, including one text check per entry, and a served-behind-the-password check. New since then: the web API end to end (`test_gui.py`), signal recording (`test_tracking.py`), track record scoring against 13 months of made-up daily history (`test_track_record.py`), portfolios and the CLI (`test_portfolio.py`), watchlists (`test_watchlists.py`, `test_watchlist_triggers.py`), browser input checks and the same-page write guard (`test_trade_input.py`), and the dashboard's log and stale-data rules (`test_dashboard.py`).
 - **Schema:** re-applied (idempotent), upgraded from an older database with existing parcels (moved into "My portfolio"), and built from an empty database. The last caught a table created before the one it refers to, which every pre-existing test database had hidden.
 - **Coverage check** (`coverage run -m pytest`, re-run 2026-10-06): 87% of statements overall; 95% to 97% for the admin console's modules (`src/settings.py`, `src/admin/`); 90% to 100% for every module added on 2026-10-05, after tests were added for the still-actionable grouping, both nightly track record commands, the GUI's start-up schema step and unarchiving. Not covered by tests: the Yahoo Finance network calls and the `run_ingestion` / `run_valuation` command wrappers, which are exercised by the nightly job on the user's PC (Yahoo is blocked from the build environment, §10.7).
 - **In the browser:** each stage was driven in headless Chromium against seeded disposable databases at 1280px, 1000px and 390px, light and dark, through every create, edit, delete and error path, before release.
@@ -970,6 +973,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-05 | User asked whether to add a searchable knowledge base from the glossary and build documents. Chose user help only, inside Sift, as the single source for the hover text and the Word glossary, without AI question-answering. Added `web/knowledge.json` (78 entries: every hover explanation, acronym and glossary term, merged one per concept, plus guides to each part of Sift), a Help page with search, topic filters and deep links, term search in the menu bar, and `scripts/build_rules_doc.js` (the Word document's builder, until then only in a temporary build workspace). The rebuilt Word document matches the previous one except one glossary row now sorted correctly. Browser checks found and fixed two bugs: every Help entry opening on a deep link, and SMSF opening the Portfolios guide instead of its own entry. 402 tests pass (85 new) |
 | 2026-10-06 | User asked to view every formula, calculation and metric in an admin console, adjust them and run hypothetical models. Chose phases 1 and 2 (view with workings; a what-if lab on today's data, nothing live changes), all four groups of settings and the same password, and asked for links to the Help entry for each concept. Added `src/settings.py` (29 settings, one source for every module, live values unchanged and pinned by tests), `src/admin/` (show workings with a sensitivity grid; scenario runs on cached inputs compared with live), the `scenarios` table, the Model and rules and What-if scenarios pages, a Show workings card on every company page, five Help entries in a new Admin topic, a pink ? link from every setting and working step to its Help entry, and §11.6 plus the two new glossary terms in the Word rules document. A no-change scenario reproduces live exactly. 428 tests pass (26 new). §24 |
 | 2026-10-06 | User asked how to collect the ASX's ETFs into the database like the shares. Chose all four uses (price holdings, compare and screen, look-through value, watchlists), every ASX ETF, the ASX monthly report as the source with the download automated as far as possible, AMIT cost base adjustments included, and 1 to 10-year performance; agreed four stages and built stage 1. Added `companies.security_type`, `etf_monthly` and `etf_performance`, `src/etf/` (the ASX report finder, downloader and heading-based reader with `--inspect`; nightly prices and distributions with a full-history backfill; total returns 1 month to 10 years with a check against the report), nightly step 1b, ETFs kept out of share valuation and the screener view, and Help entries. Found and fixed while building it: Yahoo prices were stored dividend-adjusted a month at a time (known-issue #31), and a split left price history half-adjusted. 508 tests pass (80 new). §25 |
+| 2026-10-06 | User asked for ETFs to be presented under their own heading, separate from shares, and chose the menu bar, portfolios, watchlists, and the dashboard and search, then to start stage 2 now. Added an ETFs menu item, the ETF screener and a page per ETF (performance against the category average and a chosen reference fund, growth of $10,000, unit price with distribution markers, distributions by financial year, fund facts, fund size over time), a full-width ETFs card on the dashboard, Shares and ETFs sections with subtotals in portfolios and watchlists, ETF results in search, and a yield trigger for ETFs (`watchlist_items.yield_above`) with margin of safety triggers refused for ETFs. A third chart colour (`--s3`) was validated for both themes. 14 new Help entries in a new ETFs topic. 533 tests pass (25 new). §26 |
 
 ---
 
@@ -1058,6 +1062,8 @@ A condensed, ordered record of the prompts that actually built this project, kep
 
 25. **ETFs.** *"How do we collect the ETF's available on the ASX into a database like the shares?"* Then chose all four uses, every ASX ETF, the ASX monthly report with the download automated, AMIT included now, and *"There will be a lot of performance data to add in. 1 yr, 5 yr, 10yr perf. etc."*; agreed four stages and *"yes"* to starting stage 1. → §25.
 
+26. **ETFs apart from shares.** *"When presenting ETFs I want that under the etf heading separated to shares"*. Then chose the menu bar, portfolios, watchlists, and the dashboard and search, and to start stage 2 now. → §26.
+
 ---
 
 ## 18. Suggested Next Prompts
@@ -1120,8 +1126,7 @@ Ready-to-use prompts for picking this project back up. Each assumes you're start
 **Check the first ASX report load (on the PC, once):**
 > "Here's the output of `python -m src.etf.run_etfs --inspect` on this month's ASX report: [paste]. Fix any heading that wasn't matched, then confirm the ETF count and a few funds' fees and returns against the ASX website."
 
-**ETFs stage 2 (screener, ETF pages, watchlists, portfolio pricing):**
-> "Start ETF stage 2: an ETF screener and a page per ETF (cost, size, spread, distributions, performance against its category and a reference fund), ETFs in watchlists with a yield trigger, and ETF parcels in portfolios. Help entries for every new measure."
+**ETFs stage 2, presented apart from shares (§26):** ✅ Done 2026-10-06.
 
 **ETFs stage 3 (AMIT):**
 > "Start ETF stage 3: enter each year's AMIT cost base increase or decrease per ETF from the annual tax statement, spread across the parcels held at 30 June, with a decrease beyond the cost base becoming a capital gain."
@@ -1296,6 +1301,8 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 **Purpose.** Follow companies without owning them, in as many named lists as you like, with a reason and a price or value level for each, so the dashboard says when one gets there.
 
+**ETFs (added 2026-10-06, §26):** watchlists hold ETFs too, shown under their own heading, with a yield trigger for ETFs (`yield_above`); a margin of safety trigger is for shares only.
+
 **Model.** `watchlists` (name, unique ignoring case and repeated spaces) and `watchlist_items` keyed `(watchlist_id, company_id)`: optional `note` (up to 500 characters), `mos_above` (percent, may be negative) and `price_below` (above zero). Both foreign keys cascade, so deleting a list deletes its entries and nothing else. Entries reference `companies`, so only companies Sift values can be watched; adding any other code is refused with a pointer to the nightly ticker file (`allords.txt`). That file and these lists are different things: the file decides what gets valued, a list decides what you follow.
 
 **Triggers (`triggers()`).** Judged against the screener's own row for the company: margin of safety **strictly above** `mos_above`, latest close **at or below** `price_below`. A company with no current value or price meets neither. An entry is "triggered" while any trigger is met; it's a live state, not a stored event (known-issue #28).
@@ -1411,3 +1418,43 @@ Each setting carries its group, label, unit, allowed range, formula, where it's 
 - The real spreadsheet couldn't be opened from the build environment (the ASX site is blocked there, as Yahoo is, §10.7), so the reader was built for plausible layouts and tested on those. The first run on the user's PC should start with `--inspect` on a downloaded report.
 - Yahoo's ETF distributions are occasionally late or missing; the report check is there to catch it.
 - Performance is before tax and ignores franking and brokerage, like the track record (known-issue #29).
+
+---
+
+## 26. ETFs, Stage 2: Presenting ETFs Apart From Shares (`src/etf/views.py`, `web/`, added 2026-10-06)
+
+**Purpose.** Show ETFs in Sift under their own heading, separate from shares everywhere they appear, as the user asked: *"When presenting ETFs I want that under the etf heading separated to shares"*. The user chose the separation for the menu bar, portfolios, watchlists, and the dashboard and search. ETFs are judged on fee, size, distributions and total return; they have no estimated value, suggested action or score, so nothing share-specific is shown for them.
+
+**Where ETFs show.**
+- **Menu bar:** a new **ETFs** item next to Screener. The Screener stays shares only.
+- **ETF screener (`#/etfs`, `/api/etfs`):** every active ETF with category, issuer, fee, fund size, 1, 3, 5 and 10-year return, 12-month yield and spread. Sorted by fund size by default; any column sorts. Search covers code, name and the index tracked; filters for category (with counts), issuer, watchlist and held only. `#/etfs?category=&watchlist=&held=1` presets the filters.
+- **ETF page (`#/etf/CODE`, `/api/etf/CODE?compare=`):**
+  - Stat tiles: unit price and day move, fee (with the cost on $10,000), fund size and net flows, 12-month yield.
+  - **Performance:** each period beside the category average and a reference fund, as a column chart and a table. The reference starts as the largest other fund in the same category (`default_reference`) and can be changed (same-category funds listed first); the choice is kept in the address. The report check note appears when Sift's 1-year return differs from the ASX report's by more than 2 points.
+  - **Growth of $10,000** over 1, 3, 5 or 10 years or all history, for the ETF and the reference fund from the same start date, distributions reinvested (`growth_index`, sampled weekly). When the reference fund's history is shorter, the start moves to its first price and the chart says so.
+  - **Unit price, last 12 months** with D markers on distribution ex-dates; **distributions per unit** by financial year (July to June, the current year marked as partial); **fund facts**; **fund size over time** once two months of reports are loaded.
+  - ☆ Add to watchlist, the holding line, and back to the ETF screener.
+  - `#/company/CODE` for an ETF code redirects to its ETF page.
+- **Dashboard:** a full-width **ETFs** card: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch (held first, then the biggest move) with day move, 1-year return and yield, linking to the ETF screener. Needs attention stays shares only, and a held ETF is no longer listed as "held but not screened". A line under the portfolio figures splits the total: Shares $X (n) | ETFs $Y (n).
+- **Portfolios:** each portfolio page shows **Shares** and **ETFs** under separate headings, each with its value, gain and today's change, below the combined figures. ETF lines show unit price, 1-year return and yield instead of an action. Parcels and sales tag ETF codes. Portfolio cards count companies and ETFs separately. Buying and selling an ETF works as for a share.
+- **Watchlists:** each list shows **Shares** and **ETFs** under separate headings, ETFs with unit price, day move, 1-year return, yield, triggers and note. Overview cards count companies and ETFs separately.
+- **Search:** ETFs are in the menu search list, labelled ETF (shares labelled Share), and open their own page.
+
+**Watchlist triggers by type.** New `watchlist_items.yield_above` (ETFs only): met while the 12-month distribution yield is above it. Price at or below works for both. A margin of safety trigger on an ETF, or a yield trigger on a share, is refused with a plain-English message. Editing an entry shows only the triggers that apply to it.
+
+**Backend.**
+- `src/etf/views.py`: `etf_rows()` (one query: latest report row, performance, two latest closes; held units and watchlists), `category_averages()`, `default_reference()`, `weekly()`, `distributions_by_year()`, `etf_detail()`, `screener_payload()`.
+- `src/etf/performance.py`: `growth_index()`, the daily value of one unit with distributions reinvested exactly as `growth()` reinvests them, so a rebased chart agrees with the returns table.
+- `src/portfolio/views.py`: `security_types()`, `with_types()` (marks each line SHARE or ETF and adds the ETF figures), `sections()` (subtotals per type); `combined()`, `portfolio_summaries()` and `portfolio_detail()` return `sections`.
+- `gui.py`: `/api/etfs`, `/api/etf/{code}`; `etf_panel()` for the dashboard; `companies_index()` marks each code's type; watchlist payloads judge shares on screener rows and ETFs on ETF rows (`watch_rows`) and split entries into `items` (shares) and `etfs`; UUIDs serialise as text.
+
+**Chart colour.** The reference fund needed a third series colour. `--s3` is raspberry (#c2337a light, #e04f9a dark), checked with the dataviz validator against `--s1` and `--s2` on each theme's surface, all pairs: colour-blind separation and contrast pass in both themes. Violet failed in dark mode (too close to the blue).
+
+**Help.** A new ETFs topic: 14 new entries (ETF screener, an ETF's page, fee (MER), fund size (FUM), bid/ask spread, net flows, total return, 12-month yield, unit price, day move, category, issuer, category average and reference fund) plus the ETF and ASX report entries moved into it. MER and FUM are new acronyms, and Total return and Trailing yield new terms, in the Word glossary. The getting around, dashboard, portfolios and watchlists guides mention ETFs. Every new column heading has hover text (`test_knowledge.py` checks each label).
+
+**Tests.** `tests/unit/test_etf_views.py` (the growth index agrees with `growth()`, weekly sampling, financial-year distributions, category averages, default reference) and `tests/integration/test_etf_gui.py` (the ETF screener and page APIs, share and ETF codes refused or redirected, search types, the dashboard's ETF card and split totals, portfolio sections, and watchlist triggers by type). Checked in headless Chromium against a disposable database with 15 made-up ETFs and 10 or more years of prices: every page at 1280px and 390px (no sideways scroll), light and dark, the reference fund picker, growth periods, the distribution markers, search, the company-to-ETF redirect, and adding, editing and refusing watchlist triggers.
+
+**Limits.**
+- Category averages are plain averages of the ETFs in the category that have a figure, not weighted by size.
+- The reference fund isn't remembered between visits; it's in the page address.
+- Yields and returns are before franking and tax (known-issue #29).

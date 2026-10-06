@@ -1,7 +1,8 @@
 """Portfolio figures for the web GUI (gui.py): each portfolio valued at
 the latest close, its positions, parcels and CGT by financial year. The
 same arithmetic as portfolio.py (src/portfolio/cgt.py, holdings.py), only
-shaped for the browser."""
+shaped for the browser. Shares and ETFs are kept in separate sections with
+their own subtotals (docs/AS_BUILT.md §26)."""
 
 from __future__ import annotations
 
@@ -42,6 +43,40 @@ def company_names(session, codes: set[str]) -> dict[str, str]:
     return dict(session.execute(
         select(Company.asx_code, Company.company_name).where(Company.asx_code.in_(codes))
     ).all())
+
+
+def security_types(session, codes: set[str]) -> dict[str, str]:
+    """SHARE or ETF for each code Sift knows; anything else counts as a share."""
+    if not codes:
+        return {}
+    return dict(session.execute(
+        select(Company.asx_code, Company.security_type).where(Company.asx_code.in_(codes))
+    ).all())
+
+
+ETF_FIELDS = ("category", "return_1y", "distribution_yield_12m", "mer_percent")
+
+
+def with_types(lines: list[dict], types: dict[str, str], etfs: dict[str, dict]) -> list[dict]:
+    """Mark each line SHARE or ETF; an ETF line also gets its category,
+    1-year return, yield and fee, which its section shows instead of an
+    action."""
+    for line in lines:
+        kind = types.get(line["asx_code"], "SHARE")
+        line["security_type"] = kind
+        if kind == "ETF":
+            etf = etfs.get(line["asx_code"], {})
+            line.update({k: etf.get(k) for k in ETF_FIELDS})
+    return lines
+
+
+def sections(lines: list[dict]) -> dict[str, dict]:
+    """Totals for the shares and the ETFs separately."""
+    out = {}
+    for kind in ("SHARE", "ETF"):
+        mine = [line for line in lines if line.get("security_type", "SHARE") == kind]
+        out[kind] = totals(mine) | {"holdings": len(mine)}
+    return out
 
 
 def portfolio_info(portfolio: Portfolio) -> dict:
@@ -106,13 +141,14 @@ def no_discount_ids(session) -> set:
     return {p.portfolio_id for p in list_portfolios(session) if discount_rate(p) == 0}
 
 
-def combined(session, rows_by_code: dict[str, dict], today: date) -> dict:
-    """Every open holding across all portfolios, one line per company."""
+def combined(session, rows_by_code: dict[str, dict], today: date, etfs: dict[str, dict] | None = None) -> dict:
+    """Every open holding across all portfolios, one line per company or ETF."""
     parcels = open_parcels(session)
     codes = {p.asx_code for p in parcels}
     lines = positions(parcels, two_latest_closes(session, codes), company_names(session, codes), rows_by_code,
                       today, no_discount_ids(session))
-    return {"holdings": lines} | totals(lines)
+    with_types(lines, security_types(session, codes), etfs or {})
+    return {"holdings": lines, "sections": sections(lines)} | totals(lines)
 
 
 def portfolio_summaries(session, rows_by_code: dict[str, dict], today: date) -> list[dict]:
@@ -120,14 +156,15 @@ def portfolio_summaries(session, rows_by_code: dict[str, dict], today: date) -> 
     portfolios = list_portfolios(session)
     parcels = open_parcels(session)
     closes = two_latest_closes(session, {p.asx_code for p in parcels})
+    types = security_types(session, {p.asx_code for p in parcels})
     sales = dict(session.execute(
         select(Holding.portfolio_id, func.count()).where(Holding.sell_date.is_not(None)).group_by(Holding.portfolio_id)
     ).all())
     out = []
     for portfolio in portfolios:
         mine = [p for p in parcels if p.portfolio_id == portfolio.portfolio_id]
-        lines = positions(mine, closes, {}, rows_by_code, today)
-        out.append(portfolio_info(portfolio) | totals(lines) | {
+        lines = with_types(positions(mine, closes, {}, rows_by_code, today), types, {})
+        out.append(portfolio_info(portfolio) | totals(lines) | {"sections": sections(lines)} | {
             "holdings": len(lines), "open_parcels": len(mine), "sales": sales.get(portfolio.portfolio_id, 0)})
     return out
 
@@ -167,7 +204,8 @@ def cgt_by_year(sold: list[Holding], rate: Decimal) -> list[dict]:
     return out
 
 
-def portfolio_detail(session, portfolio: Portfolio, rows_by_code: dict[str, dict], today: date) -> dict:
+def portfolio_detail(session, portfolio: Portfolio, rows_by_code: dict[str, dict], today: date,
+                     etfs: dict[str, dict] | None = None) -> dict:
     rate = discount_rate(portfolio)
     gets_discount = rate > 0
     parcels = open_parcels(session, portfolio_id=portfolio.portfolio_id)
@@ -176,9 +214,14 @@ def portfolio_detail(session, portfolio: Portfolio, rows_by_code: dict[str, dict
     closes = two_latest_closes(session, {p.asx_code for p in parcels})
     lines = positions(parcels, closes, company_names(session, codes), rows_by_code, today,
                       set() if gets_discount else {portfolio.portfolio_id})
+    types = security_types(session, codes)
+    with_types(lines, types, etfs or {})
+    etf_codes = {c for c, t in types.items() if t == "ETF"}
     return {
         "portfolio": portfolio_info(portfolio),
         "totals": totals(lines),
+        "sections": sections(lines),
+        "etf_codes": sorted(etf_codes),
         "positions": lines,
         "parcels": [_parcel(p, closes, gets_discount) for p in parcels],
         "sales": [_sale(p, gets_discount) for p in reversed(sold)],

@@ -246,7 +246,8 @@ function dividendMarkers(prices, dividends) {
     return { ...dv, date: at[0] };
   }).filter((dv) => dv.ex_date >= prices[0][0]);
 }
-const dividendText = (dv) => `${money(dv.amount, 3)} per share${dv.abnormal ? ", one-off (excluded from dividend figures)" : ""}`;
+const dividendText = (dv) => `${money(dv.amount, 3)} per ${dv.per || "share"}${dv.abnormal ? ", one-off (excluded from dividend figures)" : ""}`;
+const markerKind = (mk) => mk.kind || "Dividend";
 
 function tableView(headers, rows) {
   return h("details", { class: "table-view" }, h("summary", { text: "Show data table" }),
@@ -299,7 +300,7 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
     cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
     showTip(e, [h("div", { class: "t-head", text: longDate(iso) }),
       ...series.map((sr, k) => lookups[k].has(iso) ? tipRow(yFmt(lookups[k].get(iso)), sr.name, sr.color) : null).filter(Boolean),
-      ...markers.filter((mk) => mk.date === iso).map((mk) => h("div", { class: "t-row" }, h("span", { class: "dkey sm", text: "D" }), h("span", { text: `Dividend ${dividendText(mk)}` })))]);
+      ...markers.filter((mk) => mk.date === iso).map((mk) => h("div", { class: "t-row" }, h("span", { class: "dkey sm", text: "D" }), h("span", { text: `${markerKind(mk)} ${dividendText(mk)}` })))]);
   });
   hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
   svg.append(hit);
@@ -308,18 +309,18 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
     if (!lookups[0].has(mk.date)) continue;
     const cx = X(toDate(mk.date).getTime()), cy = Y(lookups[0].get(mk.date));
     const g = s("g", { class: `div-marker${mk.abnormal ? " abnormal" : ""}`, tabindex: 0,
-      "aria-label": `Dividend, ex-date ${longDate(mk.ex_date)}: ${dividendText(mk)}` },
+      "aria-label": `${markerKind(mk)}, ex-date ${longDate(mk.ex_date)}: ${dividendText(mk)}` },
       s("circle", { cx, cy, r: 13, fill: "transparent" }),
       s("circle", { class: "dot", cx, cy, r: 8 }),
       s("text", { x: cx, y: cy + 3.5, "text-anchor": "middle", text: "D" }));
-    const nodes = () => [h("div", { class: "t-title", text: "Dividend" }), h("div", { text: `Ex-dividend date ${longDate(mk.ex_date)}` }), h("div", { text: dividendText(mk) })];
+    const nodes = () => [h("div", { class: "t-title", text: markerKind(mk) }), h("div", { text: `Ex-${markerKind(mk).toLowerCase()} date ${longDate(mk.ex_date)}` }), h("div", { text: dividendText(mk) })];
     g.addEventListener("pointermove", (e) => showTip(e, nodes()));
     g.addEventListener("pointerleave", hideTip);
     g.addEventListener("focus", () => placeTipBelow(g, nodes()));
     g.addEventListener("blur", hideTip);
     svg.append(g);
   }
-  const extras = markers.length ? [{ symbol: "D", name: "Dividend (ex-dividend date)" }] : [];
+  const extras = markers.length ? [{ symbol: "D", name: `${markerKind(markers[0])} (ex-${markerKind(markers[0]).toLowerCase()} date)` }] : [];
   if (markers.some((mk) => mk.abnormal)) extras.push({ symbol: "D", name: "One-off, excluded from dividend figures", outline: true });
   return h("div", {}, legend(series, false, extras), svg);
 }
@@ -608,6 +609,7 @@ async function renderCompany(code) {
   slots.length = 0;
   app.replaceChildren(h("p", { class: "loading", text: `Loading ${code}...` }));
   let d;
+  if ((cache.companies || []).some((x) => x.code === code && x.type === "ETF")) { location.replace(etfHref(code)); return; }
   try {
     d = await getJSON(`/api/company/${encodeURIComponent(code)}`);
   } catch (err) {
@@ -748,10 +750,10 @@ async function renderCompany(code) {
 function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
-const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
+const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/etfs/, "ETFs"], [/^#\/etf\//, "ETF"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
   [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
-function backLink() {
-  const target = previousPage || "#/screener";
+function backLink(fallback = "#/screener") {
+  const target = previousPage || fallback;
   const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
   return h("a", { class: "back", href: target, text: `← ${label}` });
 }
@@ -798,6 +800,7 @@ function closeMenus() {
   menuBtn.setAttribute("aria-expanded", "false");
 }
 function markCurrent(page) {
+  if (page === "etf") page = "etfs";
   for (const a of nav.querySelectorAll(":scope > a")) {
     if (a.dataset.nav === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
@@ -847,7 +850,7 @@ function findCompany(q) {
 function initSearch() {
   const form = document.getElementById("nav-search"), input = document.getElementById("nav-search-input");
   if (window.matchMedia("(max-width: 480px)").matches) input.placeholder = "Search";
-  const go = (c) => { input.value = ""; input.blur(); closeMenus(); location.hash = `#/company/${c.code}`; };
+  const go = (c) => { input.value = ""; input.blur(); closeMenus(); location.hash = c.type === "ETF" ? etfHref(c.code) : `#/company/${c.code}`; };
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const q = input.value.trim();
@@ -859,7 +862,7 @@ function initSearch() {
     if (c) { go(c); return; }
     if (q && searchKnowledge(q).length) { clear(); location.hash = `#/help?q=${encodeURIComponent(q)}`; return; }
     form.classList.add("no-match");
-    placeTipBelow(form, [h("div", { text: q ? `No company or help topic matches "${q}".` : "Type an ASX code, part of a company name, or a term such as franking." })]);
+    placeTipBelow(form, [h("div", { text: q ? `No company, ETF or help topic matches "${q}".` : "Type an ASX code, part of a company or ETF name, or a term such as franking." })]);
     setTimeout(() => { form.classList.remove("no-match"); hideTip(); }, 1800);
   });
   input.addEventListener("input", (e) => {
@@ -873,7 +876,7 @@ function initSearch() {
   getJSON("/api/companies").then((list) => {
     cache.companies = list;
     knowledgeReady.then(() => document.getElementById("company-list").replaceChildren(
-      ...list.map((c) => h("option", { value: c.code, label: c.name || c.code })),
+      ...list.map((c) => h("option", { value: c.code, label: `${c.type === "ETF" ? "ETF" : "Share"}: ${c.name || c.code}` })),
       ...KNOWLEDGE.entries.map((e) => h("option", { value: e.title, label: "Help" }))));
   }).catch(() => { /* search still works once the page reloads */ });
 }
@@ -1037,7 +1040,8 @@ async function renderDashboard() {
   app.replaceChildren(...[
     pageHead("Dashboard", today),
     pf.holdings.length ? portfolioStrip(pf) : null,
-    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d),
+    pf.holdings.length ? sectionLine(pf.sections) : null,
+    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d), etfDashCard(d.etfs),
       pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null, actionsCard(d), trackingCard(d.tracking)),
     statusFoot(d.status),
   ].filter(Boolean));
@@ -1106,6 +1110,12 @@ function newPortfolioCard(types, focus) {
   return c;
 }
 
+function holdingsText(p) {
+  const s = p.sections;
+  const etfs = s && s.ETF ? s.ETF.holdings : 0, shares = p.holdings - etfs;
+  const parts = [shares ? `${fmt(shares, 0)} ${shares === 1 ? "company" : "companies"}` : null, etfs ? plural(etfs, "ETF") : null].filter(Boolean);
+  return `${parts.join(" and ")}, ${plural(p.open_parcels, "parcel")}`;
+}
 function portfolioCard(p) {
   const c = h("a", { class: "card pf-card", href: portfolioHref(p) },
     h("div", { class: "pf-head" }, h("h2", { text: p.name }), p.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
@@ -1115,7 +1125,7 @@ function portfolioCard(p) {
       h("dt", { text: "Value" }), h("dd", { text: money(p.value, 0) }),
       h("dt", { text: "Unrealised gain" }), h("dd", { class: signClass(p.gain), text: signed(p.gain, (v) => money(v, 0)) }),
       h("dt", { text: "Today" }), h("dd", { class: signClass(p.day_change), text: signed(p.day_change, (v) => money(v, 0)) }),
-      h("dt", { text: "Holdings" }), h("dd", { text: `${fmt(p.holdings, 0)} ${p.holdings === 1 ? "company" : "companies"}, ${plural(p.open_parcels, "parcel")}` })));
+      h("dt", { text: "Holdings" }), h("dd", { text: holdingsText(p) })));
   return c;
 }
 
@@ -1146,10 +1156,10 @@ function tradeCard(d, reload) {
   const num = (name, placeholder) => h("input", { name, inputmode: "decimal", autocomplete: "off", placeholder: placeholder || "" });
 
   function buyForm() {
-    const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "e.g. BHP", style: "text-transform:uppercase" });
+    const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "e.g. BHP or VAS", style: "text-transform:uppercase" });
     const method = h("select", { name: "method" }, ["PURCHASE", "DRP", "BONUS", "TRANSFER", "OTHER"].map((m) =>
       h("option", { value: m, text: { PURCHASE: "Purchase", DRP: "Dividend reinvestment (DRP)", BONUS: "Bonus issue", TRANSFER: "Transfer in", OTHER: "Other" }[m] })));
-    return [field("Company", code), field("Units", num("units")), field("Price per share", num("price", "$")),
+    return [field("Company or ETF", code), field("Units", num("units")), field("Price per share or unit", num("price", "$")),
       field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Adds to the cost base."), field("How acquired", method),
       field("Broker or account", h("input", { name: "broker", maxlength: 50, autocomplete: "off" })), field("Notes", h("input", { name: "notes", maxlength: 500, autocomplete: "off" }))];
   }
@@ -1165,7 +1175,7 @@ function tradeCard(d, reload) {
     };
     code.addEventListener("change", fillOrder);
     fillOrder();
-    return [field("Company", code), field("Units", num("units")), field("Price per share", num("price", "$")),
+    return [field("Company or ETF", code), field("Units", num("units")), field("Price per share or unit", num("price", "$")),
       field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Reduces the capital proceeds."),
       field("Which parcels", order, "Smallest taxable gain counts this portfolio's CGT discount.")];
   }
@@ -1226,6 +1236,7 @@ function rowButton(label, cls, onClick) {
 
 function parcelsCard(d, reload, msg) {
   const gets = d.portfolio.discount_rate > 0;
+  const etfs = new Set(d.etf_codes || []);
   const remove = async (p) => {
     if (!confirm(`Delete parcel ${p.short_id}: ${fmt(p.units, 0)} ${p.asx_code} bought ${longDate(p.buy_date)}?\n\nOnly for a parcel entered by mistake. This can't be undone.`)) return;
     try { await send("DELETE", `/api/parcels/${p.holding_id}`); afterChange(); await reload(`Deleted parcel ${p.short_id}.`); }
@@ -1236,7 +1247,7 @@ function parcelsCard(d, reload, msg) {
       h("thead", {}, h("tr", {}, ["Company", "Parcel", "Bought", "Units", "Buy price", "Cost base", "Gain", gets ? "CGT discount from" : "CGT discount", ""].map((x, i) =>
         h("th", { class: [i >= 3 && i <= 6 ? "num" : "", [1, 4, 7].includes(i) ? "opt" : ""].join(" ").trim() || null, text: x })))),
       h("tbody", {}, d.parcels.map((p) => h("tr", { class: "static" },
-        h("td", {}, h("span", { class: "code", text: p.asx_code }), p.method !== "PURCHASE" ? h("span", { class: "tag muted sm", text: p.method }) : null),
+        h("td", {}, h("span", { class: "code", text: p.asx_code }), etfs.has(p.asx_code) ? etfTag() : null, p.method !== "PURCHASE" ? h("span", { class: "tag muted sm", text: p.method }) : null),
         h("td", { class: "opt mono", text: p.short_id }),
         h("td", { text: longDate(p.buy_date) }),
         h("td", { class: "num", text: fmt(p.units, 0) }),
@@ -1251,6 +1262,7 @@ function parcelsCard(d, reload, msg) {
 
 function salesCard(d, reload, msg) {
   const gets = d.portfolio.discount_rate > 0;
+  const etfs = new Set(d.etf_codes || []);
   const undo = async (s) => {
     if (!confirm(`Undo the sale of ${fmt(s.units, 0)} ${s.asx_code} on ${longDate(s.sell_date)}?\n\nThe units go back into the open parcel they came from.`)) return;
     try { await send("POST", `/api/parcels/${s.holding_id}/undo-sale`); afterChange(); await reload(`Sale undone: ${fmt(s.units, 0)} ${s.asx_code} are open again.`); }
@@ -1261,7 +1273,7 @@ function salesCard(d, reload, msg) {
       h("thead", {}, h("tr", {}, ["Company", "Sold", "Units", "Proceeds", "Cost base", "Gain", "CGT discount", "Financial year", ""].map((x, i) =>
         h("th", { class: [i >= 2 && i <= 5 ? "num" : "", [3, 4, 7].includes(i) ? "opt" : "", i === 6 ? "opt2" : ""].join(" ").trim() || null, text: x })))),
       h("tbody", {}, d.sales.map((s) => h("tr", { class: "static" },
-        h("td", {}, h("span", { class: "code", text: s.asx_code })),
+        h("td", {}, h("span", { class: "code", text: s.asx_code }), etfs.has(s.asx_code) ? etfTag() : null),
         h("td", { text: longDate(s.sell_date) }),
         h("td", { class: "num", text: fmt(s.units, 0) }),
         h("td", { class: "num opt", text: money(s.proceeds) }),
@@ -1338,7 +1350,7 @@ async function renderPortfolio(id, note) {
     h("div", { class: "page-head" }, h("h1", { text: pf.name }), taxTag(pf), pf.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
     notice,
     strip,
-    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsTable(d.positions)) : null,
+    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsSections(d.positions, d.sections)) : null,
     h("div", { class: "cards dash", style: "margin-top:16px" }, tradeCard(d, reload), settingsCard(d, reload),
       parcelsCard(d, reload, notice), salesCard(d, reload, notice), cgtCard(d)),
   ].filter(Boolean));
@@ -1578,12 +1590,12 @@ async function renderWatchlists(query) {
     try { const w = await send("POST", "/api/watchlists", { name: name.value }); afterChange(); location.hash = watchlistHref(w); }
     catch (err) { showMessage(msg, err.message, false); }
   });
-  const create = card("New watchlist", "Companies to follow without owning them. Add them here or with ☆ Add to watchlist on any company page.", form);
+  const create = card("New watchlist", "Companies and ETFs to follow without owning them. Add them here or with ☆ Add to watchlist on any company or ETF page.", form);
   app.replaceChildren(...[
     pageHead("Watchlists", d.watchlists.length ? plural(d.watchlists.length, "watchlist") : null),
     d.watchlists.length ? h("div", { class: "cards" }, d.watchlists.map((w) => h("a", { class: "card pf-card", href: watchlistHref(w) },
       h("div", { class: "pf-head" }, h("h2", { text: w.name })),
-      h("p", { class: "hint", text: w.companies ? plural(w.companies, "company", "companies") : "No companies yet" }),
+      h("p", { class: "hint", text: w.companies || w.etfs ? [w.companies ? plural(w.companies, "company", "companies") : null, w.etfs ? plural(w.etfs, "ETF") : null].filter(Boolean).join(" and ") : "Nothing on it yet" }),
       w.triggered ? h("span", { class: "tag", text: `${plural(w.triggered, "trigger")} met` }) : null)))
       : h("p", { class: "empty", text: "No watchlists yet. Create one below." }),
     h("div", { class: "cards", style: "margin-top:16px" }, create),
@@ -1599,22 +1611,25 @@ async function renderWatchlist(id, note) {
   if (note) showMessage(notice, note, true);
 
   // Add or edit an entry: the same form, since saving a company already on the list updates it.
-  const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "BHP", style: "text-transform:uppercase" });
+  const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "BHP or VAS", style: "text-transform:uppercase" });
   const noteIn = h("input", { name: "note", maxlength: 500, autocomplete: "off", placeholder: "Why you're watching it" });
   const mos = h("input", { name: "mos_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 25" });
+  const dy = h("input", { name: "yield_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 5" });
   const price = h("input", { name: "price_below", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 38.50" });
   const submit = h("button", { class: "btn primary", type: "submit", text: "Add to watchlist" });
   const cancel = h("button", { class: "btn", type: "button", text: "Cancel", hidden: true });
   const formMsg = formMessage();
+  const mosField = field("Trigger: margin of safety above (%)", mos, "Shares only. Met while the share is at least this far below estimated value.");
+  const dyField = field("Trigger: yield above (%)", dy, "ETFs only. Met while the 12-month distribution yield is above this.");
   const form = h("form", { class: "form-grid", novalidate: true },
-    field("Company", code), field("Note", noteIn),
-    field("Trigger: margin of safety above (%)", mos, "Met while the share is at least this far below estimated value."),
+    field("Company or ETF", code), field("Note", noteIn), mosField, dyField,
     field("Trigger: price at or below ($)", price, "Met while the latest close is at or under this price."),
     h("div", { class: "form-actions" }, submit, cancel), formMsg);
-  const formCard = card("Add a company", "Both triggers are optional; leave them blank to just follow the company.", form);
+  const formCard = card("Add a company or ETF", "Triggers are optional; leave them blank to just follow it.", form);
   const editing = (e) => {
     code.value = e.asx_code; code.readOnly = true; noteIn.value = e.note || "";
-    mos.value = e.mos_above ?? ""; price.value = e.price_below ?? "";
+    mos.value = e.mos_above ?? ""; dy.value = e.yield_above ?? ""; price.value = e.price_below ?? "";
+    mosField.hidden = e.security_type === "ETF"; dyField.hidden = e.security_type !== "ETF";
     formCard.querySelector("h2").textContent = `Edit ${e.asx_code}`;
     submit.textContent = "Save changes"; cancel.hidden = false;
     formCard.scrollIntoView({ block: "center" }); noteIn.focus();
@@ -1625,7 +1640,8 @@ async function renderWatchlist(id, note) {
     const c = code.value.trim().toUpperCase();
     if (!c) { showMessage(formMsg, "Enter an ASX code, such as BHP.", false); return; }
     try {
-      await send("PUT", `/api/watchlists/${d.watchlist_id}/items/${encodeURIComponent(c)}`, { note: noteIn.value, mos_above: mos.value, price_below: price.value });
+      await send("PUT", `/api/watchlists/${d.watchlist_id}/items/${encodeURIComponent(c)}`,
+        { note: noteIn.value, mos_above: mosField.hidden ? "" : mos.value, yield_above: dyField.hidden ? "" : dy.value, price_below: price.value });
       afterChange();
       await reload(code.readOnly ? `Saved ${c}.` : `Added ${c}.`);
     } catch (err) { showMessage(formMsg, err.message, false); }
@@ -1666,15 +1682,408 @@ async function renderWatchlist(id, note) {
     try { await send("PATCH", `/api/watchlists/${d.watchlist_id}`, { name: rename.value }); afterChange(); await reload("Renamed."); }
     catch (err) { showMessage(setMsg, err.message, false); }
   });
-  const met = d.items.filter((e) => e.triggered).length;
+  const met = [...d.items, ...d.etfs].filter((e) => e.triggered).length;
+  const counts = [d.items.length ? plural(d.items.length, "company", "companies") : null, d.etfs.length ? plural(d.etfs.length, "ETF") : null].filter(Boolean);
+  const both = d.items.length && d.etfs.length;
   app.replaceChildren(...[
     h("a", { class: "back", href: "#/watchlists", text: "← Watchlists" }),
-    pageHead(d.name, d.items.length ? `${plural(d.items.length, "company", "companies")}${met ? `, ${plural(met, "trigger")} met` : ""}` : null),
+    pageHead(d.name, counts.length ? `${counts.join(" and ")}${met ? `, ${plural(met, "trigger")} met` : ""}` : null),
     notice,
-    table || h("p", { class: "empty", text: "No companies yet. Add one below, or use ☆ Add to watchlist on any company page." }),
+    table ? [both || d.etfs.length ? sectionHead("Shares") : null, table] : null,
+    d.etfs.length ? [sectionHead("ETFs"), etfWatchTable(d, d.etfs, editing, remove)] : null,
+    !table && !d.etfs.length ? h("p", { class: "empty", text: "Nothing on this list yet. Add a company or ETF below, or use ☆ Add to watchlist on its page." }) : null,
     h("div", { class: "cards dash", style: "margin-top:16px" }, formCard, card("Settings", null, settings)),
-  ]);
+  ].flat().filter(Boolean));
   if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
+}
+
+/* ---------- ETFs (§26): their own heading, apart from shares ---------- */
+/* ETFs are judged on cost, size, distributions and performance, never on
+   estimated value, so they have their own screener, pages and sections. */
+const ETF_PERIODS = [["return_1m", "1 month"], ["return_3m", "3 months"], ["return_6m", "6 months"], ["return_1y", "1 year"],
+  ["return_3y", "3 years"], ["return_5y", "5 years"], ["return_10y", "10 years"], ["return_since_inception", "Since first price"]];
+const etfHref = (code) => `#/etf/${code}`;
+const fundSize = (v) => compact(v);
+const etfTag = () => h("span", { class: "tag sm etf-tag", text: "ETF" });
+/* A table row that opens a page, like clickableRow but to any address. */
+function rowTo(href, ...cells) {
+  const open = () => { location.hash = href; };
+  return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } }, cells);
+}
+const retCell = (v, cls = "") => h("td", { class: `num ${cls} ${signClass(v) || ""}`.trim(), text: signedPct(v) });
+
+const etfState = { q: "", category: "", issuer: "", watchlist: "", held: false, sort: { key: "fum_aud", dir: "desc" }, shown: PAGE_SIZE };
+const ETF_COLUMNS = [
+  { key: "asx_code", label: "ETF", value: (r) => r.asx_code },
+  { key: "category", label: "Category", cls: "opt3", value: (r) => r.category },
+  { key: "issuer", label: "Issuer", cls: "opt", value: (r) => r.issuer },
+  { key: "mer_percent", label: "Fee", num: true, value: (r) => r.mer_percent },
+  { key: "fum_aud", label: "Fund size", num: true, cls: "opt2", value: (r) => r.fum_aud },
+  { key: "return_1y", label: "1-year return", num: true, value: (r) => r.return_1y },
+  { key: "return_3y", label: "3-year return", num: true, cls: "opt", value: (r) => r.return_3y },
+  { key: "return_5y", label: "5-year return", num: true, cls: "opt2", value: (r) => r.return_5y },
+  { key: "return_10y", label: "10-year return", num: true, cls: "opt", value: (r) => r.return_10y },
+  { key: "distribution_yield_12m", label: "Yield (12 months)", num: true, value: (r) => r.distribution_yield_12m },
+  { key: "avg_spread_percent", label: "Spread", num: true, cls: "opt", value: (r) => r.avg_spread_percent },
+];
+
+function etfScreenerRow(r) {
+  return rowTo(etfHref(r.asx_code),
+    h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
+      h("div", { class: "name", text: r.company_name || "" })),
+    h("td", { class: "opt3", text: r.category }),
+    h("td", { class: "opt", text: r.issuer || NA }),
+    h("td", { class: "num", text: pct(r.mer_percent, 2) }),
+    h("td", { class: "num opt2", text: fundSize(r.fum_aud) }),
+    retCell(r.return_1y),
+    retCell(r.return_3y, "opt"),
+    retCell(r.return_5y, "opt2"),
+    retCell(r.return_10y, "opt"),
+    h("td", { class: "num", text: pct(r.distribution_yield_12m, 1) }),
+    h("td", { class: "num opt", text: pct(r.avg_spread_percent, 2) }));
+}
+
+function etfFiltered(d) {
+  const q = etfState.q.trim().toLowerCase();
+  return d.rows.filter((r) =>
+    (!q || r.asx_code.toLowerCase().includes(q) || (r.company_name || "").toLowerCase().includes(q) || (r.benchmark || "").toLowerCase().includes(q)) &&
+    (!etfState.category || r.category === etfState.category) &&
+    (!etfState.issuer || r.issuer === etfState.issuer) &&
+    (!etfState.held || r.held !== null) &&
+    (!etfState.watchlist || (etfState.watchlist === "*" ? r.watchlists.length > 0 : r.watchlists.includes(etfState.watchlist))));
+}
+function etfSorted(rows) {
+  const col = ETF_COLUMNS.find((c) => c.key === etfState.sort.key);
+  const dir = etfState.sort.dir === "asc" ? 1 : -1;
+  const size = (r) => r.fum_aud ?? -Infinity;
+  return [...rows].sort((a, b) => {
+    const va = col.value(a), vb = col.value(b);
+    if (va === null || va === undefined) return vb === null || vb === undefined ? size(b) - size(a) : 1;
+    if (vb === null || vb === undefined) return -1;
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return cmp ? cmp * dir : size(b) - size(a);
+  });
+}
+
+function presetEtfs(query) {
+  if (query === undefined) return;
+  const params = new URLSearchParams(query);
+  Object.assign(etfState, { q: "", issuer: "", shown: PAGE_SIZE, held: params.get("held") === "1",
+    category: params.get("category") || "", watchlist: params.get("watchlist") || "" });
+}
+
+async function renderEtfs() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading ETFs..." }));
+  const d = await getJSON("/api/etfs");
+  if (!d.rows.length) {
+    app.replaceChildren(pageHead("ETFs", null), h("p", { class: "empty" },
+      "No ETFs yet. They arrive with the ASX's monthly report, loaded by the nightly job. ",
+      h("a", { href: "#/help/asx-etf-report", text: "How the ETF list is loaded" }), "."));
+    return;
+  }
+  const tbody = h("tbody"), count = h("span", { class: "count" }), headRow = h("tr");
+  const more = h("button", { class: "more", type: "button" });
+  function refresh() {
+    const rows = etfSorted(etfFiltered(d));
+    tbody.replaceChildren(...rows.slice(0, etfState.shown).map(etfScreenerRow));
+    count.textContent = `${rows.length} shown`;
+    more.hidden = rows.length <= etfState.shown;
+    more.textContent = `Show more (${rows.length - etfState.shown} remaining)`;
+    for (const th of headRow.children) {
+      th.setAttribute("aria-sort", th.dataset.sort === etfState.sort.key ? (etfState.sort.dir === "asc" ? "ascending" : "descending") : "none");
+    }
+  }
+  function sortBy(col) {
+    etfState.sort = etfState.sort.key === col.key
+      ? { key: col.key, dir: etfState.sort.dir === "asc" ? "desc" : "asc" }
+      : { key: col.key, dir: ["asx_code", "category", "issuer", "mer_percent", "avg_spread_percent"].includes(col.key) ? "asc" : "desc" };
+    refresh();
+  }
+  for (const col of ETF_COLUMNS) {
+    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.cls || ""].join(" ").trim() || null, "data-sort": col.key,
+      scope: "col", tabindex: 0, text: col.label, onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } }), col.label));
+  }
+  const reset = () => { etfState.shown = PAGE_SIZE; refresh(); };
+  const select = (label, key, options, all) => h("select", { "aria-label": label, onchange: (e) => { etfState[key] = e.target.value; reset(); } },
+    h("option", { value: "", text: all }), options.map(([v, t]) => h("option", { value: v, selected: v === etfState[key], text: t })));
+  const counts = (key, v) => d.rows.filter((r) => r[key] === v).length;
+  const search = h("input", { type: "search", placeholder: "Search code, name or index", value: etfState.q, "aria-label": "Search ETFs",
+    oninput: (e) => { etfState.q = e.target.value; reset(); } });
+  const held = h("label", {}, h("input", { type: "checkbox", checked: etfState.held, onchange: (e) => { etfState.held = e.target.checked; reset(); } }), "Held only");
+  more.addEventListener("click", () => { etfState.shown += PAGE_SIZE; refresh(); });
+  const sub = [`${plural(d.rows.length, "ETF")}`, d.as_of ? `performance as at ${longDate(d.as_of)}` : null,
+    d.report_month ? `fund facts from the ASX report for ${toDate(d.report_month).toLocaleDateString("en-AU", { month: "long", year: "numeric" })}` : null].filter(Boolean).join(", ");
+  app.replaceChildren(
+    pageHead("ETFs", sub),
+    h("p", { class: "hint page-note" }, "Exchange traded funds, kept apart from shares: judged on fee, size, distributions and total return rather than estimated value. ",
+      helpLink("etf")),
+    h("div", { class: "controls" }, search,
+      select("Category", "category", d.categories.map((c) => [c, `${c} (${counts("category", c)})`]), "All categories"),
+      select("Issuer", "issuer", d.issuers.map((i) => [i, i]), "All issuers"),
+      d.watchlists.length ? select("Watchlist", "watchlist", [["*", "On any watchlist"], ...d.watchlists.map((w) => [w.name, `Watchlist: ${w.name}`])], "All ETFs") : null,
+      held, count),
+    h("div", { class: "table-wrap" }, h("table", { class: "grid" }, h("thead", {}, headRow), tbody)),
+    more);
+  refresh();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- one ETF ---------- */
+const GROWTH_PERIODS = [["1y", "1 year", 12], ["3y", "3 years", 36], ["5y", "5 years", 60], ["10y", "10 years", 120], ["max", "All", null]];
+const etfView = { period: "5y" };
+function monthsBefore(iso, months) {
+  const d = toDate(iso); d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
+/* Each series from the first date both have, rebased to $10,000. */
+function growthSeries(g, ref, period) {
+  const months = GROWTH_PERIODS.find((p) => p[0] === period)[2];
+  const end = g.etf.length ? g.etf[g.etf.length - 1][0] : null;
+  if (!end) return null;
+  let start = months ? monthsBefore(end, months) : g.etf[0][0];
+  if (start < g.etf[0][0]) start = g.etf[0][0];
+  const refPts = ref && g.reference.length ? g.reference : null;
+  let limitedBy = start > (months ? monthsBefore(end, months) : g.etf[0][0]) ? "etf" : null;
+  if (refPts && refPts[0][0] > start) { start = refPts[0][0]; limitedBy = "reference"; }
+  const cut = (pts) => {
+    const inside = pts.filter((p) => p[0] >= start && p[0] <= end);
+    if (inside.length < 2) return null;
+    const base = inside[0][1];
+    return inside.map((p) => [p[0], (p[1] / base) * 10000]);
+  };
+  return { start, limitedBy, etf: cut(g.etf), reference: refPts ? cut(refPts) : null };
+}
+
+function etfFacts(e, d) {
+  const monthName = (iso) => toDate(iso).toLocaleDateString("en-AU", { month: "long", year: "numeric" });
+  const items = [["Issuer", e.issuer], ["Product type", e.product_type], ["Category", e.category], ["Sub-category", e.sub_category],
+    ["Benchmark", e.benchmark], ["Listed", e.listing_date ? longDate(e.listing_date) : null],
+    ["Distribution frequency", e.distribution_frequency], ["Spread", e.avg_spread_percent !== null ? pct(e.avg_spread_percent, 2) : null],
+    ["Value traded (month)", e.value_traded_aud !== null ? fundSize(e.value_traded_aud) : null],
+    ["Net flows", e.net_flows_aud !== null ? (e.net_flows_aud > 0 ? "+" : "") + compact(e.net_flows_aud) : null],
+    ["Prices from", e.first_price_date ? longDate(e.first_price_date) : null]].filter(([, v]) => v);
+  return card("Fund facts", e.report_month ? `From the ASX report for ${monthName(e.report_month)}, except prices.` : "Prices only: no ASX report loaded yet.",
+    h("dl", { class: "kv" }, items.flatMap(([k, v]) => [FIELD_HELP[k] ? withHelp(h("dt", { tabindex: 0, text: k }), k) : h("dt", { text: k }), h("dd", { text: v })])));
+}
+
+function performanceCard(d, compareSelect) {
+  const e = d.etf, avg = d.category_average || {}, ref = d.reference;
+  const cats = ETF_PERIODS.map(([, label]) => label.replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y").replace("Since first price", "Start"));
+  const series = [{ name: e.asx_code, color: "--s1", values: ETF_PERIODS.map(([k]) => e[k]) },
+    { name: `${e.category} average`, color: "--s2", values: ETF_PERIODS.map(([k]) => avg[k] ?? null) }];
+  if (ref) series.push({ name: ref.asx_code, color: "--s3", values: ETF_PERIODS.map(([k]) => ref[k]) });
+  const heads = ["Period", e.asx_code, "Category average", ref ? ref.asx_code : "Reference fund"];
+  const table = h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
+    h("thead", {}, h("tr", {}, heads.map((x, i) => {
+      const th = h("th", { class: i ? "num" : null, tabindex: 0, text: x });
+      return i === 2 ? withHelp(th, "Category average") : i === 3 ? withHelp(th, "Reference fund") : th;
+    }))),
+    h("tbody", {}, ETF_PERIODS.map(([k, label], i) => h("tr", { class: "static" },
+      h("td", {}, h("span", { class: "long", text: label }), h("span", { class: "short", text: cats[i] })),
+      retCell(e[k]), retCell(avg[k] ?? null), retCell(ref ? ref[k] : null))))));
+  const gapNote = e.report_gap ? h("p", { class: "hint note", text:
+    `Check: Sift's 1-year return to the end of ${toDate(e.check_month).toLocaleDateString("en-AU", { month: "long", year: "numeric" })} is ${signedPct(e.check_return_1y)}, ` +
+    `the ASX report says ${signedPct(e.reported_return_1y)}. A gap of more than ${fmt(d.report_gap_points, 0)} points usually means a missing distribution or price, or the ASX working it out another way.` }) : null;
+  const c = card("Performance", "Total return with distributions reinvested. Over a year, shown as a yearly rate.",
+    h("div", { class: "compare-row" }, h("label", { text: "Compare with " }), compareSelect, " ", helpLink("reference-fund")),
+    gapNote,
+    chartSlot((w) => columnChart({ categories: cats, series, yFmt: (v) => fmt(v, 0) + "%", label: `${e.asx_code} total returns by period`, width: w })),
+    table,
+    avg.etfs ? h("p", { class: "hint", text: `Category average: the ${plural(avg.etfs, "ETF")} in ${e.category}, each period over those with a figure.` }) : null);
+  c.classList.add("wide");
+  return c;
+}
+
+function growthCard(d) {
+  const e = d.etf, ref = d.reference;
+  const body = h("div");
+  const seg = h("div", { class: "segmented periods", role: "group", "aria-label": "Period" });
+  const draw = () => {
+    for (const b of seg.children) b.setAttribute("aria-pressed", b.dataset.period === etfView.period);
+    const g = growthSeries(d.growth, ref, etfView.period);
+    if (!g || !g.etf) { body.replaceChildren(h("p", { class: "empty", text: "Not enough price history for this period." })); return; }
+    const series = [{ name: e.asx_code, color: "--s1", points: g.etf }];
+    if (g.reference) series.push({ name: ref.asx_code, color: "--s3", points: g.reference });
+    const last = (pts) => pts[pts.length - 1][1];
+    const why = g.limitedBy === "reference" ? ` (when ${ref.asx_code}'s prices start; pick another fund to compare over longer)`
+      : g.limitedBy === "etf" && etfView.period !== "max" ? ` (when ${e.asx_code}'s prices start)` : "";
+    body.replaceChildren(
+      h("p", { class: "hint", text: `$10,000 invested ${longDate(g.start)}${why}, distributions reinvested: ${e.asx_code} now ${money(last(g.etf), 0)}` +
+        (g.reference ? `, ${ref.asx_code} ${money(last(g.reference), 0)}.` : ".") }),
+      chartSlot((w) => lineChart({ series, yFmt: (v) => compact(v), label: `Growth of $10,000 in ${e.asx_code}`, width: w, height: 240 })),
+      tableView(["Date", e.asx_code, ref ? ref.asx_code : ""], g.etf.filter((_, i) => i % 13 === 0 || i === g.etf.length - 1).reverse()
+        .map((p) => [longDate(p[0]), money(p[1], 0), g.reference ? money((g.reference.find((q) => q[0] === p[0]) || [null, null])[1], 0) : ""])));
+    drawSlots();
+  };
+  for (const [key, label] of GROWTH_PERIODS) {
+    seg.append(h("button", { type: "button", "data-period": key, text: label, onclick: () => { etfView.period = key; draw(); } }));
+  }
+  draw();
+  const c = card("Growth of $10,000", null, seg, body);
+  c.classList.add("wide");
+  return c;
+}
+
+function etfPriceCard(d) {
+  const e = d.etf;
+  if (d.prices.length < 2) return card("Unit price, last 12 months", "Not enough price history yet.");
+  const dists = d.distributions.map(([ex, amount]) => ({ ex_date: ex, amount, kind: "Distribution", per: "unit" }));
+  const markers = dividendMarkers(d.prices, dists);
+  const c = card("Unit price, last 12 months", "D marks each distribution's ex-date, when the price drops by roughly the amount paid.",
+    chartSlot((w) => lineChart({ series: [{ name: "Close", color: "--s1", points: d.prices }], yFmt: (v) => money(v), label: `${e.asx_code} closing price`, width: w, height: 240, markers })),
+    tableView(["Date", "Close"], d.prices.slice(-30).reverse().map((p) => [longDate(p[0]), money(p[1])])));
+  c.classList.add("wide");
+  return c;
+}
+
+function distributionsCard(d) {
+  const years = d.distributions_by_year;
+  if (!years.length || !years.some((y) => y.amount)) return card("Distributions", "No distributions recorded.");
+  return card("Distributions per unit", "Cash paid per unit in each financial year (July to June). The current year is so far.",
+    chartSlot((w) => columnChart({ categories: years.map((y) => y.financial_year + (y.partial ? "*" : "")), yFmt: (v) => money(v),
+      label: "Distributions per unit by financial year", width: w, series: [{ name: "Distribution per unit", color: "--s1", values: years.map((y) => y.amount) }] })),
+    tableView(["Ex-date", "Amount per unit"], d.recent_distributions.map((x) => [longDate(x.ex_date), money(x.amount, 4)])));
+}
+
+function sizeCard(d) {
+  const pts = d.monthly.filter((m) => m.fum_aud !== null).map((m) => [m.report_month, m.fum_aud]);
+  if (pts.length < 2) return null;
+  return card("Fund size over time", "Funds under management at each month end, from the ASX report.",
+    chartSlot((w) => lineChart({ series: [{ name: "Fund size", color: "--s1", points: pts }], yFmt: (v) => compact(v), label: "Fund size by month", width: w })),
+    tableView(["Month", "Fund size", "Fee"], d.monthly.slice().reverse().map((m) => [monthYear(m.report_month), fundSize(m.fum_aud), pct(m.mer_percent, 2)])));
+}
+
+async function renderEtf(code, query) {
+  hideTip();
+  slots.length = 0;
+  const compare = new URLSearchParams(query || "").get("compare");
+  if (!query) app.replaceChildren(h("p", { class: "loading", text: `Loading ${code}...` }));
+  let d;
+  try {
+    d = await getJSON(`/api/etf/${encodeURIComponent(code)}${compare ? `?compare=${encodeURIComponent(compare)}` : ""}`);
+  } catch (err) {
+    app.replaceChildren(backLink("#/etfs"), h("p", { class: "error", text: err.message }));
+    return;
+  }
+  const e = d.etf;
+  const compareSelect = h("select", { "aria-label": "Reference fund", onchange: (ev) => { location.hash = `${etfHref(e.asx_code)}?compare=${ev.target.value}`; } },
+    (() => {
+      const same = d.reference_options.filter((o) => o.category === e.category), other = d.reference_options.filter((o) => o.category !== e.category);
+      const opt = (o) => h("option", { value: o.asx_code, selected: d.reference && o.asx_code === d.reference.asx_code, text: `${o.asx_code} ${o.company_name || ""}` });
+      return [same.length ? h("optgroup", { label: e.category }, same.map(opt)) : null, other.length ? h("optgroup", { label: "Other ETFs" }, other.map(opt)) : null];
+    })());
+  const held = d.position ? h("p", { class: "hint", text: `You hold ${fmt(d.position.units, 0)} units, cost base ${money(d.position.cost_base)}` +
+    (e.current_price ? `, worth ${money(d.position.units * e.current_price, 0)}.` : ".") }) : null;
+  const yieldNote = e.distributions_12m !== null ? `${money(e.distributions_12m, 3)} per unit in 12 months` : "no distributions in 12 months";
+  app.replaceChildren(...[
+    backLink("#/etfs"),
+    h("div", { class: "co-head" },
+      h("h1", { text: e.company_name || e.asx_code }),
+      h("span", { class: "ticker mono", text: e.asx_code }),
+      h("span", { class: "tag", text: e.category }),
+      watchButton(e.asx_code, d.watchlists)),
+    h("p", { class: "co-sub", text: ["ETF", e.issuer, e.product_type !== "ETF" ? e.product_type : null, e.benchmark ? `tracks ${e.benchmark}` : null].filter(Boolean).join("  |  ") }),
+    h("div", { class: "stats" },
+      statTile("Unit price", money(e.current_price), null, e.price_date ? `as at ${longDate(e.price_date)}${e.day_change_percent !== null ? `, ${signedPct(e.day_change_percent, 2)} on the day` : ""}` : null),
+      statTile("Fee", pct(e.mer_percent, 2), null, e.mer_percent !== null ? `${money(e.mer_percent * 100, 0)} a year on $10,000` : "not in the ASX report"),
+      statTile("Fund size", fundSize(e.fum_aud), null, e.net_flows_aud !== null ? `${e.net_flows_aud > 0 ? "+" : ""}${compact(e.net_flows_aud)} net flows last month` : null),
+      statTile("Yield (12 months)", pct(e.distribution_yield_12m, 1), null, yieldNote)),
+    held,
+    watchNote(d.watchlists),
+    h("div", { class: "cards" }, performanceCard(d, compareSelect), growthCard(d), etfPriceCard(d), distributionsCard(d), etfFacts(e, d), sizeCard(d)),
+  ].filter(Boolean));
+  drawSlots();
+  if (!query) window.scrollTo(0, 0);
+}
+
+/* ---------- ETFs on the dashboard, in portfolios and in watchlists ---------- */
+function etfDashCard(x) {
+  if (!x.count) {
+    return card("ETFs", null, h("p", { class: "empty" }, "No ETFs loaded yet. They arrive with the ASX's monthly report. ",
+      h("a", { href: "#/help/asx-etf-report", text: "How" }), "."));
+  }
+  const items = [
+    ...x.triggered.map((t) => h("li", {}, h("div", { class: "main" },
+      h("a", { class: "row-link", href: etfHref(t.asx_code) }, h("span", { class: "code", text: t.asx_code })),
+      h("span", { class: "watch-star", "aria-hidden": "true", text: "★" }), h("span", { text: t.triggers.map((y) => y.label).join("; ") }),
+      h("span", { class: "detail" }, "Watchlist trigger met on ", h("a", { href: `#/watchlist/${t.watchlist_id}`, text: t.watchlist }), t.note ? `. Note: ${t.note}` : "")))),
+    ...x.cgt_soon.map((c) => h("li", {}, h("div", { class: "main" },
+      h("a", { class: "row-link", href: etfHref(c.asx_code) }, h("span", { class: "code", text: c.asx_code })),
+      h("span", { text: `CGT discount from ${longDate(c.date)}` }),
+      h("span", { class: "detail", text: `${fmt(c.units, 0)} units, ${plural(c.days, "day")} away.` })))),
+  ];
+  const table = x.followed.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+    h("thead", {}, h("tr", {}, ["ETF", "Day move", "1-year return", "Yield (12 months)"].map((t, i) =>
+      withHelp(h("th", { class: [i ? "num" : "", i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: t }), t)))),
+    h("tbody", {}, x.followed.map((r) => rowTo(etfHref(r.asx_code),
+      h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists), r.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
+        h("div", { class: "name", text: r.company_name || "" })),
+      retCell(r.day_change_percent), retCell(r.return_1y),
+      h("td", { class: "num opt2", text: pct(r.distribution_yield_12m, 1) })))))) : null;
+  const v = x.value;
+  const c = card("ETFs", v.holdings ? `Your ETFs: ${money(v.value, 0)}, ${signed(v.day_change, (n) => money(n, 0))} today.` : `${plural(x.count, "ETF")} followed. Hold or watch some to see them here.`,
+    items.length ? h("ul", { class: "items" }, items) : null,
+    table || (v.holdings ? null : h("p", { class: "empty", text: "Add ETFs to a watchlist, or record a buy in a portfolio, and they appear here." })),
+    x.more ? h("p", { class: "card-foot", text: `and ${x.more} more.` }) : null,
+    h("p", { class: "card-foot" }, h("a", { href: "#/etfs", text: "ETF screener →" })));
+  c.classList.add("wide");
+  return c;
+}
+
+/* "Shares $X (3) | ETFs $Y (2)" under a portfolio's figures. */
+function sectionLine(sections) {
+  if (!sections || !sections.ETF || !sections.ETF.holdings) return null;
+  const part = (label, s) => `${label} ${money(s.value, 0)} (${plural(s.holdings, "holding")})`;
+  return h("p", { class: "hint section-line", text: `${part("Shares", sections.SHARE)}  |  ${part("ETFs", sections.ETF)}` });
+}
+
+function sectionHead(title, s) {
+  return h("div", { class: "section-head" }, h("h2", { text: title }),
+    s && s.holdings ? h("span", { class: "sub", text: `${money(s.value, 0)} | gain ${signed(s.gain, (v) => money(v, 0))}${s.day_change !== null ? ` | today ${signed(s.day_change, (v) => money(v, 0))}` : ""}` }) : null);
+}
+
+function etfHoldingsTable(lines) {
+  const heads = ["ETF", "Units", "Cost base", "Unit price", "Value", "Gain", "Today", "1-year return", "Yield (12 months)", "CGT discount from"];
+  const numeric = new Set([1, 2, 3, 4, 5, 6, 7, 8]), optional = new Set([2, 3, 6, 8, 9]);
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
+    h("tbody", {}, lines.map((r) => rowTo(etfHref(r.asx_code),
+      h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
+      h("td", { class: "num", text: fmt(r.units, 0) }),
+      h("td", { class: "num opt", text: money(r.cost_base, 0) }),
+      h("td", { class: "num opt", text: money(r.price) }),
+      h("td", { class: "num", text: money(r.value, 0) }),
+      h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
+      h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
+      retCell(r.return_1y),
+      h("td", { class: "num opt", text: pct(r.distribution_yield_12m, 1) }),
+      h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "eligible now" }))))));
+}
+
+/* Shares, then ETFs, each under its own heading with a subtotal. */
+function holdingsSections(lines, sections) {
+  const shares = lines.filter((l) => l.security_type !== "ETF"), etfs = lines.filter((l) => l.security_type === "ETF");
+  return h("div", { class: "holdings-sections" },
+    shares.length ? [sectionHead("Shares", sections && sections.SHARE), holdingsTable(shares)] : null,
+    etfs.length ? [sectionHead("ETFs", sections && sections.ETF), etfHoldingsTable(etfs)] : null);
+}
+
+function etfWatchTable(d, items, editing, remove) {
+  const heads = ["ETF", "Unit price", "Day move", "1-year return", "Yield (12 months)", "Triggers", "Note", ""];
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, heads.map((x, i) => {
+      const cls = [i >= 1 && i <= 4 ? "num" : "", i === 2 || i === 6 ? "opt" : ""].join(" ").trim() || null;
+      return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
+    }))),
+    h("tbody", {}, items.map((e) => rowTo(etfHref(e.asx_code),
+      h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
+      h("td", { class: "num", text: money(e.price) }),
+      retCell(e.day_change_percent, "opt"),
+      retCell(e.return_1y),
+      h("td", { class: "num", text: pct(e.distribution_yield_12m, 1) }),
+      h("td", {}, triggerList(e.triggers)),
+      h("td", { class: "opt" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
+      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
 }
 
 /* ---------- help: the knowledge base (web/knowledge.json) ---------- */
@@ -2086,6 +2495,8 @@ function applyTheme(choice) {
 const ROUTES = [
   [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => renderCompany(m[1].toUpperCase())],
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
+  [/^#\/etfs(?:\?(.*))?$/, "etfs", (m) => { presetEtfs(m[1]); return renderEtfs(); }],
+  [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => renderEtf(m[1].toUpperCase(), m[2])],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
   [/^#\/admin$/, "admin", () => renderAdmin()],
@@ -2109,7 +2520,8 @@ function route() {
   let found = ROUTES.find(([re]) => re.test(hash));
   if (!found) { location.replace("#/"); return; }
   const [re, page, render] = found;
-  if (page === "company" && currentHash && !currentHash.startsWith("#/company/")) previousPage = currentHash;
+  const detail = (h_) => h_ && (h_.startsWith("#/company/") || h_.startsWith("#/etf/"));
+  if ((page === "company" || page === "etf") && currentHash && !detail(currentHash)) previousPage = currentHash;
   currentHash = hash;
   markCurrent(page);
   render(hash.match(re)).catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })));

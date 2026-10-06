@@ -348,10 +348,11 @@ add(
     ["Retention", "Daily signals and their results are kept for 14 whole months. A summary per month, action, period and rules version is kept permanently."],
   ], [0.22, 0.78]),
   h2("11.5 Watchlists"),
-  p("Watchlists are named lists of companies to follow without owning them. Only companies Sift values can be added. Each entry can carry a note and up to two triggers."),
+  p("Watchlists are named lists of companies and ETFs to follow without owning them. Only companies Sift values, and ETFs it follows, can be added. Each entry can carry a note and triggers."),
   table(["Trigger", "Met while"], [
     ["Margin of safety above X%", "The company's current margin of safety is strictly above X. X may be negative."],
     ["Price at or below $Y", "The latest closing price is at or below Y. Y must be above zero."],
+    ["Yield above X% (ETFs only)", "The ETF's 12-month distribution yield is strictly above X. Margin of safety triggers are for shares only."],
   ], [0.3, 0.7]),
   bullet("A trigger is a live condition, not an alert: it shows while it is true and disappears when it stops being true."),
   bullet("A company with no current valuation or price meets neither trigger."),
@@ -371,8 +372,11 @@ add(
     ["Total return", "One unit bought at the close on the start date, each distribution reinvested at the close on its ex-date (or the next close), valued at the latest close. 1, 3 and 6 months and 1 year as is; 3, 5 and 10 years and since first price (when over a year) as a yearly rate."],
     ["Missing periods", "No figure unless there is a close within 10 days of the period's start and end, so a fund younger than the period shows nothing."],
     ["Trailing yield", "Cash distributions with ex-dates in the last 12 months, divided by the latest close. All distributions count, including year-end distributions of gains."],
-    ["Check against the ASX", "Each month Sift's 1-year return at the report's month end is set beside the report's figure. A gap of more than 2 points is listed in the nightly log."],
+    ["Check against the ASX", "Each month Sift's 1-year return at the report's month end is set beside the report's figure. A gap of more than 2 points is listed in the nightly log and noted on the ETF's page."],
+    ["Category average", "For each period, the plain average of the returns of the ETFs in the same ASX category that have a figure for it."],
+    ["Reference fund", "The largest other ETF by fund size in the same category, unless another is chosen on the ETF's page. Growth of $10,000 starts both funds on the same date."],
   ], [0.25, 0.75]),
+  bullet("**Presented apart from shares.** ETFs have their own screener and page per ETF, and their own section on the dashboard, in each portfolio (with its own subtotal) and in each watchlist. They never appear in the share screener, suggested actions, scores or the track record."),
 );
 
 // 12. Holdings and CGT

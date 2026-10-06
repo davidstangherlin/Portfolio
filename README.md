@@ -46,6 +46,7 @@ src/
     asx_report.py             finds, downloads and reads the ASX Investment Products report
     prices.py                 nightly ETF prices and distributions (full history the first time)
     performance.py            ETF total returns, 1 month to 10 years, and trailing yield
+    views.py                  the ETF screener and ETF pages' figures
     run_etfs.py               CLI entrypoint (nightly step, --inspect, --report)
   admin/
     scenarios.py              what-if runs compared with live, on today's data
@@ -390,8 +391,20 @@ code change (edit `src/settings.py`, run `pytest`, commit). See docs/AS_BUILT.md
 
 ## ETFs
 
-Every ETF listed on the ASX is collected alongside the shares (stage 1 of 4: collection; the
-ETF screener and pages come in stage 2). See docs/AS_BUILT.md §25.
+Every ETF listed on the ASX is collected alongside the shares and shown under its own
+**ETFs** heading, apart from shares (stages 1 and 2 of 4). See docs/AS_BUILT.md §25 and §26.
+
+- **ETFs menu:** the ETF screener (fee, fund size, 1 to 10-year returns, yield, spread; filter
+  by category, issuer, watchlist or held) and a page per ETF: performance against its
+  category average and a reference fund you choose, growth of $10,000, unit price with
+  distributions marked, distributions per financial year, fund facts.
+- **Dashboard, portfolios and watchlists** show ETFs in their own section: an ETFs card on the
+  dashboard, Shares and ETFs subtotals in each portfolio, Shares and ETFs tables in each
+  watchlist. Watchlist triggers for ETFs are price at or below and yield above; margin of
+  safety triggers are for shares only.
+- **Search** finds ETFs by code or name and opens their page.
+
+How the data is collected:
 
 - **Which ETFs, and their fund facts** (issuer, category, fees, size, flows, spread, the
   ASX's own performance figures) come from the ASX Investment Products report, a spreadsheet
@@ -402,7 +415,7 @@ ETF screener and pages come in stage 2). See docs/AS_BUILT.md §25.
 - **Performance** is Sift's own total return with distributions reinvested, for 1, 3 and 6
   months, 1, 3, 5 and 10 years and since first price (yearly rates beyond a year), plus the
   trailing 12-month yield. Each month it's checked against the ASX's figure.
-- ETFs aren't valued or scored like companies, so they don't appear in the screener.
+- ETFs aren't valued or scored like companies, so they don't appear in the share screener.
 
 **First run, on your PC.** Download the latest spreadsheet from the
 [ASX report page](https://www.asx.com.au/issuers/investment-products/asx-investment-products-monthly-report)
@@ -472,24 +485,24 @@ pytest tests/unit       # pure functions + compute_metrics() - no database neede
 pytest -m integration   # needs a local PostgreSQL instance (see below)
 ```
 
-Two tiers, 508 tests in all:
+Two tiers, 533 tests in all:
 
-- **`tests/unit/`** (390 tests) - no database connection at all, so these run in about a
+- **`tests/unit/`** (409 tests) - no database connection at all, so these run in about a
   second: the valuation formulas and `compute_metrics()`, decision markers, suggested actions,
   the score wheel, dividend history and currency conversion, franking, CGT arithmetic
   (including the discount by tax type), browser input checks and the cross-site write guard,
   watchlist triggers, the dashboard's log reading and stale-data rule, the settings registry
   (live values pinned, guard rails), reading the ASX ETF report (two layouts), ETF total
-  returns, and the knowledge base behind the Help page (one check
+  returns and the ETF page's figures, and the knowledge base behind the Help page (one check
   per entry).
-- **`tests/integration/`** (118 tests) - the parts that genuinely need a real database: the
+- **`tests/integration/`** (124 tests) - the parts that genuinely need a real database: the
   schema (re-applied, upgraded from an older version, and built from nothing), ingestion
   upserts, valuation, the screener's SQL against the real view, portfolios and parcels, the
   web API end to end (screener, company, dashboard, portfolios, trades, watchlists, password
   and same-page guards), signal recording, track record scoring against 13 months of
   made-up history, and the admin console (a scenario with no changes matches live exactly,
   workings match the engine), and ETFs (loading reports, kept out of the screener, backfill,
-  splits, performance). `tests/conftest.py` creates an `asx_test` database and applies
+  splits, performance, and shown apart from shares in every page). `tests/conftest.py` creates an `asx_test` database and applies
   `db/schema.sql` automatically on first run (set `TEST_DATABASE_URL` to point at a
   different instance) - it never touches whatever database your `.env` points at.
 

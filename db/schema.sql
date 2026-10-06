@@ -258,6 +258,8 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (watchlist_id, company_id)
 );
+-- ETFs only (§26): trigger when the trailing 12-month distribution yield is above this %.
+ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS yield_above NUMERIC(6, 2);
 
 -- 5d. SCENARIOS (admin console what-ifs, docs/AS_BUILT.md §24)
 -- A named set of setting changes to try against today's data. Only the

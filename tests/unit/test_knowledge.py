@@ -21,6 +21,10 @@ UI_LABELS = [
     "Price to free cash flow", "EV/EBIT", "ROIC", "Cash dividend yield", "Payout ratio", "Country",
     "Accounts currency", "Valuation", "Implied upside", "Estimated value", "Share price", "Portfolio value",
     "Today", "Unrealised gain", "Cost base", "CGT discount from", "Graham Number",
+    # ETFs (§26)
+    "ETF", "Fee", "Fund size", "Spread", "Net flows", "1-year return", "3-year return", "5-year return",
+    "10-year return", "Yield (12 months)", "Unit price", "Day move", "Category", "Issuer", "Category average",
+    "Reference fund",
 ]
 
 

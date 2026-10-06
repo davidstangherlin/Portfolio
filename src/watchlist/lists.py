@@ -1,11 +1,12 @@
-"""Watchlists: named lists of companies to follow, each entry with an
-optional note and triggers (docs/AS_BUILT.md §22).
+"""Watchlists: named lists of companies and ETFs to follow, each entry
+with an optional note and triggers (docs/AS_BUILT.md §22, §26).
 
-An entry is triggered while the company's margin of safety is above its
-`mos_above`, or its latest price is at or below its `price_below`. Both are
-judged on the same rows the screener shows (src/screening/enriched.py).
-Only companies Sift values can be added: anything else has no price or
-margin of safety to watch."""
+An entry is triggered while its latest price is at or below its
+`price_below`, or, for a share, its margin of safety is above `mos_above`,
+or, for an ETF, its trailing 12-month distribution yield is above
+`yield_above`. Shares are judged on the screener's rows
+(src/screening/enriched.py), ETFs on the ETF screener's (src/etf/views.py).
+Only shares Sift values and ETFs it follows can be added."""
 
 from __future__ import annotations
 
@@ -80,8 +81,8 @@ def _company(session: Session, asx_code) -> Company:
     code = str(asx_code or "").strip().upper()
     company = session.execute(select(Company).where(Company.asx_code == code)).scalar_one_or_none() if code else None
     if company is None:
-        raise WatchlistError(f"{code or 'That'} isn't one of the companies Sift values. "
-                             "Add it to the nightly ticker file (allords.txt) first.")
+        raise WatchlistError(f"{code or 'That'} isn't a company Sift values or an ETF it follows. "
+                             "For a share, add it to the nightly ticker file (allords.txt) first.")
     return company
 
 
@@ -112,17 +113,23 @@ def entry_fields(body: dict) -> dict:
         "note": note,
         "mos_above": _optional_number(body.get("mos_above"), "the margin of safety trigger", 2, Decimal("10000"), False),
         "price_below": _optional_number(body.get("price_below"), "the price trigger", 4, Decimal("1e8"), True),
+        "yield_above": _optional_number(body.get("yield_above"), "the yield trigger", 2, Decimal("10000"), False),
     }
 
 
 def save_entry(session: Session, watchlist: Watchlist, asx_code, fields: dict) -> WatchlistItem:
     """Add a company to a list, or update its note and triggers if it's already on it."""
     company = _company(session, asx_code)
+    if company.security_type == "ETF" and fields.get("mos_above") is not None:
+        raise WatchlistError(f"{company.asx_code} is an ETF, which has no margin of safety: use a price or yield trigger")
+    if company.security_type != "ETF" and fields.get("yield_above") is not None:
+        raise WatchlistError(f"the yield trigger is for ETFs; for {company.asx_code} use a margin of safety or price trigger")
     item = session.get(WatchlistItem, (watchlist.watchlist_id, company.company_id))
     if item is None:
         item = WatchlistItem(watchlist_id=watchlist.watchlist_id, company_id=company.company_id)
         session.add(item)
     item.note, item.mos_above, item.price_below = fields["note"], fields["mos_above"], fields["price_below"]
+    item.yield_above = fields.get("yield_above")
     session.flush()
     return item
 
@@ -172,4 +179,9 @@ def triggers(item: WatchlistItem, row: dict | None) -> list[dict]:
         out.append({"kind": "price_below", "threshold": item.price_below, "value": price,
                     "met": price is not None and price <= item.price_below,
                     "label": f"Price at or below ${item.price_below:,.2f}"})
+    if item.yield_above is not None:
+        dy = row.get("distribution_yield_12m") if row else None
+        out.append({"kind": "yield_above", "threshold": item.yield_above, "value": dy,
+                    "met": dy is not None and dy > item.yield_above,
+                    "label": f"Yield above {item.yield_above.normalize():f}%"})
     return out

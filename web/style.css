@@ -1,7 +1,7 @@
 /* Sift - visual style adapted from a Gemini mock-up (slate and teal,
    card layout), rebuilt without external fonts or frameworks.
-   UI colour (--accent) is separate from chart series colour (--s1/--s2):
-   the chart pair is validated for colour-blind separation and contrast
+   UI colour (--accent) is separate from chart series colour (--s1 to --s3):
+   the chart colours are validated for colour-blind separation and contrast
    on each theme's surface (dataviz method). Status colours always come
    with a text label or icon, never colour alone. */
 :root {
@@ -20,6 +20,7 @@
   --on-accent: #ffffff;
   --s1: #0284c7;
   --s2: #eb6834;
+  --s3: #c2337a;  /* third series (ETF reference fund); validated with s1/s2, all pairs */
   --good: #0d9488;
   --good-text: #0f766e;
   --good-bg: #e6f4f1;
@@ -40,7 +41,7 @@
     color-scheme: dark;
     --page: #0b0f17; --surface: #161f30; --surface-2: #0f1626; --ink: #f8fafc; --ink-2: #cbd5e1; --muted: #94a3b8;
     --grid: #26334d; --axis: #334155; --border: #26334d; --hover: rgba(56, 189, 248, 0.08);
-    --accent: #38bdf8; --on-accent: #0b0f17; --s1: #3987e5; --s2: #d95926;
+    --accent: #38bdf8; --on-accent: #0b0f17; --s1: #3987e5; --s2: #d95926; --s3: #e04f9a;
     --good: #10b981; --good-text: #34d399; --good-bg: rgba(16, 185, 129, 0.15);
     --warning: #f59e0b; --warning-text: #fbbf24; --warning-bg: rgba(245, 158, 11, 0.15);
     --serious: #fb923c; --critical: #f43f5e; --critical-text: #fb7185; --critical-bg: rgba(244, 63, 94, 0.15);
@@ -51,7 +52,7 @@
   color-scheme: dark;
   --page: #0b0f17; --surface: #161f30; --surface-2: #0f1626; --ink: #f8fafc; --ink-2: #cbd5e1; --muted: #94a3b8;
   --grid: #26334d; --axis: #334155; --border: #26334d; --hover: rgba(56, 189, 248, 0.08);
-  --accent: #38bdf8; --on-accent: #0b0f17; --s1: #3987e5; --s2: #d95926;
+  --accent: #38bdf8; --on-accent: #0b0f17; --s1: #3987e5; --s2: #d95926; --s3: #e04f9a;
   --good: #10b981; --good-text: #34d399; --good-bg: rgba(16, 185, 129, 0.15);
   --warning: #f59e0b; --warning-text: #fbbf24; --warning-bg: rgba(245, 158, 11, 0.15);
   --serious: #fb923c; --critical: #f43f5e; --critical-text: #fb7185; --critical-bg: rgba(244, 63, 94, 0.15);
@@ -587,4 +588,21 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 @media (max-width: 720px) {
   .setting-row { grid-template-columns: minmax(0, 1fr) 130px; }
   .setting-live { grid-column: 1 / -1; margin-top: -4px; }
+}
+
+/* ---------- ETFs (§26) ---------- */
+.section-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 20px 0 8px; }
+.section-head h2 { font-size: 16px; margin: 0; }
+.section-head .sub { color: var(--muted); font-size: 13px; }
+.holdings-sections > .section-head:first-child { margin-top: 0; }
+.section-line { margin: 8px 0 0; }
+.page-note { margin: -4px 0 12px; }
+.compare-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; font-size: 13px; color: var(--ink-2); }
+.compare-row select { max-width: 100%; }
+.etf-tag { background: var(--surface-2); color: var(--ink-2); }
+.perf-table .short { display: none; }
+@media (max-width: 480px) {
+  .perf-table .long { display: none; }
+  .perf-table .short { display: inline; }
+  .perf-table th, .perf-table td { padding-left: 6px; padding-right: 6px; }
 }
