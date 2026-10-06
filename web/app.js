@@ -2251,7 +2251,11 @@ async function renderHelp(query, focusId) {
 function helpLink(id) {
   const e = id && KNOWLEDGE.entries.find((x) => x.id === id);
   if (!e) return null;
-  return h("a", { class: "help-link", href: `#/help/${id}`, title: `Help: ${e.title}`, "aria-label": `Help: ${e.title}`, text: "?" });
+  // Opens in a new tab, so the page you were reading (a scenario being
+  // edited, a filtered screener) stays as it was.
+  return h("a", { class: "help-link", href: `#/help/${id}`, target: "_blank", rel: "noopener",
+    title: `Help: ${e.title} (opens in a new tab)`, "aria-label": `Help: ${e.title}, opens in a new tab`, text: "?",
+    onclick: (ev) => ev.stopPropagation() });
 }
 const withHelpLink = (text, id) => [text, " ", helpLink(id)];
 
