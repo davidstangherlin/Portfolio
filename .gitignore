@@ -11,3 +11,4 @@ logs/
 asx*.txt
 watchlist*.txt
 node_modules/
+.coverage
