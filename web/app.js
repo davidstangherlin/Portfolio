@@ -615,6 +615,121 @@ function card(title, hint, ...children) {
   return h("section", { class: "card" }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, children);
 }
 
+/* ---------- analyst ratings, price targets and holders (Yahoo Finance, §29) ---------- */
+const RATINGS = [
+  ["strong_buy", "Strong buy", "--r-sb"], ["buy", "Buy", "--r-b"], ["hold", "Hold", "--r-h"],
+  ["sell", "Sell", "--r-s"], ["strong_sell", "Strong sell", "--r-ss"]];
+const CONSENSUS = { strong_buy: "Strong buy", buy: "Buy", hold: "Hold", underperform: "Underperform", sell: "Sell" };
+const YAHOO_NOTE = "From Yahoo Finance, for context only: not used in Sift's estimated value, scores or signals.";
+const fetchedNote = (ins, help) => h("p", { class: "card-foot hint" },
+  `Yahoo Finance, fetched ${longDate(ins.fetched_at.slice(0, 10))}. Refreshed weekly. `, helpLink(help));
+
+function ratingRow(r) {
+  const total = sum(RATINGS.map(([k]) => r[k]));
+  const label = monthYear(r.rating_month);
+  const tipNodes = () => [h("div", { class: "t-title", text: `${label}: ${total} analyst${total === 1 ? "" : "s"}` }),
+    ...RATINGS.map(([k, name, color]) => tipRow(String(r[k]), name, color))];
+  const row = h("div", { class: "rating-row", tabindex: 0,
+    "aria-label": `${label}: ${RATINGS.map(([k, name]) => `${r[k]} ${name.toLowerCase()}`).join(", ")}` },
+    h("span", { class: "rating-month", text: label }),
+    h("div", { class: "rating-bar" }, RATINGS.filter(([k]) => r[k] > 0).map(([k, , color]) =>
+      h("span", { class: "rating-seg", style: `flex-grow:${r[k]};background:var(${color})` }))),
+    h("span", { class: "rating-total", text: String(total) }));
+  row.addEventListener("pointermove", (e) => showTip(e, tipNodes()));
+  row.addEventListener("pointerleave", hideTip);
+  row.addEventListener("focus", () => placeTipBelow(row, tipNodes()));
+  row.addEventListener("blur", hideTip);
+  return row;
+}
+
+function analystCard(ins) {
+  const title = "Analyst ratings";
+  if (!ins) return card(title, "Not fetched yet. Sift fetches analyst ratings and holders from Yahoo Finance weekly, so this fills in within a week.");
+  if (!ins.ratings.length) return card(title, "No analyst ratings on Yahoo Finance for this company.", fetchedNote(ins, "analyst-ratings"));
+  const latest = ins.ratings[ins.ratings.length - 1];
+  const total = sum(RATINGS.map(([k]) => latest[k]));
+  const consensus = CONSENSUS[ins.recommendation_key];
+  return card(title, YAHOO_NOTE,
+    h("p", { class: "consensus" }, consensus ? h("strong", { text: consensus }) : null,
+      consensus ? " consensus" : "Consensus not given",
+      ins.recommendation_mean ? ` (${fmt(ins.recommendation_mean, 1)} on a scale of 1 strong buy to 5 strong sell)` : "",
+      `, ${total} analyst${total === 1 ? "" : "s"} in ${monthYear(latest.rating_month)}.`),
+    legend(RATINGS.map(([, name, color]) => ({ name, color })), true),
+    h("div", { class: "rating-rows" }, ins.ratings.map(ratingRow)),
+    tableView(["Month", ...RATINGS.map(([, name]) => name)],
+      [...ins.ratings].reverse().map((r) => [monthYear(r.rating_month), ...RATINGS.map(([k]) => String(r[k]))])),
+    fetchedNote(ins, "analyst-ratings"));
+}
+
+function targetCard(ins, c) {
+  const title = "Analyst price targets";
+  if (!ins) return null;
+  if (ins.target_mean === null) return card(title, "No price targets on Yahoo Finance for this company.", fetchedNote(ins, "price-targets"));
+  const price = c.current_price, value = c.dcf_intrinsic_value > 0 ? c.dcf_intrinsic_value : null;
+  const vsPrice = (v) => (v && price ? ` (${signedPct(((v - price) / price) * 100)} vs price)` : "");
+  const points = [
+    { name: "Share price", color: "--s1", v: price },
+    { name: "Average target", color: "--s3", v: ins.target_mean },
+    { name: "Sift's estimated value", color: "--s2", v: value }].filter((p) => p.v);
+  const lo = Math.min(ins.target_low ?? ins.target_mean, ...points.map((p) => p.v));
+  const hi = Math.max(ins.target_high ?? ins.target_mean, ...points.map((p) => p.v));
+  const pad = (hi - lo) * 0.06 || hi * 0.05;
+  const at = (v) => `${((v - (lo - pad)) / (hi - lo + 2 * pad)) * 100}%`;
+  const strip = h("div", { class: "target-strip", role: "img", "aria-label":
+      `Targets from ${money(ins.target_low)} to ${money(ins.target_high)}. ${points.map((p) => `${p.name} ${money(p.v)}`).join(". ")}.` },
+    ins.target_low !== null && ins.target_high !== null
+      ? h("span", { class: "target-band", style: `left:${at(ins.target_low)};width:calc(${at(ins.target_high)} - ${at(ins.target_low)})` }) : null,
+    points.map((p) => {
+      const dot = h("span", { class: "target-dot", style: `left:${at(p.v)};background:var(${p.color})` });
+      dot.addEventListener("pointermove", (e) => showTip(e, [tipRow(money(p.v), p.name, p.color)]));
+      dot.addEventListener("pointerleave", hideTip);
+      return dot;
+    }),
+    h("span", { class: "target-end lo", text: money(ins.target_low) }),
+    h("span", { class: "target-end hi", text: money(ins.target_high) }));
+  return card(title, `${YAHOO_NOTE} The bar spans the lowest to highest target.`,
+    legend(points.map(({ name, color }) => ({ name, color })), true),
+    strip,
+    h("dl", { class: "kv" },
+      [["Average target", money(ins.target_mean) + vsPrice(ins.target_mean)], ["Median target", money(ins.target_median)],
+        ["Lowest target", money(ins.target_low)], ["Highest target", money(ins.target_high)],
+        ["Analysts", ins.analyst_count ?? NA], ["Sift's estimated value", value ? money(value) + vsPrice(value) : NA]]
+        .flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: String(v) })])),
+    fetchedNote(ins, "price-targets"));
+}
+
+function holderTable(rows) {
+  const heads = [["Holder"], ["Shares"], ["% held", "%"], ["Value now", "Value"], ["Change", "Chg"], ["Reported"]];
+  const optional = new Set([1, 5]);
+  return h("div", { class: "table-wrap" }, h("table", { class: "grid holders" },
+    h("thead", {}, h("tr", {}, heads.map(([x, short], i) => h("th", { class: [i ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, title: x },
+      short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x)))),
+    h("tbody", {}, rows.map((r) => h("tr", {},
+      h("td", { class: "holder-name", text: r.holder }),
+      h("td", { class: "num opt", text: fmt(r.shares, 0) }),
+      h("td", { class: "num", text: pct(r.percent_held, 2) }),
+      h("td", { class: "num", text: r.value_now === null ? NA : compact(r.value_now) }),
+      h("td", { class: `num ${signClass(r.percent_change) || ""}`.trim(), text: r.percent_change === null ? NA : signedPct(r.percent_change) }),
+      h("td", { class: "num opt", text: r.date_reported ? longDate(r.date_reported) : NA }))))));
+}
+
+function holdersCard(ins) {
+  if (!ins) return null;
+  const major = [["Insiders", pct(ins.insiders_percent, 1), "of shares"], ["Institutions", pct(ins.institutions_percent, 1), "of shares"],
+    ["Institutions (% of float)", pct(ins.institutions_float_percent, 1), "of shares that trade"],
+    ["Number of institutions", ins.institutions_count ?? NA, "holding shares"]];
+  const section = (label, rows) => [h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: label }), label)),
+    rows.length ? holderTable(rows) : h("p", { class: "hint", text: "None listed on Yahoo Finance." })];
+  const el = card("Holders", "From Yahoo Finance. Holder lists come mostly from overseas fund filings, so Australian super funds are often missing. Value now is the holding at today's price.",
+    h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: "Major holders" }), "Major holders")),
+    h("div", { class: "stats" }, major.map(([label, v, note]) => statTile(label, String(v), null, note))),
+    section("Top mutual fund holders", ins.funds),
+    section("Top institutional holders", ins.institutions),
+    fetchedNote(ins, "major-holders"));
+  el.classList.add("wide");
+  return el;
+}
+
 /* What the company does: the first two sentences of Yahoo's business
    summary, with "more" to read the rest. */
 function aboutCompany(c) {
@@ -771,7 +886,8 @@ async function renderCompany(code) {
     modelNote(d.model),
     held,
     watchNote(d.watchlists),
-    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, workingsCard(c.asx_code)),
+    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard,
+      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);

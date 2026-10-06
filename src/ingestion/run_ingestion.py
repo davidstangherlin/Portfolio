@@ -6,6 +6,13 @@ Usage:
     python -m src.ingestion.run_ingestion --tickers BHP --prices-only --period 1y
     python -m src.ingestion.run_ingestion --tickers BHP --fundamentals-only --max-years 6
     python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
+    python -m src.ingestion.run_ingestion --tickers-file allords.txt --insights-only --insights-all
+
+A normal run also fetches analyst ratings and holders for the seventh of
+the shares whose data is oldest (src/ingestion/insights_ingestion.py,
+docs/AS_BUILT.md §29), so each share is refreshed about weekly.
+--insights-all fetches every share that's due now instead; --skip-insights
+leaves them out.
 
 A --tickers-file is a plain text file, one ASX code per line (or several
 per line, whitespace/comma separated) - blank lines and lines starting
@@ -33,6 +40,7 @@ from sqlalchemy import select
 
 from src.config import get_session
 from src.ingestion.fundamentals_ingestion import ingest_fundamentals
+from src.ingestion.insights_ingestion import ingest_insights
 from src.ingestion.price_ingestion import ingest_daily_prices
 from src.models import Company
 
@@ -64,6 +72,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--prices-only", action="store_true", help="ingest daily prices only")
     mode.add_argument("--fundamentals-only", action="store_true", help="ingest annual fundamentals only")
+    mode.add_argument("--insights-only", action="store_true", help="fetch analyst ratings and holders only")
+    parser.add_argument("--insights-all", action="store_true",
+                        help="fetch analyst ratings and holders for every share due now, not just tonight's seventh")
+    parser.add_argument("--skip-insights", action="store_true", help="don't fetch analyst ratings and holders")
 
     args = parser.parse_args(argv)
     if not args.tickers and not args.tickers_file:
@@ -91,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         tickers = [t for t in tickers if t not in funds]
         if skipped:
             logger.info("Skipping %d ETFs and LICs, fetched by the ETF step: %s", len(skipped), ", ".join(skipped))
-        if not args.fundamentals_only:
+        if not (args.fundamentals_only or args.insights_only):
             price_results = ingest_daily_prices(session, tickers, period=args.period, delay_seconds=args.delay)
             failed = [t for t, n in price_results.items() if n == 0]
             logger.info(
@@ -100,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
                 f" - 0 bars for: {', '.join(failed)}" if failed else "",
             )
 
-        if not args.prices_only:
+        if not (args.prices_only or args.insights_only):
             fundamentals_results = ingest_fundamentals(
                 session, tickers, max_years=args.max_years, delay_seconds=args.delay
             )
@@ -110,6 +122,11 @@ def main(argv: list[str] | None = None) -> int:
                 len(tickers) - len(failed), len(tickers),
                 f" - 0 reports for: {', '.join(failed)}" if failed else "",
             )
+
+        if args.insights_only or not (args.prices_only or args.fundamentals_only or args.skip_insights):
+            insight_results = ingest_insights(session, tickers, delay_seconds=args.delay, all_now=args.insights_all)
+            logger.info("Analyst and holder data complete: %d/%d stored",
+                        sum(insight_results.values()), len(insight_results))
 
     return 0
 

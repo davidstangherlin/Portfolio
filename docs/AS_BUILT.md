@@ -839,6 +839,7 @@ TEST_DATABASE_URL=postgresql+psycopg2://... pytest   # point at a different test
 | 31 | Share prices stored before 2026-10-06 were dividend-adjusted a month at a time | Closes in the month before each ex-date were scaled down by that dividend and older ones weren't, leaving a small step at each ex-date in charts, the 52-week range and the 200-day average | Fixed for new prices (§25). To clean the existing history once: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --prices-only --period 2y` |
 | 32 | The ETF report reader was first built without seeing the real spreadsheet | Headings worded differently would have been kept in `raw` but not mapped | **Resolved 2026-10-06** against the real July 2026 report the user supplied (§25.1): every needed column maps, categories come from the section rows, index rows and other sheets are left out. A future change of layout would show in `--inspect` |
 | 33 | LIC NTA is monthly | The premium or discount compares today's price with NTA reported about a month earlier, so a sharp market move in between distorts it | By design for now (§27): the LIC page shows the NTA date beside the figure. A daily NTA estimate would need each LIC's holdings |
+| 34 | Yahoo's analyst and holder data is thin for ASX companies | Smaller companies often have no ratings or targets; the holder lists come mainly from overseas fund filings, so Australian super funds are often missing; the analyst count for ratings and for targets can differ | Shown as context only and labelled as Yahoo's (§29). Never used in valuations, scores or signals. A share register or broker feed would be needed for a complete view |
 
 ---
 
@@ -983,6 +984,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-06 | User asked for the pink ? help links to open the Help page in a new tab. `helpLink()` (every pink ?) now opens its Help entry in a new tab, so the page being read (an edited scenario, a filtered screener) stays as it was. |
 | 2026-10-06 | User reported the pink ? still not opening a new tab in Chrome on the LICs page. It did in testing; the open tab was most likely still running the code from before the update. Every response now carries `X-Sift-Version` (a fingerprint of the web files), and an open page reloads itself on the next click once that changes, so updates reach a tab left open. `helpLink()` now opens the tab itself (`window.open`), keeping Ctrl-click and middle-click as normal. |
 | 2026-10-06 | User asked for a short description of each company in the screener, and chose the first two sentences with "more", on the company page only, filled by the nightly run. Added `companies.business_summary` from Yahoo's business summary, backfilled once per company by `ensure_profile()`, and shown under the sector line. 564 tests pass (5 new). §28 |
+| 2026-10-06 | User asked for Yahoo Finance's analyst insights (buy, hold and sell ratings) and holders (major holders, top mutual fund holders) on each company's page. Yahoo's paid Analyst Insights panel can't be fetched, so the free equivalents are used. User chose ratings plus price targets, company page only (no screener column, no effect on signals), all three holder views, and a weekly refresh. Added `company_insights`, `analyst_ratings` and `top_holders`, `YahooClient.get_insights()` and `src/ingestion/insights_ingestion.py` (a seventh of the shares each night, never-fetched first; `--insights-only`, `--insights-all`, `--skip-insights`), and three company page cards with a diverging buy-to-sell colour scale validated in both themes. Three Help entries in a new Analysts and holders topic. Known issue #34. 574 tests pass (10 new). §29 |
 
 ---
 
@@ -1528,3 +1530,37 @@ Each company page shows what the company does, under the sector, industry and co
 - **When it's filled.** A new company gets it when it's first added. Existing companies get it on the next nightly run: `ensure_profile()` fetches the profile once for any company without one, the same way country and currencies were backfilled. `NULL` means not fetched yet; `''` means Yahoo has none, so it isn't asked for again every night. A failed fetch leaves it `NULL` to retry.
 - **What's shown.** The first two sentences (`short_summary()` in `gui.py`, `SUMMARY_SENTENCES = 2`), with **more** to read Yahoo's full text and **less** to fold it again. Full stops after common abbreviations (Ltd., Pty., Inc., Mt., e.g., U.S.) don't count as sentence ends. A summary of two sentences or fewer is shown whole with no link. No summary, no paragraph.
 - **Scope.** Shares only. ETF and LIC pages are unchanged.
+
+## 29. Analyst Ratings, Price Targets and Holders (`src/ingestion/insights_ingestion.py`, added 2026-10-06)
+
+Each company page carries three cards from Yahoo Finance, after the dividend chart: **Analyst ratings**, **Analyst price targets** and **Holders**. They're for context only. Nothing here feeds Sift's estimated value, scores, tests, signals or the screener.
+
+**What's not included.** The "Analyst Insights" panel on Yahoo's own site (Morningstar and Argus research) is a paid Yahoo Finance Plus feature and isn't available through Yahoo's data feed. The free equivalents below are what Yahoo's own Analysis and Holders tabs show.
+
+### 29.1 Data
+
+| Table | What it holds | Refreshed |
+|---|---|---|
+| `company_insights` | One row per share: when fetched, Yahoo's consensus (`recommendation_key`, `recommendation_mean` on 1 strong buy to 5 strong sell), analyst count, low / mean / median / high price targets, and the major holders breakdown (insiders %, institutions %, institutions % of float, number of institutions) | Replaced on each fetch |
+| `analyst_ratings` | Strong buy, buy, hold, sell and strong sell counts per month | Yahoo gives the latest four months; each fetch adds or updates those months and older ones stay, so a longer history builds up |
+| `top_holders` | Top 10 mutual fund holders and top 10 institutional holders: name, shares, % held, Yahoo's value, change since the holder's previous report, date reported | Replaced on each fetch |
+
+Percentages are stored as percents (12.5 = 12.5%). `YahooClient.get_insights()` makes three requests per company: the profile (consensus, targets, analyst count), the monthly rating counts, and the holders. If the profile request fails, nothing is stored and the company is tried again the next night. If only one part is missing (common for small companies), that part is left empty.
+
+### 29.2 Weekly, staggered refresh
+
+`run_ingestion` runs the insights step after prices and fundamentals. Each night it fetches the shares that are due, oldest first, never-fetched first, capped at a seventh of the ticker list (`ceil(n / 7)`). A share fetched in the last six days is never due. Every share is refreshed about once a week, and each night adds roughly 70 companies' worth of requests for the All Ords instead of about 500.
+
+- **First week:** shares fill in over seven nights. To fill them all at once: `python -m src.ingestion.run_ingestion --tickers-file allords.txt --insights-only --insights-all --delay 0.75`
+- **Opting out for a run:** `--skip-insights`. `--prices-only` and `--fundamentals-only` also leave it out.
+- ETFs and LICs are skipped, like the rest of the share ingestion.
+
+### 29.3 Company page
+
+- **Analyst ratings:** the consensus in words with Yahoo's 1 to 5 mean, and one stacked bar per month (strong buy to strong sell, 2px gaps, legend, hover or focus for the counts, data table). The colours are a diverging scale: two blues for buy, a neutral grey for hold, two reds for sell. Each arm passes the ordinal checks (one hue, lightness in order, visible steps, light end at least 2:1 against the card) in light and dark themes. Dark mode has its own steps, with the stronger rating brighter.
+- **Analyst price targets:** a strip from the lowest to the highest target with today's price, the average target and Sift's estimated value marked, then the figures with each one's gap to the price.
+- **Holders** (full width): the four major-holder figures, then the top mutual fund and institutional holder tables. "Value now" is shares x today's price, so it's in the share's own currency and current; Yahoo's own value is stored but not shown, because its currency and date vary. On a phone, shares and date reported are hidden and the headings shorten.
+- **Before the first fetch:** a single Analyst ratings card says the data fills in within a week. "No analyst ratings / price targets on Yahoo Finance" shows when Yahoo has none.
+- Each card ends with the fetch date and a ? link to its Help entry (topic **Analysts and holders**: analyst ratings, analyst price targets, major holders).
+
+Known issue #34 covers the coverage limits.

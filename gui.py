@@ -44,6 +44,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
 from src.etf import views as etf_views
+from src.ingestion.insights_ingestion import insights_payload
 from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
 from src.models import Holding, Portfolio
 from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
@@ -275,6 +276,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
     row["country"] = company.country
     row["business_summary"] = company.business_summary or None
     row["business_summary_short"] = short_summary(company.business_summary)
+    row["insights"] = insights_payload(session, company.company_id, row.get("current_price"))
     row["trading_currency"] = company.trading_currency
     row["financial_currency"] = company.financial_currency
     row["as_of_date"] = metric.as_of_date

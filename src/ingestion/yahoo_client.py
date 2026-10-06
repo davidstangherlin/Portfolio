@@ -266,3 +266,158 @@ class YahooClient:
             if value is not None:
                 payments.append(Payment(ex_date=ts.date() if hasattr(ts, "date") else ts, amount=value))
         return sorted(payments, key=lambda p: p.ex_date)
+
+    def get_insights(self, today: date) -> Insights | None:
+        """Analyst ratings and price targets, and the major, mutual fund and
+        institutional holders (docs/AS_BUILT.md §29). Three Yahoo requests:
+        the profile (consensus and targets), the monthly rating counts, and
+        the holders. None if the profile can't be fetched at all, so the
+        company is tried again next run; a missing part is just left empty."""
+        try:
+            info = self._ticker.get_info()
+        except Exception:
+            logger.exception("Failed to fetch analyst data for %s", self.symbol)
+            return None
+
+        def part(name, fetch):
+            try:
+                return fetch()
+            except Exception:  # yfinance raises when Yahoo has nothing for a small company
+                logger.warning("No %s from Yahoo for %s", name, self.symbol)
+                return None
+
+        trend = part("analyst ratings", self._ticker.get_recommendations)
+        major = part("major holders", self._ticker.get_major_holders)
+        funds = part("mutual fund holders", self._ticker.get_mutualfund_holders)
+        institutions = part("institutional holders", self._ticker.get_institutional_holders)
+        return parse_insights(info, trend, major, funds, institutions, today)
+
+
+# ---------- analyst and holder insights (docs/AS_BUILT.md §29) ----------
+
+TOP_HOLDERS = 10
+
+
+@dataclass
+class RatingMonth:
+    rating_month: date
+    strong_buy: int
+    buy: int
+    hold: int
+    sell: int
+    strong_sell: int
+
+
+@dataclass
+class Holder:
+    rank: int
+    holder: str
+    shares: Decimal | None
+    percent_held: Decimal | None
+    value: Decimal | None
+    percent_change: Decimal | None
+    date_reported: date | None
+
+
+@dataclass
+class Insights:
+    recommendation_key: str | None = None
+    recommendation_mean: Decimal | None = None
+    analyst_count: int | None = None
+    target_low: Decimal | None = None
+    target_mean: Decimal | None = None
+    target_median: Decimal | None = None
+    target_high: Decimal | None = None
+    insiders_percent: Decimal | None = None
+    institutions_percent: Decimal | None = None
+    institutions_float_percent: Decimal | None = None
+    institutions_count: int | None = None
+    ratings: list[RatingMonth] | None = None
+    funds: list[Holder] | None = None
+    institutions: list[Holder] | None = None
+
+
+def _percent(value: Any) -> Decimal | None:
+    """Yahoo's fractions (0.125) as percents (12.5000)."""
+    d = _to_decimal(value)
+    return (d * 100).quantize(Decimal("0.0001")) if d is not None else None
+
+
+def _int(value: Any) -> int | None:
+    d = _to_decimal(value)
+    return int(d) if d is not None else None
+
+
+def _month_offset(today: date, period: str) -> date | None:
+    """Yahoo's '0m', '-1m', ... as the first day of that month."""
+    try:
+        back = -int(str(period).strip().rstrip("m"))
+    except ValueError:
+        return None
+    months = today.year * 12 + today.month - 1 - back
+    return date(months // 12, months % 12 + 1, 1)
+
+
+def _empty(frame) -> bool:
+    return frame is None or not isinstance(frame, pd.DataFrame) or frame.empty
+
+
+def parse_ratings(trend, today: date) -> list[RatingMonth]:
+    """Monthly buy / hold / sell counts, oldest month first. Months with no
+    analysts at all are left out."""
+    if _empty(trend):
+        return []
+    out = []
+    for row in trend.to_dict("records"):
+        month = _month_offset(today, row.get("period", ""))
+        counts = [_int(row.get(k)) or 0 for k in ("strongBuy", "buy", "hold", "sell", "strongSell")]
+        if month is not None and sum(counts) > 0:
+            out.append(RatingMonth(month, *counts))
+    return sorted(out, key=lambda r: r.rating_month)
+
+
+def parse_holders(frame) -> list[Holder]:
+    """The top holders as Yahoo lists them (largest first)."""
+    if _empty(frame):
+        return []
+    out = []
+    for row in frame.head(TOP_HOLDERS).to_dict("records"):
+        name = str(row.get("Holder") or "").strip()
+        if not name:
+            continue
+        reported = row.get("Date Reported")
+        reported = reported.date() if hasattr(reported, "date") and not pd.isna(reported) else None
+        shares = _to_decimal(row.get("Shares"))
+        out.append(Holder(len(out) + 1, name[:255], shares.quantize(Decimal("1")) if shares is not None else None,
+                          _percent(row.get("pctHeld")), _to_decimal(row.get("Value")),
+                          _percent(row.get("pctChange")), reported))
+    return out
+
+
+def parse_major_holders(frame) -> dict:
+    """The ownership breakdown, keyed by Yahoo's names."""
+    if _empty(frame) or "Value" not in frame.columns:
+        return {}
+    return {str(k): v for k, v in frame["Value"].items()}
+
+
+def parse_insights(info: dict | None, trend, major, funds, institutions, today: date) -> Insights:
+    info = info or {}
+    breakdown = parse_major_holders(major)
+    key = info.get("recommendationKey")
+    return Insights(
+        recommendation_key=key if key and key != "none" else None,
+        recommendation_mean=_to_decimal(info.get("recommendationMean")),
+        analyst_count=_int(info.get("numberOfAnalystOpinions")),
+        target_low=_to_decimal(info.get("targetLowPrice")),
+        target_mean=_to_decimal(info.get("targetMeanPrice")),
+        target_median=_to_decimal(info.get("targetMedianPrice")),
+        target_high=_to_decimal(info.get("targetHighPrice")),
+        insiders_percent=_percent(breakdown.get("insidersPercentHeld", info.get("heldPercentInsiders"))),
+        institutions_percent=_percent(breakdown.get("institutionsPercentHeld", info.get("heldPercentInstitutions"))),
+        institutions_float_percent=_percent(breakdown.get("institutionsFloatPercentHeld")),
+        institutions_count=_int(breakdown.get("institutionsCount")),
+        ratings=parse_ratings(trend, today),
+        funds=parse_holders(funds),
+        institutions=parse_holders(institutions),
+    )

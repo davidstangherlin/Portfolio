@@ -27,6 +27,9 @@ UI_LABELS = [
     "Reference fund", "ASX report",
     # LICs (§27)
     "LIC", "NTA (pre-tax)", "Premium/discount to NTA", "Performance fee", "Market cap",
+    # Analysts and holders (§29)
+    "Major holders", "Insiders", "Institutions", "Institutions (% of float)",
+    "Number of institutions", "Top mutual fund holders", "Top institutional holders",
 ]
 
 

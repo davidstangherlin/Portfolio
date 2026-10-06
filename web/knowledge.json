@@ -50,6 +50,10 @@
    "name": "LICs"
   },
   {
+   "id": "analysts",
+   "name": "Analysts and holders"
+  },
+  {
    "id": "market",
    "name": "Market and general terms"
   }
@@ -1769,6 +1773,80 @@
     "ddm",
     "terminal-value",
     "sensitivity-grid"
+   ]
+  },
+  {
+   "id": "analyst-ratings",
+   "title": "Analyst ratings",
+   "category": "analysts",
+   "glossary": "term",
+   "glossary_title": "Analyst ratings",
+   "aliases": [
+    "buy hold sell",
+    "broker ratings",
+    "recommendation trend",
+    "consensus"
+   ],
+   "definition": "How many broker analysts rate a share strong buy, buy, hold, sell or strong sell, month by month, as collected by Yahoo Finance.",
+   "body": [
+    "The consensus is Yahoo's average of the ratings on a scale of 1 (strong buy) to 5 (strong sell). Sift shows the latest four months so you can see whether opinion is moving.",
+    "Analyst ratings are shown for context only. They play no part in Sift's estimated value, scores, tests or suggested actions, which stay Sift's own analysis.",
+    "Coverage of ASX companies is patchy: smaller companies often have no analysts, and the counts can lag local broker changes. Refreshed weekly."
+   ],
+   "related": [
+    "price-targets",
+    "major-holders"
+   ]
+  },
+  {
+   "id": "price-targets",
+   "title": "Analyst price targets",
+   "category": "analysts",
+   "glossary": "term",
+   "glossary_title": "Price target",
+   "aliases": [
+    "target price",
+    "average target"
+   ],
+   "definition": "The share price analysts expect in about 12 months: the lowest, average, median and highest of their targets, as collected by Yahoo Finance.",
+   "body": [
+    "The bar spans the lowest to highest target, with today's price, the average target and Sift's estimated value marked on it. A wide bar means analysts disagree.",
+    "A price target is a 12-month price forecast, not an estimate of intrinsic value, so it can differ a lot from Sift's estimated value. Shown for context only and refreshed weekly."
+   ],
+   "related": [
+    "analyst-ratings",
+    "estimated-value"
+   ]
+  },
+  {
+   "id": "major-holders",
+   "title": "Major holders",
+   "category": "analysts",
+   "aliases": [
+    "ownership",
+    "insiders",
+    "institutional ownership",
+    "fund holders",
+    "top holders"
+   ],
+   "labels": [
+    "Major holders",
+    "Insiders",
+    "Institutions",
+    "Institutions (% of float)",
+    "Number of institutions",
+    "Top mutual fund holders",
+    "Top institutional holders"
+   ],
+   "hover": "Who owns the company, from Yahoo Finance: the share held by insiders (directors and executives) and by institutions, and the largest fund and institutional holders.",
+   "definition": "Who owns the company, as collected by Yahoo Finance: the share held by insiders and by institutions, and the ten largest mutual fund and institutional holders.",
+   "body": [
+    "Insiders are directors, executives and large related holders. Institutions (% of float) counts only the shares that trade freely, so it can be higher than the plain institutions figure.",
+    "The holder lists come mainly from overseas fund filings, so global funds (such as Vanguard's international funds) appear while Australian super funds are often missing. Treat them as a partial view, not a share register.",
+    "Value now is each holding at today's share price. Change is how much the holder added or sold since their previous report. Refreshed weekly."
+   ],
+   "related": [
+    "analyst-ratings"
    ]
   }
  ]

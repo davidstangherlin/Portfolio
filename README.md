@@ -95,6 +95,10 @@ python -m src.ingestion.run_ingestion --tickers BHP CGF WES CBA --period 1y
 # '#' comments allowed) and pace requests to ease Yahoo rate limiting:
 python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
 
+# Analyst ratings, price targets and holders are fetched weekly as part of
+# the normal run (a seventh of the shares each night). To fetch them all now:
+python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --insights-only --insights-all --delay 0.75
+
 # 2. Compute valuation metrics (ratios, grossed-up yield, Graham Number,
 #    DCF/DDM intrinsic value, margin of safety, trend indicators) from the
 #    latest ingested data
@@ -388,6 +392,16 @@ password as the rest of Sift.
 Nothing live changes: a run writes nothing, and the nightly job, screener, dashboard and track
 record keep using the live settings in `src/settings.py`. Changing a live setting is still a
 code change (edit `src/settings.py`, run `pytest`, commit). See docs/AS_BUILT.md §24.
+
+### Company page extras
+
+- **About:** the first two sentences of Yahoo's business summary under the sector line, with
+  **more** for the rest (docs/AS_BUILT.md §28).
+- **Analyst ratings, price targets and holders** from Yahoo Finance: monthly strong buy to
+  strong sell counts, the low / average / high price target against today's price and Sift's
+  estimated value, the major holders breakdown, and the top 10 mutual fund and institutional
+  holders. Context only: none of it feeds Sift's value, scores or signals. Refreshed weekly;
+  coverage of smaller ASX companies is thin (docs/AS_BUILT.md §29).
 
 ## ETFs
 

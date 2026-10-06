@@ -367,6 +367,53 @@ CREATE TABLE IF NOT EXISTS etf_performance (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5h. ANALYST AND HOLDER INSIGHTS (docs/AS_BUILT.md §29)
+-- From Yahoo Finance, refreshed weekly (a seventh of the shares each night).
+-- Shown on the company page for context; never used in valuations, scores
+-- or signals. Percentages are stored as percents (12.5 = 12.5%).
+CREATE TABLE IF NOT EXISTS company_insights (
+    company_id UUID PRIMARY KEY REFERENCES companies(company_id) ON DELETE CASCADE,
+    fetched_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    recommendation_key VARCHAR(20),          -- Yahoo's consensus: strong_buy, buy, hold, underperform, sell
+    recommendation_mean NUMERIC(4, 2),       -- 1 = strong buy ... 5 = strong sell
+    analyst_count INT,                       -- analysts behind the price targets
+    target_low NUMERIC(14, 4),
+    target_mean NUMERIC(14, 4),
+    target_median NUMERIC(14, 4),
+    target_high NUMERIC(14, 4),
+    insiders_percent NUMERIC(8, 4),
+    institutions_percent NUMERIC(8, 4),
+    institutions_float_percent NUMERIC(8, 4),
+    institutions_count INT
+);
+
+-- Buy, hold and sell counts by month: Yahoo gives the latest four months,
+-- and keeping each fetch's months builds a longer history over time.
+CREATE TABLE IF NOT EXISTS analyst_ratings (
+    company_id UUID REFERENCES companies(company_id) ON DELETE CASCADE,
+    rating_month DATE NOT NULL,
+    strong_buy INT NOT NULL DEFAULT 0,
+    buy INT NOT NULL DEFAULT 0,
+    hold INT NOT NULL DEFAULT 0,
+    sell INT NOT NULL DEFAULT 0,
+    strong_sell INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (company_id, rating_month)
+);
+
+-- Top 10 mutual fund and institutional holders, replaced on each fetch.
+CREATE TABLE IF NOT EXISTS top_holders (
+    company_id UUID REFERENCES companies(company_id) ON DELETE CASCADE,
+    holder_kind VARCHAR(12) NOT NULL CHECK (holder_kind IN ('FUND', 'INSTITUTION')),
+    rank SMALLINT NOT NULL,
+    holder VARCHAR(255) NOT NULL,
+    shares NUMERIC(20, 0),
+    percent_held NUMERIC(8, 4),
+    value NUMERIC(20, 2),                    -- as Yahoo reports it, at the report date
+    percent_change NUMERIC(12, 4),           -- change in the holding since the previous report
+    date_reported DATE,
+    PRIMARY KEY (company_id, holder_kind, rank)
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that

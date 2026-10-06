@@ -106,8 +106,9 @@ def test_share_ingestion_leaves_etfs_and_lics_to_the_etf_step(lics, monkeypatch)
     seen = {}
     monkeypatch.setattr(run_ingestion, "ingest_daily_prices", lambda s, codes, **k: seen.setdefault("prices", codes) and {})
     monkeypatch.setattr(run_ingestion, "ingest_fundamentals", lambda s, codes, **k: seen.setdefault("fundamentals", codes) and {})
+    monkeypatch.setattr(run_ingestion, "ingest_insights", lambda s, codes, **k: seen.setdefault("insights", codes) and {})
     run_ingestion.main(["--tickers", "GOOD", "AFI", "VAS"])
-    assert seen == {"prices": ["GOOD"], "fundamentals": ["GOOD"]}
+    assert seen == {"prices": ["GOOD"], "fundamentals": ["GOOD"], "insights": ["GOOD"]}
 
 
 def test_lics_get_prices_and_performance_from_the_etf_step(lics):
