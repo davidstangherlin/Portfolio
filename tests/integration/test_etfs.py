@@ -220,3 +220,32 @@ def test_performance_and_report_check(db_session, tmp_path, fake_yahoo):
     assert vas.reported_return_1y == Decimal("12.50")
     assert [c for c, _, _ in performance.report_differences(db_session)] == ["VAS"]  # 10 vs 12.5
     assert performance.report_differences(db_session, Decimal("3")) == []
+
+
+def test_every_report_in_the_folder_is_loaded_oldest_first(db_session, tmp_path):
+    """Several months saved at once all load, for the history charts; an
+    older month never brings back a fund the newest report has dropped."""
+    folder = tmp_path / "reports"
+    folder.mkdir()
+    build_report(folder, "asx-investment-products-jun-2026-abs.xlsx", etfs=ETFS)
+    build_report(folder, "asx-investment-products-july-2026-abs.xlsx", etfs=[e for e in ETFS if e[0] != "NDQ"])
+    (folder / "~$asx-investment-products-july-2026-abs.xlsx").write_bytes(b"lock")  # Excel's lock file: ignored
+    (folder / "asx-investment-products-may-2026-abs.xlsx").write_text("not a spreadsheet")  # skipped, not fatal
+
+    asx_report.ensure_latest(db_session, date(2026, 8, 20), lambda url: None, folder)
+    db_session.commit()
+    months = db_session.execute(text("SELECT report_month FROM asx_report_loads ORDER BY 1")).scalars().all()
+    assert months == [date(2026, 6, 1), date(2026, 7, 1)]
+    ndq = db_session.execute(select(Company).where(Company.asx_code == "NDQ")).scalar_one()
+    assert ndq.is_active is False  # listed in June, gone in July
+    vas = db_session.execute(select(Company).where(Company.asx_code == "VAS")).scalar_one()
+    assert db_session.execute(text("SELECT COUNT(*) FROM etf_monthly WHERE company_id = :c"),
+                              {"c": vas.company_id}).scalar_one() == 2  # two months of history
+
+    # An older month saved later is loaded for its history but changes nothing current.
+    build_report(folder, "asx-investment-products-may-2026-abs.xlsx", etfs=ETFS)
+    asx_report.ensure_latest(db_session, date(2026, 8, 21), lambda url: None, folder)
+    db_session.commit()
+    assert db_session.get(Company, ndq.company_id).is_active is False
+    assert asx_report.latest_loaded(db_session) == date(2026, 7, 1)
+    assert db_session.execute(text("SELECT COUNT(*) FROM asx_report_loads")).scalar_one() == 3

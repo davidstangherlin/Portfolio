@@ -414,6 +414,9 @@ the report loads; the ETF step fetches its prices. See docs/AS_BUILT.md §27.
 **LICs page empty?** The report has to be loaded by the current version of Sift. After a
 `git pull`, restart `gui.py` and run `python -m src.etf.run_etfs` with the report saved in
 `data\asx_reports\`: a month loaded by an older version is loaded again automatically.
+Keep each month's file there (any of `...-aug-2026-abs.xlsx`, `...-july-2026-abs.xlsx` style
+names work): every month in the folder is loaded, which gives the fund size and NTA charts
+their history.
 
 How the data is collected:
 

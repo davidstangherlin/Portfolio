@@ -611,14 +611,20 @@ class LoadResult:
     lics: int = 0
 
 
-def _fund_company(session, code: str, name: str | None, kind: str) -> tuple[Company, str | None]:
+def _fund_company(session, code: str, name: str | None, kind: str, newest: bool = True) -> tuple[Company, str | None]:
+    """The company row for a fund in the report, created if new. Only the
+    newest report loaded changes a fund's type, name or active state: an
+    older month (loaded for its history) adds a fund it alone lists as
+    inactive, and leaves the rest as they are."""
     company = session.execute(select(Company).where(Company.asx_code == code)).scalar_one_or_none()
     if company is None:
         company = Company(ticker=f"{code}.AX", asx_code=code, company_name=(name or code)[:255], security_type=kind,
-                          trading_currency="AUD", financial_currency="AUD", is_active=True)
+                          trading_currency="AUD", financial_currency="AUD", is_active=newest)
         session.add(company)
         session.flush()
         return company, "added"
+    if not newest:
+        return company, None
     change = None
     if company.security_type != kind:
         company.security_type, change = kind, "reclassified"
@@ -642,8 +648,9 @@ def load_report(session, path: Path, month: date | None = None) -> LoadResult:
     added, reclassified, reactivated = [], [], []
     listed = [(code, item, "ETF") for code, item in sorted(report.rows.items())] + \
              [(code, item, "LIC") for code, item in sorted(report.lics.items()) if code not in report.rows]
+    is_newest = newest is None or report.month >= newest
     for code, item, kind in listed:
-        company, change = _fund_company(session, code, item.get("fund_name"), kind)
+        company, change = _fund_company(session, code, item.get("fund_name"), kind, is_newest)
         {"added": added, "reclassified": reclassified, "reactivated": reactivated}.get(change, []).append(code)
         values = {k: v for k, v in item.items() if k in EtfMonthly.__table__.columns}
         values.update(company_id=company.company_id, report_month=report.month, source_file=Path(path).name)
@@ -653,7 +660,7 @@ def load_report(session, path: Path, month: date | None = None) -> LoadResult:
             set_={k: stmt.excluded[k] for k in values if k not in ("company_id", "report_month")}
                 | {"loaded_at": func.current_timestamp()}))
     deactivated = []
-    if newest is None or report.month >= newest:
+    if is_newest:
         for kind, codes in (("ETF", report.rows), ("LIC", report.lics)):
             if not codes:
                 continue  # a report without that list says nothing about those funds
@@ -717,16 +724,46 @@ def reload_if_outdated(session, folder: Path = REPORT_DIR) -> LoadResult | None:
     return load_report(session, path, have)
 
 
+def load_folder(session, folder: Path = REPORT_DIR) -> list[LoadResult]:
+    """Load every report in the folder that isn't loaded yet, or was loaded
+    by an older reader, oldest month first. Saving several months at once
+    (or keeping the downloads) gives the fund size and NTA charts their
+    history straight away. A file that can't be read is logged and skipped."""
+    if not folder.is_dir():
+        return []
+    by_month: dict[date, Path] = {}
+    for path in sorted(folder.glob("*.xlsx")):
+        month = month_from_name(path.name)
+        if month and not path.name.startswith("~$"):  # "~$..." is Excel's lock file for an open workbook
+            by_month[month] = path
+    loaded = {m: v for m, v in session.execute(text("SELECT report_month, reader_version FROM asx_report_loads")).all()}
+    known = set(session.execute(select(EtfMonthly.report_month).distinct()).scalars())
+    results = []
+    for month, path in sorted(by_month.items()):
+        if loaded.get(month, 0 if month in known else -1) >= READER_VERSION:
+            continue
+        try:
+            result = load_report(session, path, month)
+        except ReportError as exc:
+            logger.warning("Skipped %s: %s", path.name, exc)
+            continue
+        logger.info("Loaded the %s report from %s: %d ETPs, %d LICs and LITs", f"{month:%B %Y}", path.name,
+                    result.etfs, result.lics)
+        results.append(result)
+    return results
+
+
 def ensure_latest(session, today: date, fetch=_get, folder: Path = REPORT_DIR) -> LoadResult | None:
-    """The nightly step: if last month's report isn't loaded yet, load it
-    from the reports folder (a file saved by hand) or download it. Does
-    nothing, without touching the network, once it's loaded. First, a
-    month loaded by an older reader is loaded again (reload_if_outdated)."""
-    reloaded = reload_if_outdated(session, folder)
+    """The nightly step. Loads any report in the reports folder not yet
+    loaded (or loaded by an older reader, §25.2); then, if last month's
+    report still isn't loaded, downloads it. Does nothing, without touching
+    the network, once everything is loaded. Returns the newest load."""
+    loaded = load_folder(session, folder)
+    reloaded = reload_if_outdated(session, folder) or (max(loaded, key=lambda r: r.month) if loaded else None)
     have = latest_loaded(session)
     if have is not None and have >= expected_month(today):
         return reloaded
-    found = local_newer(have, folder) or download_newer(have, today, fetch, folder)
+    found = download_newer(have, today, fetch, folder)
     if found is None:
         log = logger.warning if today.day > LATE_DAY else logger.info
         log("ASX report for %s not available yet (have %s). Download it from %s into %s if this persists.",
