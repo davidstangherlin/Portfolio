@@ -9,35 +9,31 @@ feeds Sift's valuations, scores or signals.
 from __future__ import annotations
 
 import logging
-import math
 import time
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from src.ingestion.rolling import nightly_share
 from src.ingestion.yahoo_client import Insights, YahooClient
 
 logger = logging.getLogger(__name__)
 
-REFRESH_DAYS = 7
-
-_DUE = text("""
-    SELECT c.asx_code
+_FETCHED = text("""
+    SELECT c.asx_code, i.fetched_at
     FROM companies c LEFT JOIN company_insights i ON i.company_id = c.company_id
     WHERE c.asx_code = ANY(:codes) AND c.security_type = 'SHARE' AND c.is_active = TRUE
-      AND (i.fetched_at IS NULL OR i.fetched_at < :stale_before)
-    ORDER BY i.fetched_at NULLS FIRST, c.asx_code
 """)
 
 
 def due_for_refresh(session: Session, asx_codes: list[str], today: date, all_now: bool = False) -> list[str]:
     """The shares to fetch tonight: those never fetched first, then the
     oldest, up to a seventh of the list (all of them with `all_now`). A
-    company fetched within the last week is never due."""
-    stale_before = today - timedelta(days=REFRESH_DAYS - 1)
-    due = list(session.execute(_DUE, {"codes": list(asx_codes), "stale_before": stale_before}).scalars())
-    return due if all_now else due[:math.ceil(len(asx_codes) / REFRESH_DAYS)]
+    company fetched within the last week is never due. Codes that aren't
+    active shares in the database are left out."""
+    fetched = dict(session.execute(_FETCHED, {"codes": list(asx_codes)}).all())
+    return nightly_share([c for c in asx_codes if c in fetched], fetched, today, all_now)
 
 
 def store_insights(session: Session, company_id, insights: Insights) -> None:

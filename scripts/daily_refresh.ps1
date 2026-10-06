@@ -7,14 +7,16 @@
 .DESCRIPTION
     Runs, in order:
         0. src.apply_schema              (bring the database up to the code's schema)
-        1. src.ingestion.run_ingestion   (prices + fundamentals for the watchlist)
+        1. src.ingestion.run_ingestion   (prices for the watchlist; fundamentals, analyst ratings
+                                          and holders for the seventh fetched longest ago)
         1b. src.etf.run_etfs             (ASX ETF report if due, ETF prices and distributions, ETF performance)
         2. src.valuation.run_valuation   (recompute every company's metrics)
         3. src.tracking.record_signals   (tonight's signals, for the track record)
         4. src.tracking.score_signals    (score signals whose 1/3/6/12 months have passed; prune)
         5. screen_asx.py --actions       (today's suggested actions, with reasons)
     Everything each step prints (including errors) is captured into one
-    timestamped log file under logs\, so a run can be checked after the
+    timestamped log file under logs\, with each step's start time and
+    duration, so a run can be checked after the
     fact without having to watch it live. Logs older than 30 days are
     pruned automatically.
 
@@ -55,40 +57,26 @@ Set-Location $RepoDir
 
 Write-Log "===== Daily Refresh Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ====="
 
-Write-Log ""
-Write-Log "--- Schema ---"
-python -m src.apply_schema 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+# Runs one step, logging its start time, everything it prints, and how
+# long it took, so a slow or stalled step is obvious from the log alone.
+function Invoke-Step {
+    param([string]$Name, [scriptblock]$Command)
+    Write-Log ""
+    Write-Log "--- $Name --- started $(Get-Date -Format 'HH:mm:ss')"
+    $Clock = [Diagnostics.Stopwatch]::StartNew()
+    & $Command 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+    Write-Log "    $Name took $([math]::Round($Clock.Elapsed.TotalMinutes, 1)) min"
+}
 
-Write-Log ""
-Write-Log "--- Ingestion ---"
-python -m src.ingestion.run_ingestion --tickers-file $WatchlistFile --delay 0.5 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
-
-Write-Log ""
-Write-Log "--- ETFs ---"
-python -m src.etf.run_etfs 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
-
-Write-Log ""
-Write-Log "--- Valuation ---"
-python -m src.valuation.run_valuation --all 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
-
-Write-Log ""
-Write-Log "--- Signal Record ---"
-python -m src.tracking.record_signals 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
-
-Write-Log ""
-Write-Log "--- Track Record ---"
-python -m src.tracking.score_signals 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
-
-Write-Log ""
-Write-Log "--- Suggested Actions ---"
-python screen_asx.py --actions 2>&1 |
-    ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+Invoke-Step "Schema" { python -m src.apply_schema }
+# Prices for every share; statements for the seventh fetched longest ago
+# (each refreshed weekly); analyst ratings and holders likewise.
+Invoke-Step "Ingestion" { python -m src.ingestion.run_ingestion --tickers-file $WatchlistFile --delay 0.5 --weekly-fundamentals }
+Invoke-Step "ETFs" { python -m src.etf.run_etfs }
+Invoke-Step "Valuation" { python -m src.valuation.run_valuation --all }
+Invoke-Step "Signal Record" { python -m src.tracking.record_signals }
+Invoke-Step "Track Record" { python -m src.tracking.score_signals }
+Invoke-Step "Suggested Actions" { python screen_asx.py --actions }
 
 Write-Log ""
 Write-Log "===== Daily Refresh Finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ====="

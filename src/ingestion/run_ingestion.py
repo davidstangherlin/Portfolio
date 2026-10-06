@@ -8,6 +8,11 @@ Usage:
     python -m src.ingestion.run_ingestion --tickers-file watchlist.txt --delay 0.75
     python -m src.ingestion.run_ingestion --tickers-file allords.txt --insights-only --insights-all
 
+--weekly-fundamentals (used by the nightly job, scripts/daily_refresh.ps1)
+fetches statements for only the seventh of the shares fetched longest ago,
+so each is refreshed weekly: statements change only at reporting time,
+and refetching all of them nightly was most of the run.
+
 A normal run also fetches analyst ratings and holders for the seventh of
 the shares whose data is oldest (src/ingestion/insights_ingestion.py,
 docs/AS_BUILT.md §29), so each share is refreshed about weekly.
@@ -39,7 +44,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from src.config import get_session
-from src.ingestion.fundamentals_ingestion import ingest_fundamentals
+from src.ingestion.fundamentals_ingestion import due_for_fundamentals, ingest_fundamentals
 from src.ingestion.insights_ingestion import ingest_insights
 from src.ingestion.price_ingestion import ingest_daily_prices
 from src.models import Company
@@ -76,6 +81,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--insights-all", action="store_true",
                         help="fetch analyst ratings and holders for every share due now, not just tonight's seventh")
     parser.add_argument("--skip-insights", action="store_true", help="don't fetch analyst ratings and holders")
+    parser.add_argument("--weekly-fundamentals", action="store_true",
+                        help="fetch fundamentals for only the seventh of the shares fetched longest ago, so each "
+                             "is refreshed weekly (the nightly job's setting); without it every ticker is fetched")
 
     args = parser.parse_args(argv)
     if not args.tickers and not args.tickers_file:
@@ -113,13 +121,16 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if not (args.prices_only or args.insights_only):
+            due = due_for_fundamentals(session, tickers) if args.weekly_fundamentals else tickers
+            if args.weekly_fundamentals:
+                logger.info("Fundamentals: %d of %d shares due tonight (each is refreshed weekly)", len(due), len(tickers))
             fundamentals_results = ingest_fundamentals(
-                session, tickers, max_years=args.max_years, delay_seconds=args.delay
+                session, due, max_years=args.max_years, delay_seconds=args.delay
             )
             failed = [t for t, n in fundamentals_results.items() if n == 0]
             logger.info(
                 "Fundamentals ingestion complete: %d/%d tickers returned data%s",
-                len(tickers) - len(failed), len(tickers),
+                len(due) - len(failed), len(due),
                 f" - 0 reports for: {', '.join(failed)}" if failed else "",
             )
 

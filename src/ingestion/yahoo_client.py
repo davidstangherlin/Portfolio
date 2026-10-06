@@ -89,6 +89,10 @@ class YahooClient:
         # cash distributions in the period fetched, oldest first.
         self.last_splits: list[tuple[date, Decimal]] = []
         self.last_dividends: list[Payment] = []
+        # Set when the statements request itself failed (network, Yahoo error),
+        # as opposed to Yahoo having no statements: only the former is retried
+        # the next night rather than in a week (see due_for_fundamentals).
+        self.statements_failed = False
 
     def get_profile(self) -> dict:
         """Company name / sector / industry / country / currencies / business
@@ -165,6 +169,7 @@ class YahooClient:
             cash_flow = self._ticker.get_cash_flow(freq="yearly")
         except Exception:
             logger.exception("Failed to fetch financial statements for %s", self.symbol)
+            self.statements_failed = True
             return []
 
         if income_stmt is None or income_stmt.empty:

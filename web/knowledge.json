@@ -100,6 +100,7 @@
    "body": [
     "Each night at 6 pm the scheduled job updates the database schema, downloads prices and financial statements, collects ETF prices and distributions (and, once a month, the ASX's ETF report), recalculates every valuation, records that night's signals, scores earlier signals whose results are due, and writes the action report.",
     "The chip is green when the data is current. It turns amber with a ! when the latest valuations are older than the last weekday's close (the job didn't run, or it was a public holiday) or when the last run crashed or didn't finish. Hover it to see when the last run started and finished and how many companies it couldn't update; a few each night is normal.",
+    "A run that didn't finish, with a log that just stops and no error, was almost always ended from outside Sift: Task Scheduler stopping it when the PC stopped being idle, its window being closed, or the PC sleeping. The README's Daily Automation section has the settings that prevent this; each step in the log shows when it started and how long it took.",
     "If a page shows Could not load, the message under it says why. A message about a missing table or column means the database needs updating: restart python gui.py, or run python -m src.apply_schema."
    ],
    "aliases": [

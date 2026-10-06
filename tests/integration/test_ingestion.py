@@ -237,3 +237,34 @@ def test_business_summary_is_backfilled_once_and_a_missing_one_is_not_asked_for_
     assert failed.business_summary is None
     created = get_or_create_company(db_session, "NEW", client=_SummaryClient({**base, "business_summary": "New."}))
     assert created.business_summary == "New."
+
+
+def test_weekly_fundamentals_take_the_oldest_seventh_and_a_failed_fetch_is_retried(db_session, monkeypatch):
+    from sqlalchemy import text
+    from src.ingestion import fundamentals_ingestion
+    from src.ingestion.fundamentals_ingestion import due_for_fundamentals
+
+    codes = [f"F{i:02d}" for i in range(14)]
+    for code in codes:
+        _company(db_session, code)
+    db_session.execute(text("UPDATE companies SET fundamentals_fetched_at = CURRENT_TIMESTAMP"))
+    db_session.execute(text("UPDATE companies SET fundamentals_fetched_at = CURRENT_TIMESTAMP - interval '9 days' WHERE asx_code = 'F03'"))
+    db_session.execute(text("UPDATE companies SET fundamentals_fetched_at = NULL WHERE asx_code = 'F07'"))
+    db_session.commit()
+    assert due_for_fundamentals(db_session, codes + ["NEW"]) == ["F07", "NEW", "F03"]  # 15 / 7 -> 3 a night
+
+    class Failing(_StatementsYahoo):
+        def __init__(self, code):
+            super().__init__(code)
+            self.statements_failed = code == "F03"
+
+        def get_annual_fundamentals(self, max_years=4):
+            return [] if self.statements_failed else super().get_annual_fundamentals(max_years)
+
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", Failing)
+    fundamentals_ingestion.ingest_fundamentals(db_session, ["F07", "F03"])
+    stamped = dict(db_session.execute(text(
+        "SELECT asx_code, fundamentals_fetched_at > CURRENT_TIMESTAMP - interval '1 hour' FROM companies "
+        "WHERE asx_code IN ('F07', 'F03')")).all())
+    assert stamped == {"F07": True, "F03": False}  # F03's request failed: due again tomorrow, not in a week
+    assert due_for_fundamentals(db_session, codes) == ["F03"]

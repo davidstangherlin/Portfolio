@@ -546,7 +546,14 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
 schema update → ingestion → ETFs → valuation → signal record → track record scoring → screener, logging everything to a timestamped file
-under `logs\` (pruned automatically after 30 days). Each step runs even if
+under `logs\` (pruned automatically after 30 days). Each step's heading in the log shows when it
+started, and a line after it says how long it took.
+
+Prices are fetched for every share every night. Annual statements, analyst ratings and holders
+change far less often, so each night refreshes the seventh of the shares fetched longest ago
+(`--weekly-fundamentals`), and every share is refreshed about weekly. A normal night takes about
+40 minutes (shares, then about 550 ETFs and LICs); without the weekly refresh it would be over an
+hour. The first run after a big update (new ETFs and LICs, a backfill) takes longer. Each step runs even if
 a previous one hit problems, so a transient Yahoo Finance network error
 during ingestion doesn't block valuation/screener from running against
 whatever data is already in the database.
@@ -571,20 +578,35 @@ command yourself (no psql or password prompt needed).
    exists at the repo root.
 3. Open **Task Scheduler** → **Create Task** (not *Basic Task*, so you get
    the full options below):
-   - **General**: name it e.g. `ASX Value Screener - Daily Refresh`; select
-     "Run whether user is logged on or not" if you want it to run even when
-     locked out.
+   - **General**: name it e.g. `ASX Refresh`; select "Run whether user is
+     logged on or not" if you want it to run even when locked out (it then
+     runs without a window at all).
    - **Triggers** → **New**: Daily, start time after ASX close with a
      buffer for Yahoo Finance data to settle — **6:00 PM** local time is a
      reasonable default.
    - **Actions** → **New**:
      - Program/script: `powershell.exe`
-     - Add arguments: `-NoProfile -ExecutionPolicy Bypass -File "C:\Users\mrdav\Portfolio\scripts\daily_refresh.ps1"`
-   - **Conditions**: untick "Start the task only if the computer is on AC
-     power" if this runs on a laptop that may be on battery.
+     - Add arguments: `-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\mrdav\Portfolio\scripts\daily_refresh.ps1"`
+       (`-WindowStyle Hidden` keeps the run out of sight, so it can't be closed by accident:
+       closing the window kills the run partway, result `0xC000013A`)
+   - **Conditions**: untick "Start the task only if the computer is idle" and
+     "Stop if the computer ceases to be idle" (with these on, touching the mouse
+     ends the run). Untick "Start the task only if the computer is on AC power"
+     if this runs on a laptop that may be on battery.
    - **Settings**: tick "Run task as soon as possible after a scheduled
      start is missed" so a missed run (machine off at 6pm) catches up next
-     time it's on.
+     time it's on, and set "Stop the task if it runs longer than" to 4 hours.
+   To apply all of these to an existing task in one go, run this in PowerShell as
+   administrator (change `ASX Refresh` if you named it differently):
+   ```powershell
+   $t = Get-ScheduledTask 'ASX Refresh'
+   $t.Settings.RunOnlyIfIdle = $false
+   $t.Settings.IdleSettings.StopOnIdleEnd = $false
+   $t.Settings.ExecutionTimeLimit = 'PT4H'
+   $t.Settings.StartWhenAvailable = $true
+   $t.Actions[0].Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\mrdav\Portfolio\scripts\daily_refresh.ps1"'
+   Set-ScheduledTask -InputObject $t
+   ```
 4. Run the task once manually (right-click → Run) to confirm it works, then
    check `logs\refresh_<timestamp>.log` for the phase headers and no
    unexpected errors. The Sift dashboard's data chip and footer also show how the last run

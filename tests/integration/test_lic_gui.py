@@ -110,6 +110,12 @@ def test_share_ingestion_leaves_etfs_and_lics_to_the_etf_step(lics, monkeypatch)
     run_ingestion.main(["--tickers", "GOOD", "AFI", "VAS"])
     assert seen == {"prices": ["GOOD"], "fundamentals": ["GOOD"], "insights": ["GOOD"]}
 
+    # The nightly job's --weekly-fundamentals: only the shares due tonight.
+    seen.clear()
+    monkeypatch.setattr(run_ingestion, "due_for_fundamentals", lambda s, codes: codes[:1])
+    run_ingestion.main(["--tickers", "GOOD", "BAD", "--weekly-fundamentals"])
+    assert seen["fundamentals"] == ["GOOD"] and seen["prices"] == ["GOOD", "BAD"]
+
 
 def test_lics_get_prices_and_performance_from_the_etf_step(lics):
     from src.etf.prices import active_etfs

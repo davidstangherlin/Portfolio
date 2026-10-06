@@ -25,6 +25,9 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS financial_currency VARCHAR(3);  -
 -- What the company does, per Yahoo's business summary (AS_BUILT §28). NULL
 -- means not fetched yet; '' means fetched and Yahoo has none.
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_summary TEXT;
+-- When the annual statements were last fetched. The nightly run refreshes
+-- them weekly, a seventh of the shares each night (AS_BUILT §16).
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS fundamentals_fetched_at TIMESTAMP WITH TIME ZONE;
 -- SHARE, ETF (docs/AS_BUILT.md §25) or LIC (§27, listed investment companies
 -- and trusts). ETFs and LICs share the price and distribution tables with
 -- shares but are never valued, screened or scored as shares.

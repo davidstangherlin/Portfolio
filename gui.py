@@ -328,7 +328,7 @@ _LOG_STARTED = re.compile(r"Daily Refresh Started: (\d{4}-\d{2}-\d{2} \d{2}:\d{2
 _LOG_FINISHED = re.compile(r"Daily Refresh Finished: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 _LOG_ERROR = " ERROR "  # logging's level field; each company that fails logs one of these
 _TRACEBACK = "Traceback (most recent call last)"
-RUN_STILL_GOING_HOURS = 3  # an unfinished log younger than this is a run in progress, not a crash
+RUN_STILL_GOING_HOURS = 4  # an unfinished log younger than this is a run in progress (the task stops runs at 4 hours)
 
 
 def _previous_weekday(d: date) -> date:

@@ -17,15 +17,16 @@ import time
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.ingestion.common import ensure_profile, get_or_create_company
 from src.ingestion.currency import apply_conversion
 from src.ingestion.dividend_history import dividends_for_fiscal_year, split_abnormal
+from src.ingestion.rolling import nightly_share
 from src.ingestion.yahoo_client import YahooClient
-from src.models import DividendPayment, FinancialReport
+from src.models import Company, DividendPayment, FinancialReport
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,16 @@ def convert_to_trading_currency(client, company, snapshots) -> None:
     apply_conversion(snapshots, reporting, trading, closes)
 
 
+def due_for_fundamentals(session: Session, asx_codes: list[str], today: date | None = None) -> list[str]:
+    """The nightly run's share of `asx_codes` (docs/AS_BUILT.md §16):
+    statements only change at each half-year and annual report, so each
+    night refetches the seventh of the shares fetched longest ago, never
+    fetched (including codes not in the database yet) first."""
+    fetched = dict(session.execute(select(Company.asx_code, Company.fundamentals_fetched_at)
+                                   .where(Company.asx_code.in_(asx_codes))).all())
+    return nightly_share(asx_codes, fetched, today or date.today())
+
+
 def ingest_fundamentals(
     session: Session, asx_codes: list[str], max_years: int = 4, delay_seconds: float = 0.0
 ) -> dict[str, int]:
@@ -167,6 +178,8 @@ def ingest_fundamentals(
                     snapshot.dividends_per_share = fy.ordinary
                     snapshot.abnormal_distributions_per_share = fy.abnormal if fy.ordinary is not None else None
                 upsert_financial_report(session, company.company_id, snapshot, company.country)
+            if not getattr(client, "statements_failed", False):
+                company.fundamentals_fetched_at = func.now()  # due again in a week (§16)
             session.commit()
             logger.info("[%d/%d] Ingested %d annual reports for %s", i, total, len(snapshots), asx_code)
             results[asx_code] = len(snapshots)
