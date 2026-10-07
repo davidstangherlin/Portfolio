@@ -37,7 +37,9 @@ PERIODS = (("return_1m", 1), ("return_3m", 3), ("return_6m", 6), ("return_1y", 1
 STALE_DAYS = 10
 DAYS_PER_YEAR = 365.25
 CENT = Decimal("0.01")
-JUMP_LIMIT = 0.4         # a one-day move beyond 40% in a fund's price is a data fault, not a market move
+JUMP_LIMIT = 0.4         # a one-day move beyond 40% that stays is a data fault, not a market move
+JUMP_MIN_PRICE = 0.10    # under 10 cents one price step is several percent, so big daily moves are real
+JUMP_WINDOW = 10         # closes either side compared, so a spike that reverses isn't counted
 LISTING_MATCH_DAYS = 31  # prices starting within this of the listing date: since-inception is comparable
 
 
@@ -111,13 +113,26 @@ def returns_as_at(h: History, as_at: date) -> dict:
 
 
 def price_jump(h: History) -> tuple[date, Decimal] | None:
-    """The latest one-day close-to-close move beyond JUMP_LIMIT, as (date,
-    percent). Funds don't move 40% in a day; such a step is an unadjusted
-    split or consolidation, a currency change in the feed, or a bad price,
-    and every return measured across it is wrong."""
+    """The latest one-day move beyond JUMP_LIMIT that looks like a data
+    fault, as (date, percent): an unadjusted split or consolidation, or a
+    currency change in the feed, which shifts the price level for good and
+    makes every return measured across it wrong. Not counted (§26.1):
+    - a price under JUMP_MIN_PRICE on either side (8IH at about a cent
+      moves 50% on a few ticks);
+    - a move that doesn't stay: the median of the JUMP_WINDOW closes after
+      it must also differ from the median of those before by JUMP_LIMIT;
+    - a drop that a distribution paid that day explains."""
+    paid = dict(h.distributions)
     for i in range(len(h.closes) - 1, 0, -1):
         before, after = h.closes[i - 1], h.closes[i]
-        if before > 0 and abs(after / before - 1) > JUMP_LIMIT:
+        if before <= 0 or abs(after / before - 1) <= JUMP_LIMIT or min(before, after) < JUMP_MIN_PRICE:
+            continue
+        if h.dates[i] in paid and abs((after + paid[h.dates[i]]) / before - 1) <= JUMP_LIMIT:
+            continue
+        prior = sorted(h.closes[max(0, i - JUMP_WINDOW):i])
+        later = sorted(h.closes[i:i + JUMP_WINDOW])
+        mid = lambda xs: xs[len(xs) // 2]  # noqa: E731
+        if mid(prior) > 0 and abs(mid(later) / mid(prior) - 1) > JUMP_LIMIT:
             return h.dates[i], Decimal(str((after / before - 1) * 100)).quantize(CENT)
     return None
 

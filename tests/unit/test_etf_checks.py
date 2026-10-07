@@ -32,6 +32,23 @@ def test_a_one_day_step_beyond_40_percent_is_a_data_fault():
     assert price_jump(steady(date(2020, 1, 1), date(2026, 9, 30), jump_on=date(2024, 3, 4), jump=0.7)) is None  # -30%: possible
 
 
+def test_real_moves_are_not_data_faults():
+    """8IH (about a cent a share) jumps 58% on a few ticks; a one-day bad
+    print that reverses, or a drop paid out as a distribution, is not a
+    level shift either."""
+    penny = steady(date(2024, 1, 1), date(2026, 9, 30), jump_on=date(2026, 8, 27), jump=1.58)
+    penny = History(penny.dates, [c * 0.0012 for c in penny.closes], [])  # around 1.2 to 1.9 cents
+    assert price_jump(penny) is None
+    h = steady(date(2024, 1, 1), date(2026, 9, 30))
+    i = h.dates.index(date(2025, 6, 2))
+    spike = History(h.dates, h.closes[:i] + [h.closes[i] * 1.8] + h.closes[i + 1:], [])
+    assert price_jump(spike) is None
+    paid = steady(date(2024, 1, 1), date(2026, 9, 30), jump_on=date(2025, 6, 2), jump=0.5)
+    j = paid.dates.index(date(2025, 6, 2))
+    paid.distributions.append((date(2025, 6, 2), paid.closes[j - 1] * 0.5))  # half the price paid out
+    assert price_jump(paid) is None
+
+
 def _report(**returns):
     base = {f"return_{k}": None for k in ("1m", "3m", "6m", "1y", "3y", "5y", "10y", "since_inception")}
     return SimpleNamespace(report_month=date(2026, 7, 1), listing_date=None, **(base | returns))

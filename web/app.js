@@ -2243,7 +2243,9 @@ function performanceCard(d, compareSelect) {
   const c = card("Performance", `Total return with ${F.payouts.toLowerCase()} reinvested, as a yearly rate.`,
     h("div", { class: "compare-row" }, h("label", { text: "Compare with " }), compareSelect, " ", helpLink("reference-fund")),
     checkLine,
-    chartSlot((w) => columnChart({ categories: cats, series, yFmt: (v) => fmt(v, 0) + "%", label: `${e.asx_code} total return, % a year`, width: w })),
+    series.some((sr) => sr.values.some((v) => v !== null && v !== undefined))
+      ? chartSlot((w) => columnChart({ categories: cats, series, yFmt: (v) => fmt(v, Number.isInteger(v) ? 0 : 1) + "%", label: `${e.asx_code} total return, % a year`, width: w }))
+      : h("p", { class: "empty", text: `No yearly figures to chart for ${e.asx_code}${ref ? ` or ${ref.asx_code}` : ""}: they're too new or need checking (see the table).` }),
     recent,
     table,
     peers.return_1y ? h("p", { class: "hint", text: `Rank and median: among the ${F.nouns} in ${e.category} with a figure for each period that passed its checks. ` }, helpLink("category-average")) : null,
