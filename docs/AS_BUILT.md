@@ -991,6 +991,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-06 | User asked for Yahoo Finance's analyst insights (buy, hold and sell ratings) and holders (major holders, top mutual fund holders) on each company's page. Yahoo's paid Analyst Insights panel can't be fetched, so the free equivalents are used. User chose ratings plus price targets, company page only (no screener column, no effect on signals), all three holder views, and a weekly refresh. Added `company_insights`, `analyst_ratings` and `top_holders`, `YahooClient.get_insights()` and `src/ingestion/insights_ingestion.py` (a seventh of the shares each night, never-fetched first; `--insights-only`, `--insights-all`, `--skip-insights`), and three company page cards with a diverging buy-to-sell colour scale validated in both themes. Three Help entries in a new Analysts and holders topic. Known issue #34. 574 tests pass (10 new). §29 |
 | 2026-10-06 | User reported the nightly logs failing to finish and asked whether to run the job later or split it. Their log summary showed runs since 5 October stopping during ingestion with no error and no rate limiting; Task Scheduler showed result `0xC000013A`, "Stop if the computer ceases to be idle" on and a 2-hour limit, and no sleep or shutdown events. Advised fixing the task (hidden window, idle conditions off, 4-hour limit) rather than moving or splitting it. User asked for the recommended changes: timed steps in the nightly log, weekly fundamentals (`--weekly-fundamentals`, `companies.fundamentals_fetched_at`, shared `rolling.py`), README Task Scheduler settings with a one-step PowerShell fix, a clearer "did not finish" message. Script tested end to end under `pwsh`. Known issue #35. 578 tests pass (4 new). §16 |
 | 2026-10-07 | User's first full run after the task fix finished in 54 minutes, but a `git pull` during the run left the ETFs and Valuation steps failing on the new `fundamentals_fetched_at` column (the schema step had already run). Advised restarting `gui.py` (which applies the schema) and running the task again. User then asked for the two fixes found in the log: kina rates chained through the US dollar, with unconvertible statements flagged so the company can't be a BUY (`companies.statements_issue`, data confidence LOW, a note on the company page); and the nightly script writing blank error-output lines as blank instead of `System.Management.Automation.RemoteException`. Also made a dashboard test's sum tolerant of floating-point rounding. 583 tests pass (5 new). §7.7, §16 |
+| 2026-10-07 | User supplied `filter_component.py` (a Streamlit and pandas filter component) and asked for it to be reviewed and applied to all list view tables. Reviewed: sound design, but Streamlit-only, with six bugs (typed numbers compared as text, a one-box "between", lists unreachable from the screen, blank cells never matching, OR chains rewritten by "Show matching", search on raw values). User chose to keep the existing quick filters, to cover the screeners, watchlists and portfolio holdings, right-click a cell for the actions, and to keep filters until the page reloads. Ported to `web/tablefilter.js` with the fixes; Help entry "Filtering a table". 585 tests pass (1 new, running 30 Node checks). §30 |
 
 ---
 
@@ -1576,3 +1577,30 @@ Percentages are stored as percents (12.5 = 12.5%). `YahooClient.get_insights()` 
 - Each card ends with the fetch date and a ? link to its Help entry (topic **Analysts and holders**: analyst ratings, analyst price targets, major holders).
 
 Known issue #34 covers the coverage limits.
+
+## 30. Table Filters (`web/tablefilter.js`, added 2026-10-07)
+
+Every list view can be searched and filtered by any column: the share screener, the ETF and LIC screeners, each watchlist's Shares, ETFs and LICs tables, and each portfolio's holdings tables. The existing quick filters (action chips, sector, category, issuer, watchlist, Held only, Passes all four tests) stay as they were; the table filter applies on top of them.
+
+**Origin.** Ported from the user's `filter_component.py` (Streamlit and pandas) to plain JavaScript, keeping its design: one filter state per table, conditions as data (column, operator, value, join), a pure filtering function, removable chips, a pink button that opens the condition builder, and "Show matching" / "Filter out". Fixed in the port (each has a check in `tests/js/table_filter.test.js`):
+
+| Issue in the original | Fix |
+|---|---|
+| Typed values stayed text, so `MoS > 20` compared a number with "20" | Number columns parse the value: `20`, `20%`, `-1.5`, `$1,234.50`, `1.2B`, `300k` |
+| "between" had one input but expected two values | Two inputs; either end may be left open |
+| A list of values could only be set in code | Comma-separated values are a list (`BHP, RIO`); a value picked by right-click stays one value, commas and all |
+| "Show matching" on a blank cell matched nothing | A blank cell offers "is empty" / "is not empty" |
+| "Show matching" replaced every condition on the column and appended with AND, rewriting OR chains | Replaces only a lone AND condition on that column; otherwise adds one |
+| Search matched raw stored values | Search matches the text as shown in every column (so "60%" finds a stored 60) |
+
+**Behaviour.**
+- **Search box** (replacing each screener's old code-or-name search): rows whose shown text in any column contains the typed text. The ETF and LIC screeners also search the benchmark and issuer.
+- **Filter button** (pink; filled, with a count, while conditions apply): the builder. Each row is column, condition and value. Conditions offered depend on the column: text columns get equals, does not equal, contains, does not contain, is empty and is not empty; number columns also get greater than, less than and between. Text values suggest the column's own values. Conditions apply top to bottom with no brackets: A AND B OR C means (A AND B) OR C, which the builder states. A condition still being typed has a dashed chip and is skipped rather than emptying the table.
+- **Right-click a cell** (press and hold on a phone; the menu key on a focused row uses the first column): Show matching, Filter out, and for numbers Greater than and Less than that value. The tap that ends a press and hold doesn't open the row.
+- **Chips** under the controls: one per condition, click to remove, and Clear all.
+- **Memory.** Each table keeps its filters until the page reloads (`TF_STATES`, keyed by table: `screener`, `ETF`, `LIC`, `watch:<id>:<type>`, `portfolio:<id>:<type>`). A link that presets a screener (from the dashboard) clears that screener's table filters, so it shows what the link says.
+- **Small tables.** A watchlist or portfolio table with one row shows no filter controls.
+
+**Structure.** `web/tablefilter.js` loads before `app.js`. The pure part (`tfNumber`, `tfReady`, `tfTest`, `tfApply`, `tfUpsert`) runs in Node for tests; the controls use `app.js`'s `h()`. Pages describe their columns as fields (`label`, `type` num or text, `get` the value, `text` the value as shown): `SCREENER_FIELDS`, `fundFields(kind)`, `WATCH_SHARE_FIELDS`, `fundWatchFields(kind)`, `holdingFields(kind)`. The screeners call `tableFilter()` inside their own refresh; watchlists and portfolios use `filterableTable()`, which redraws the table on each change. Help: "Filtering a table" (`table-filters`).
+
+**Tests.** `tests/js/table_filter.test.js`, run by `tests/unit/test_table_filter.py` (skipped without Node). A browser check covered every table at desktop and phone widths, including a press and hold on a phone.

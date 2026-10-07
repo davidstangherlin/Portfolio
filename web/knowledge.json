@@ -1849,6 +1849,28 @@
    "related": [
     "analyst-ratings"
    ]
+  },
+  {
+   "id": "table-filters",
+   "title": "Filtering a table",
+   "category": "guides",
+   "aliases": [
+    "filter",
+    "search a table",
+    "show matching",
+    "filter out",
+    "right-click",
+    "condition builder"
+   ],
+   "definition": "Every list in Sift (the share, ETF and LIC screeners, each watchlist and each portfolio's holdings) can be searched and filtered by any column.",
+   "body": [
+    "Search: the box above the table finds rows whose text in any column contains what you type, such as BHP, Materials or 60%.",
+    "Right-click any cell (press and hold on a phone) for Show matching (only rows with that value), Filter out (hide them), and for numbers Greater than or Less than that value. A blank cell offers rows with or without a value.",
+    "Filter (the pink button) opens the condition builder: pick a column, a condition (equals, contains, greater than, between, is empty and so on) and a value. Numbers can be typed as 20, 20%, $1.2B or 300k; separate several values with commas, such as BHP, RIO. Add conditions with AND or OR; they apply top to bottom, so A AND B OR C means (A AND B) OR C. A condition still being typed is shown dashed and not applied yet.",
+    "Each active filter shows as a chip under the controls: click it to remove it, or Clear all. The table's quick filters (action, sector, category, watchlist, Held only) still work alongside.",
+    "Each table keeps its own filters while you move around Sift; they clear when the page reloads. Opening a screener from a dashboard link starts it without them."
+   ],
+   "related": []
   }
  ]
 }

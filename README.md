@@ -258,6 +258,10 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   and Nasdaq, opening in a new tab). The pink underline shows where you are. On a phone or
   narrow window the menu folds behind the ☰ button. The Watchlists and Portfolios menus list
   yours, with a link to create a new one.
+- **Filter any table:** every list (the screeners, watchlists and portfolio holdings) has a search box
+  over all its columns, a pink **Filter** button for conditions such as Margin of safety > 20% AND Sector
+  = Financial Services, and right-click on any cell (press and hold on a phone) for Show matching or
+  Filter out (docs/AS_BUILT.md §30).
 - **Find a company or term:** type a code or part of a name in the search box and pick from the
   list, or press Enter, to jump straight to that company's page. Type a term instead (franking,
   SMSF, margin of safety) and it opens that Help entry, or the Help search results.

@@ -437,10 +437,23 @@ const COLUMNS = [
   { key: "action", label: "Action", value: (r) => cache.screener.actions.indexOf(r.action) },
 ];
 
+/* Each column as a filter field (web/tablefilter.js): its value, and its text as shown. */
+const SCREENER_FIELDS = {
+  score: { label: "Score", type: "num", get: (r) => sum(r.scores) },
+  asx_code: { label: "Company", type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` },
+  sector: { label: "Sector", type: "text", get: (r) => r.sector },
+  current_price: { label: "Price", type: "num", get: (r) => r.current_price, text: (r) => money(r.current_price) },
+  margin_of_safety_percent: { label: "Margin of safety", type: "num", get: (r) => r.margin_of_safety_percent, text: (r) => pct(r.margin_of_safety_percent, 0) },
+  valuation: { label: "Valuation", type: "text", get: (r) => valuationStatus(r.margin_of_safety_percent).label },
+  roe: { label: "ROE", type: "num", get: (r) => r.roe, text: (r) => pct(r.roe, 1) },
+  debt_to_equity: { label: "Debt/equity", type: "num", get: (r) => r.debt_to_equity, text: (r) => fmt(r.debt_to_equity, 2) },
+  grossed_up_dividend_yield: { label: "Yield (grossed up)", type: "num", get: (r) => r.grossed_up_dividend_yield, text: (r) => pct(r.grossed_up_dividend_yield, 1) },
+  tests: { label: "Value tests", type: "num", get: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
+  action: { label: "Action", type: "text", get: (r) => r.action },
+};
+
 function filteredRows() {
-  const q = state.q.trim().toLowerCase();
   return cache.screener.rows.filter((r) =>
-    (!q || r.asx_code.toLowerCase().includes(q) || (r.company_name || "").toLowerCase().includes(q)) &&
     (!state.sector || r.sector === state.sector) &&
     (state.actions.size === 0 || state.actions.has(r.action)) &&
     (!state.passing || r.overall === "Y") &&
@@ -494,10 +507,14 @@ async function renderScreener() {
   const count = h("span", { class: "count" });
   const more = h("button", { class: "more", type: "button" });
   const headRow = h("tr");
+  let shownRows = [];
+  const tf = tableFilter("screener", SCREENER_FIELDS, () => d.rows, () => { state.shown = PAGE_SIZE; refresh(); },
+    { placeholder: "Search any column" });
 
   function refresh() {
-    const rows = sortedRows(filteredRows());
-    tbody.replaceChildren(...rows.slice(0, state.shown).map(screenerRow));
+    const rows = sortedRows(tf.apply(filteredRows()));
+    shownRows = rows.slice(0, state.shown);
+    tbody.replaceChildren(...shownRows.map(screenerRow));
     count.textContent = `${rows.length} shown`;
     more.hidden = rows.length <= state.shown;
     more.textContent = `Show more (${rows.length - state.shown} remaining)`;
@@ -528,8 +545,6 @@ async function renderScreener() {
     refresh();
   }
 
-  const search = h("input", { type: "search", placeholder: "Search code or company", value: state.q, "aria-label": "Search",
-    oninput: (e) => { state.q = e.target.value; state.shown = PAGE_SIZE; refresh(); } });
   const sector = h("select", { "aria-label": "Sector", onchange: (e) => { state.sector = e.target.value; state.shown = PAGE_SIZE; refresh(); } },
     h("option", { value: "", text: "All sectors" }), d.sectors.map((sc) => h("option", { value: sc, selected: sc === state.sector, text: sc })));
   const toggle = (key, text) => h("label", {}, h("input", { type: "checkbox", checked: state[key],
@@ -541,12 +556,15 @@ async function renderScreener() {
     h("option", { value: "", text: "All companies" }), h("option", { value: "*", selected: state.watchlist === "*", text: "On any watchlist" }),
     d.watchlists.map((w) => h("option", { value: w.name, selected: w.name === state.watchlist, text: `Watchlist: ${w.name}` }))) : null;
 
+  const table = h("table", { class: "grid" }, h("thead", {}, headRow), tbody);
   app.replaceChildren(
     pageHead("Screener", `${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
     chips,
-    h("div", { class: "controls" }, search, sector, watchFilter, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid" }, h("thead", {}, headRow), tbody)),
+    h("div", { class: "controls" }, tf.search, tf.toggle, sector, watchFilter, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
+    tf.chips, tf.builder,
+    h("div", { class: "table-wrap" }, table),
     more);
+  tf.attachMenu(table, COLUMNS.map((c) => c.key), () => shownRows);
   refresh();
 }
 
@@ -914,6 +932,7 @@ function presetScreener(query) {
   Object.assign(state, { q: "", sector: "", passing: false, held: params.get("held") === "1", shown: PAGE_SIZE,
     watchlist: params.get("watchlist") || "",
     actions: new Set((params.get("action") || "").split(",").filter(Boolean)) });
+  delete TF_STATES.screener;  // and none of the table filters, so the link shows what it says
 }
 const signed = (v, fmtFn) => (v === null || v === undefined ? NA : (v > 0 ? "+" : v < 0 ? "-" : "") + fmtFn(Math.abs(v)));
 const dateTime = (iso) => new Date(iso).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -1502,7 +1521,7 @@ async function renderPortfolio(id, note) {
     h("div", { class: "page-head" }, h("h1", { text: pf.name }), taxTag(pf), pf.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
     notice,
     strip,
-    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsSections(d.positions, d.sections)) : null,
+    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsSections(d.positions, d.sections, `portfolio:${d.portfolio.portfolio_id}`)) : null,
     h("div", { class: "cards dash", style: "margin-top:16px" }, tradeCard(d, reload), settingsCard(d, reload),
       parcelsCard(d, reload, notice), salesCard(d, reload, notice), cgtCard(d)),
   ].filter(Boolean));
@@ -1756,6 +1775,53 @@ async function renderWatchlists(query) {
   if (wantNew) setTimeout(() => { create.scrollIntoView({ block: "center" }); name.focus(); }, 0); else window.scrollTo(0, 0);
 }
 
+/* Watchlist and portfolio tables as filter fields (web/tablefilter.js). */
+const codeField = (label) => ({ label, type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` });
+const numField = (label, key, show) => ({ label, type: "num", get: (r) => r[key], text: (r) => show(r[key]) });
+const triggersField = { label: "Triggers", type: "text",
+  get: (r) => (r.triggers && r.triggers.length ? (r.triggers.some((t) => t.met) ? "Met" : "Not met") : null),
+  text: (r) => (r.triggers || []).map((t) => `${t.label} ${t.met ? "met" : "not met"}`).join("; ") };
+const noteField = { label: "Note", type: "text", get: (r) => r.note };
+const WATCH_SHARE_FIELDS = {
+  score: { label: "Score", type: "num", get: (r) => (r.scores ? sum(r.scores) : null) },
+  asx_code: codeField("Company"),
+  price: numField("Price", "price", (v) => money(v)),
+  margin_of_safety_percent: numField("Margin of safety", "margin_of_safety_percent", (v) => pct(v, 0)),
+  valuation: { label: "Valuation", type: "text", get: (r) => valuationStatus(r.margin_of_safety_percent).label },
+  action: { label: "Action", type: "text", get: (r) => r.action },
+  triggers: triggersField, note: noteField,
+};
+const fundWatchFields = (kind) => ({
+  asx_code: codeField(FUNDS[kind].noun),
+  price: numField(FUNDS[kind].price, "price", (v) => money(v)),
+  day_change_percent: numField("Day move", "day_change_percent", signedPct),
+  [kind === "LIC" ? "premium_now" : "return_1y"]: kind === "LIC" ? numField("Premium/discount to NTA", "premium_now", premText) : numField("1-year return", "return_1y", signedPct),
+  distribution_yield_12m: numField("Yield (12 months)", "distribution_yield_12m", (v) => pct(v, 1)),
+  triggers: triggersField, note: noteField,
+});
+function fundWatchFiltered(kind, d, items, editing, remove) {
+  const fields = fundWatchFields(kind);
+  return filterableTable(`watch:${d.watchlist_id}:${kind}`, fields, [...Object.keys(fields), null], items,
+    (rows) => fundWatchTable(kind, rows, editing, remove));
+}
+const discountField = { label: "CGT discount from", type: "text", get: (r) => (r.next_discount_date ? longDate(r.next_discount_date) : "eligible now") };
+const holdingFields = (kind) => {
+  const money0 = (v) => money(v, 0), signedMoney = (v) => signed(v, money0);
+  const base = {
+    asx_code: codeField(kind === "SHARE" ? "Company" : FUNDS[kind].noun),
+    units: numField("Units", "units", (v) => fmt(v, 0)),
+    cost_base: numField("Cost base", "cost_base", money0),
+    price: numField(kind === "SHARE" ? "Price" : FUNDS[kind].price, "price", (v) => money(v)),
+    value: numField("Value", "value", money0),
+    gain: numField("Gain", "gain", signedMoney),
+    day_change: numField("Today", "day_change", signedMoney),
+  };
+  if (kind === "SHARE") return { ...base, action: { label: "Action", type: "text", get: (r) => r.action }, next_discount_date: discountField };
+  return { ...base,
+    [kind === "LIC" ? "premium_now" : "return_1y"]: kind === "LIC" ? numField("Premium/discount to NTA", "premium_now", premText) : numField("1-year return", "return_1y", signedPct),
+    distribution_yield_12m: numField("Yield (12 months)", "distribution_yield_12m", (v) => pct(v, 1)), next_discount_date: discountField };
+};
+
 async function renderWatchlist(id, note) {
   if (!note) app.replaceChildren(h("p", { class: "loading", text: "Loading watchlist..." }));
   const d = await getJSON(`/api/watchlists/${encodeURIComponent(id)}`);
@@ -1809,12 +1875,12 @@ async function renderWatchlist(id, note) {
     catch (err) { showMessage(notice, err.message, false); }
   };
   const heads = ["Score", "Company", "Price", "Margin of safety", "Valuation", "Action", "Triggers", "Note", ""];
-  const table = d.items.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+  const shareTable = (items) => h("div", { class: "table-wrap" }, h("table", { class: "grid" },
     h("thead", {}, h("tr", {}, heads.map((x, i) => {
       const cls = [i === 2 || i === 3 ? "num" : "", i === 0 ? "opt3" : "", i === 4 ? "opt4" : "", i === 2 || i === 7 ? "opt" : ""].join(" ").trim() || null;
       return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
     }))),
-    h("tbody", {}, d.items.map((e) => clickableRow(e.asx_code,
+    h("tbody", {}, items.map((e) => clickableRow(e.asx_code,
       h("td", { class: "opt3" }, e.scores ? [wheel(e.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(e.scores) })] : null),
       h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
       h("td", { class: "num opt", text: money(e.price) }),
@@ -1823,7 +1889,9 @@ async function renderWatchlist(id, note) {
       h("td", {}, e.action ? badge(e.action) : h("span", { class: "hint", text: "not valued" })),
       h("td", {}, triggerList(e.triggers)),
       h("td", { class: "opt" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
-      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e)))))))) : null;
+      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
+  const table = d.items.length ? filterableTable(`watch:${d.watchlist_id}:SHARE`, WATCH_SHARE_FIELDS,
+    ["score", "asx_code", "price", "margin_of_safety_percent", "valuation", "action", "triggers", "note", null], d.items, shareTable) : null;
 
   const rename = h("input", { name: "name", value: d.name, maxlength: 60, autocomplete: "off" });
   const setMsg = formMessage();
@@ -1848,8 +1916,8 @@ async function renderWatchlist(id, note) {
     pageHead(d.name, counts.length ? `${counts.join(", ")}${met ? `, ${plural(met, "trigger")} met` : ""}` : null),
     notice,
     table ? [both ? sectionHead("Shares") : null, table] : null,
-    d.etfs.length ? [sectionHead("ETFs"), fundWatchTable("ETF", d.etfs, editing, remove)] : null,
-    lics.length ? [sectionHead("LICs"), fundWatchTable("LIC", lics, editing, remove)] : null,
+    d.etfs.length ? [sectionHead("ETFs"), fundWatchFiltered("ETF", d, d.etfs, editing, remove)] : null,
+    lics.length ? [sectionHead("LICs"), fundWatchFiltered("LIC", d, lics, editing, remove)] : null,
     !table && !d.etfs.length && !lics.length ? h("p", { class: "empty", text: "Nothing on this list yet. Add a company, ETF or LIC below, or use ☆ Add to watchlist on its page." }) : null,
     h("div", { class: "cards dash", style: "margin-top:16px" }, formCard, card("Settings", null, settings)),
   ].flat().filter(Boolean));
@@ -1923,10 +1991,19 @@ const FUND_COLUMNS = {
 const fundState = Object.fromEntries(Object.keys(FUNDS).map((k) => [k,
   { q: "", category: "", issuer: "", watchlist: "", held: false, sort: { ...FUNDS[k].sort }, shown: PAGE_SIZE }]));
 
+/* Each column as a filter field (web/tablefilter.js), with its text as shown. */
+const FUND_TEXT = { mer_percent: (v) => pct(v, 2), fum_aud: fundSize, distribution_yield_12m: (v) => pct(v, 1),
+  avg_spread_percent: (v) => pct(v, 2), premium_now: premText, day_change_percent: signedPct, price: (v) => money(v) };
+function fundField(key, label, num) {
+  const show = FUND_TEXT[key] || (key.startsWith("return_") ? signedPct : (v) => fmt(v, 2));
+  if (key === "asx_code") return { label, type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` };
+  return num ? { label, type: "num", get: (r) => r[key], text: (r) => show(r[key]) } : { label, type: "text", get: (r) => r[key] };
+}
+const fundFields = (kind) => Object.fromEntries(FUND_COLUMNS[kind].map((c) => [c.key, fundField(c.key, c.label, c.num)]));
+
 function fundFiltered(kind, d) {
-  const st = fundState[kind], q = st.q.trim().toLowerCase();
+  const st = fundState[kind];
   return d.rows.filter((r) =>
-    (!q || r.asx_code.toLowerCase().includes(q) || (r.company_name || "").toLowerCase().includes(q) || (r.benchmark || "").toLowerCase().includes(q)) &&
     (!st.category || r.category === st.category) &&
     (!st.issuer || r.issuer === st.issuer) &&
     (!st.held || r.held !== null) &&
@@ -1950,6 +2027,7 @@ function presetFunds(kind, query) {
   const params = new URLSearchParams(query);
   Object.assign(fundState[kind], { q: "", issuer: "", shown: PAGE_SIZE, held: params.get("held") === "1",
     category: params.get("category") || "", watchlist: params.get("watchlist") || "" });
+  delete TF_STATES[kind];
 }
 const presetEtfs = (query) => presetFunds("ETF", query);
 
@@ -1966,9 +2044,14 @@ async function renderFunds(kind) {
   }
   const tbody = h("tbody"), count = h("span", { class: "count" }), headRow = h("tr");
   const more = h("button", { class: "more", type: "button" });
+  let shownRows = [];
+  const tf = tableFilter(kind, fundFields(kind), () => d.rows, () => { st.shown = PAGE_SIZE; refresh(); },
+    { placeholder: "Search any column",
+      extraSearch: (r) => [r.benchmark, r.issuer].filter(Boolean).join(" ") });
   function refresh() {
-    const rows = fundSorted(kind, fundFiltered(kind, d));
-    tbody.replaceChildren(...rows.slice(0, st.shown).map((r) => rowTo(fundHref(kind, r.asx_code), ...columns.map((c) => c.cell(r)))));
+    const rows = fundSorted(kind, tf.apply(fundFiltered(kind, d)));
+    shownRows = rows.slice(0, st.shown);
+    tbody.replaceChildren(...shownRows.map((r) => rowTo(fundHref(kind, r.asx_code), ...columns.map((c) => c.cell(r)))));
     count.textContent = `${rows.length} shown`;
     more.hidden = rows.length <= st.shown;
     more.textContent = `Show more (${rows.length - st.shown} remaining)`;
@@ -1991,22 +2074,23 @@ async function renderFunds(kind) {
   const select = (label, key, options, all) => h("select", { "aria-label": label, onchange: (e) => { st[key] = e.target.value; reset(); } },
     h("option", { value: "", text: all }), options.map(([v, t]) => h("option", { value: v, selected: v === st[key], text: t })));
   const counts = (key, v) => d.rows.filter((r) => r[key] === v).length;
-  const search = h("input", { type: "search", placeholder: kind === "ETF" ? "Search code, name or index" : "Search code or name", value: st.q,
-    "aria-label": `Search ${F.nouns}`, oninput: (e) => { st.q = e.target.value; reset(); } });
   const held = h("label", {}, h("input", { type: "checkbox", checked: st.held, onchange: (e) => { st.held = e.target.checked; reset(); } }), "Held only");
   more.addEventListener("click", () => { st.shown += PAGE_SIZE; refresh(); });
+  const table = h("table", { class: "grid etf-table" }, h("thead", {}, headRow), tbody);
   const sub = [plural(d.rows.length, F.noun), d.as_of ? `performance as at ${longDate(d.as_of)}` : null,
     d.report_month ? `${kind === "LIC" ? "NTA and facts" : "fund facts"} from the ASX report for ${monthName(d.report_month)}` : null].filter(Boolean).join(", ");
   app.replaceChildren(
     pageHead(F.nouns, sub),
     h("p", { class: "hint page-note" }, F.intro, " ", helpLink(F.help)),
-    h("div", { class: "controls" }, search,
+    h("div", { class: "controls" }, tf.search, tf.toggle,
       select("Category", "category", d.categories.map((c) => [c, `${c} (${counts("category", c)})`]), "All categories"),
       d.issuers.length ? select("Issuer", "issuer", d.issuers.map((i) => [i, i]), "All issuers") : null,
       d.watchlists.length ? select("Watchlist", "watchlist", [["*", "On any watchlist"], ...d.watchlists.map((w) => [w.name, `Watchlist: ${w.name}`])], `All ${F.nouns}`) : null,
       held, count),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid etf-table" }, h("thead", {}, headRow), tbody)),
+    tf.chips, tf.builder,
+    h("div", { class: "table-wrap" }, table),
     more);
+  tf.attachMenu(table, columns.map((c) => c.key), () => shownRows);
   refresh();
   window.scrollTo(0, 0);
 }
@@ -2285,13 +2369,18 @@ function fundHoldingsTable(kind, lines) {
 }
 
 /* Shares, then ETFs, then LICs, each under its own heading with a subtotal. */
-function holdingsSections(lines, sections) {
+function holdingsSections(lines, sections, filterKey) {
   const of = (kind) => lines.filter((l) => (l.security_type || "SHARE") === kind);
   const shares = of("SHARE"), etfs = of("ETF"), lics = of("LIC");
+  const table = (kind, rows, render) => {
+    if (!filterKey) return render(rows);
+    const fields = holdingFields(kind);
+    return filterableTable(`${filterKey}:${kind}`, fields, Object.keys(fields), rows, render);
+  };
   return h("div", { class: "holdings-sections" },
-    shares.length ? [sectionHead("Shares", sections && sections.SHARE), holdingsTable(shares)] : null,
-    etfs.length ? [sectionHead("ETFs", sections && sections.ETF), fundHoldingsTable("ETF", etfs)] : null,
-    lics.length ? [sectionHead("LICs", sections && sections.LIC), fundHoldingsTable("LIC", lics)] : null);
+    shares.length ? [sectionHead("Shares", sections && sections.SHARE), table("SHARE", shares, holdingsTable)] : null,
+    etfs.length ? [sectionHead("ETFs", sections && sections.ETF), table("ETF", etfs, (r) => fundHoldingsTable("ETF", r))] : null,
+    lics.length ? [sectionHead("LICs", sections && sections.LIC), table("LIC", lics, (r) => fundHoldingsTable("LIC", r))] : null);
 }
 
 function fundWatchTable(kind, items, editing, remove) {
