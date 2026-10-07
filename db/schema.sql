@@ -381,6 +381,11 @@ CREATE TABLE IF NOT EXISTS fund_profiles (
     maturity_years NUMERIC(8, 2),
     top10_percent NUMERIC(7, 2)
 );
+-- A feeder fund's holdings are the fund it invests in, looked through (the
+-- ASX's IVV holds the US IVV): which fund, and how much of this one it is.
+ALTER TABLE fund_profiles ADD COLUMN IF NOT EXISTS look_through_symbol VARCHAR(30);
+ALTER TABLE fund_profiles ADD COLUMN IF NOT EXISTS look_through_name VARCHAR(255);
+ALTER TABLE fund_profiles ADD COLUMN IF NOT EXISTS look_through_percent NUMERIC(7, 2);
 
 -- The top 10 holdings, replaced on each fetch.
 CREATE TABLE IF NOT EXISTS fund_holdings (

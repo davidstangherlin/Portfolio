@@ -332,31 +332,41 @@ class YahooClient:
         institutions = part("institutional holders", self._ticker.get_institutional_holders)
         return parse_insights(info, trend, major, funds, institutions, today)
 
-    def get_fund_profile(self) -> FundProfile | None:
-        """Description, asset mix, top 10 holdings, sector weightings and bond
-        details from Yahoo's fund data (one request). Yahoo lists LICs as
-        companies, with no fund data: they get the description from the
-        company profile instead. None if neither request works, so the fund
-        is tried again next run."""
+    def _fund_data(self, symbol: str | None = None) -> FundProfile | None:
+        """Yahoo's fund data for this fund (or any Yahoo `symbol`), or None
+        if Yahoo has none (an LIC, which Yahoo lists as a company) or the
+        request fails. yfinance's "no fund data" error is expected and silenced."""
         yf_logger = logging.getLogger("yfinance")
         level = yf_logger.level
-        yf_logger.setLevel(logging.CRITICAL)  # "no fund data" for an LIC is expected
+        yf_logger.setLevel(logging.CRITICAL)
         try:
-            fd = self._ticker.get_funds_data()
+            fd = (yf.Ticker(symbol) if symbol else self._ticker).get_funds_data()
             description = fd.description
             return parse_fund_profile(description, fd.asset_classes, fd.top_holdings, fd.sector_weightings,
                                       fd.bond_ratings, fd.bond_holdings)
         except Exception:
-            pass
+            return None
         finally:
             yf_logger.setLevel(level)
+
+    def get_fund_profile(self) -> FundProfile | None:
+        """Description, asset mix, top 10 holdings, sector weightings and bond
+        details from Yahoo's fund data (one request). A feeder fund that puts
+        nearly everything into one other fund (the ASX's IVV holds the US
+        IVV) is looked through: the underlying fund's top 10 and sectors are
+        used, scaled by how much of the feeder it is (see look_through()).
+        Yahoo lists LICs as companies, with no fund data: they get the
+        description from the company profile instead. None if neither
+        request works, so the fund is tried again next run."""
+        profile = self._fund_data()
+        if profile is not None:
+            return look_through(profile, self._fund_data, self.symbol)
         try:
             info = self._ticker.get_info()
         except Exception:
             logger.warning("No fund or company profile from Yahoo for %s", self.symbol)
             return None
         return FundProfile(description=(info.get("longBusinessSummary") or "").strip() or None, holdings=[])
-
 
 # ---------- analyst and holder insights (docs/AS_BUILT.md §29) ----------
 
@@ -510,6 +520,11 @@ class FundProfile:
     duration_years: Decimal | None = None
     maturity_years: Decimal | None = None
     holdings: list[FundHolding] | None = None
+    # Set when the holdings and sectors are another fund's, looked through
+    # (a feeder fund): that fund's Yahoo symbol, name and share of this one.
+    look_through_symbol: str | None = None
+    look_through_name: str | None = None
+    look_through_percent: Decimal | None = None
 
     @property
     def top10_percent(self) -> Decimal | None:
@@ -556,3 +571,32 @@ def parse_fund_profile(description: str | None, asset_classes: dict | None, top_
         maturity_years=_frame_value(bond_holdings, "Maturity"),
         holdings=holdings,
     )
+
+
+LOOK_THROUGH_PERCENT = Decimal("80")  # one holding this big makes the fund a feeder into it
+
+
+def look_through(profile: FundProfile, fetch, own_symbol: str | None = None) -> FundProfile:
+    """For a feeder fund (one holding of LOOK_THROUGH_PERCENT or more, with a
+    Yahoo symbol), replace its holdings with the underlying fund's top 10,
+    each scaled by the feeder's share in it, and fill sectors, bond ratings,
+    duration and maturity from it where the feeder has none. `fetch(symbol)`
+    returns the underlying FundProfile or None; one level only. The
+    feeder's own description and asset mix are kept."""
+    top = (profile.holdings or [None])[0]
+    if top is None or not top.symbol or top.weight_percent is None or top.weight_percent < LOOK_THROUGH_PERCENT \
+            or top.symbol.upper() == (own_symbol or "").upper():
+        return profile
+    inner = fetch(top.symbol)
+    if inner is None or not (inner.holdings or inner.sector_weightings):
+        return profile
+    share = top.weight_percent / 100
+    profile.holdings = [FundHolding(h.rank, h.symbol, h.name,
+                                    (h.weight_percent * share).quantize(Decimal("0.01")) if h.weight_percent is not None else None)
+                        for h in inner.holdings or []]
+    profile.sector_weightings = profile.sector_weightings or inner.sector_weightings
+    profile.bond_ratings = profile.bond_ratings or inner.bond_ratings
+    profile.duration_years = profile.duration_years if profile.duration_years is not None else inner.duration_years
+    profile.maturity_years = profile.maturity_years if profile.maturity_years is not None else inner.maturity_years
+    profile.look_through_symbol, profile.look_through_name, profile.look_through_percent = top.symbol, top.name, top.weight_percent
+    return profile

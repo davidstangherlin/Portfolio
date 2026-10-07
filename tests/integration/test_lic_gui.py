@@ -213,3 +213,8 @@ def test_fund_pages_show_what_the_fund_holds(lics):
     # Fetched this week: not due again; the failed ones are.
     again = profiles.ingest_fund_profiles(lics, all_now=True, client_factory=FakeYahoo)
     assert "VAS" not in again and "NDQ" in again
+    # A feeder stored before look-through (one holding of 99.97%) is due straight away.
+    from sqlalchemy import text as sql
+    lics.execute(sql("UPDATE fund_holdings SET symbol = 'IVV', weight_percent = 99.97 WHERE rank = 1"))
+    lics.commit()
+    assert "VAS" in profiles.ingest_fund_profiles(lics, all_now=True, client_factory=FakeYahoo)

@@ -2422,6 +2422,9 @@ function fundHoldingsCard(d) {
   const ratingRows = RATING_ORDER.filter(([k]) => ratings[k] > 0).map(([k, label]) => [label, ratings[k]]);
   const bondStats = [p.duration_years !== null ? `Duration ${fmt(p.duration_years, 1)} years` : null,
     p.maturity_years !== null ? `average maturity ${fmt(p.maturity_years, 1)} years` : null].filter(Boolean);
+  const via = p.look_through_symbol ? h("p", { class: "hint note", text:
+    `${d.etf.asx_code} puts ${pct(p.look_through_percent, 2)} of its money into ${p.look_through_name} (${p.look_through_symbol}), ` +
+    "so these are that fund's largest holdings and sectors, shown as a share of this one." }) : null;
   const holdingsTable = holdings.length ? h("div", {},
     h("h3", { class: "holders-head", text: "Top 10 holdings" }),
     h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
@@ -2437,6 +2440,7 @@ function fundHoldingsCard(d) {
     ratingRows.length ? barList(ratingRows, 100) : null) : null;
   const el = card(title, null,
     assetMix(p) ? [h("h3", { class: "holders-head", text: "Asset mix" }), assetMix(p)] : null,
+    via,
     h("div", { class: "holdings-grid" }, holdingsTable, sectorBlock || bondBlock, sectorBlock ? bondBlock : null),
     note);
   el.classList.add("wide");
