@@ -2226,7 +2226,7 @@ function performanceCard(d, compareSelect) {
         h("td", { class: "num muted ph-hide", title: "Not compared: funds in a category start on different dates.", text: NA }),
         h("td", { class: "num muted", text: NA })))));
 
-  const recent = h("p", { class: "recent-row" }, h("span", { class: "recent-label", text: "Recent, not annualised:" }),
+  const recent = h("p", { class: "recent-row" }, h("span", { class: "recent-label", text: "Recent performance, not annualised:" }),
     PERF_RECENT.map(([k, label]) => h("span", { class: "recent-item" }, `${label} `,
       h("strong", { class: signClass(e[k]) || null, text: signedPct(e[k]) }), flagOf(e, k) ? " ⚠" : "")));
   const checks = [[e, e.asx_code], [ref, ref && ref.asx_code]].flatMap(([row, code]) => row && row.report_flags

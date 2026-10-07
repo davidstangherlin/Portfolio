@@ -1509,7 +1509,7 @@ Each setting carries its group, label, unit, allowed range, formula, where it's 
 The user found the Performance chart hard to read at a glance: it drew 1, 3 and 6-month returns (plain returns) beside 1 to 10-year returns (yearly rates) on one axis, so a 6-month 29% looked better than a 3-year 25% a year, and its "Start" bars compared funds from different start dates. IVV's "Start" showed about -3% a year beside +16% a year over 10 years, which its market can't explain.
 
 - **Chart:** yearly rates only (1, 3, 5 and 10 years), titled as a yearly rate, so every bar is the same unit.
-- **Recent:** 1, 3 and 6 months under the chart as "Recent, not annualised".
+- **Recent:** 1, 3 and 6 months under the chart as "Recent performance, not annualised".
 - **Table:** grouped "A year (yearly rate)", "Recent (not annualised)" and "Since first price (a year)", with each fund's own start date under its figure. The category average isn't given for since first price, because a category's funds start on different dates.
 - **Checks** (`report_flags()` in `views.py`), marked ⚠ in the table with the reason, listed above the chart, left off the chart and out of the category average:
   - **Against the ASX report, every period.** `performance.report_checks()` measures each period to the latest report's month end and stores `[sift, asx]` per period (`etf_performance.report_checks`). A gap over 2 points is flagged; for "Equity - Australia" funds a shortfall of up to 4 points is the franking credits the ASX counts and isn't. Since first price is compared only when Sift's prices start within 31 days of the listing date. `check_return_1y` and `reported_return_1y` are still filled for `report_differences()`.
