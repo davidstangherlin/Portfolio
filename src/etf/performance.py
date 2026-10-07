@@ -37,6 +37,8 @@ PERIODS = (("return_1m", 1), ("return_3m", 3), ("return_6m", 6), ("return_1y", 1
 STALE_DAYS = 10
 DAYS_PER_YEAR = 365.25
 CENT = Decimal("0.01")
+JUMP_LIMIT = 0.4         # a one-day move beyond 40% in a fund's price is a data fault, not a market move
+LISTING_MATCH_DAYS = 31  # prices starting within this of the listing date: since-inception is comparable
 
 
 @dataclass
@@ -108,6 +110,40 @@ def returns_as_at(h: History, as_at: date) -> dict:
     return out
 
 
+def price_jump(h: History) -> tuple[date, Decimal] | None:
+    """The latest one-day close-to-close move beyond JUMP_LIMIT, as (date,
+    percent). Funds don't move 40% in a day; such a step is an unadjusted
+    split or consolidation, a currency change in the feed, or a bad price,
+    and every return measured across it is wrong."""
+    for i in range(len(h.closes) - 1, 0, -1):
+        before, after = h.closes[i - 1], h.closes[i]
+        if before > 0 and abs(after / before - 1) > JUMP_LIMIT:
+            return h.dates[i], Decimal(str((after / before - 1) * 100)).quantize(CENT)
+    return None
+
+
+def report_checks(h: History, report: EtfMonthly) -> dict[str, list[float]]:
+    """Each period's return measured by Sift to the report's month end,
+    beside the ASX report's figure: {period: [sift, asx]}, for the periods
+    both have. Since-inception only when Sift's prices start near the
+    listing date, since the ASX measures it from listing."""
+    end = month_end(report.report_month)
+    out = {}
+    for key, months in PERIODS:
+        theirs = getattr(report, key)
+        ours = _pct(growth(h, add_months(end, -months), end), months / 12 if months > 12 else None)
+        if theirs is not None and ours is not None:
+            out[key] = [float(ours), float(theirs)]
+    if report.return_since_inception is not None and report.listing_date and h.dates \
+            and abs((h.dates[0] - report.listing_date).days) <= LISTING_MATCH_DAYS:
+        last = h.close_on_or_before(end)
+        years = (last[0] - h.dates[0]).days / DAYS_PER_YEAR if last else 0
+        ours = _pct(growth(h, h.dates[0], end), years) if years > 0 else None
+        if ours is not None:
+            out["return_since_inception"] = [float(ours), float(report.return_since_inception)]
+    return out
+
+
 def trailing_distributions(h: History, as_at: date) -> tuple[Decimal | None, Decimal | None]:
     """Cash distributions per unit with ex-dates in the 12 months to
     `as_at`, and that as a percent of the close (the trailing yield)."""
@@ -152,14 +188,18 @@ def update_performance(session, as_at: date | None = None) -> int:
             continue
         values = returns_as_at(h, as_at)
         values["distributions_12m"], values["distribution_yield_12m"] = trailing_distributions(h, as_at)
-        report = session.execute(select(EtfMonthly.report_month, EtfMonthly.return_1y)
-                                 .where(EtfMonthly.company_id == company_id)
-                                 .order_by(EtfMonthly.report_month.desc()).limit(1)).first()
-        check = {"check_month": None, "check_return_1y": None, "reported_return_1y": None}
-        if report and report.return_1y is not None:
-            ours = _pct(growth(h, add_months(month_end(report.report_month), -12), month_end(report.report_month)))
-            check = {"check_month": report.report_month, "check_return_1y": ours, "reported_return_1y": report.return_1y}
-        values |= check | {"company_id": company_id, "as_of_date": as_at, "first_price_date": h.dates[0]}
+        report = session.execute(select(EtfMonthly).where(EtfMonthly.company_id == company_id)
+                                 .order_by(EtfMonthly.report_month.desc()).limit(1)).scalar_one_or_none()
+        check = {"check_month": None, "check_return_1y": None, "reported_return_1y": None, "report_checks": None}
+        if report is not None:
+            checks = report_checks(h, report)
+            one_year = checks.get("return_1y")
+            check = {"check_month": report.report_month, "report_checks": checks or None,
+                     "check_return_1y": Decimal(str(one_year[0])) if one_year else None,
+                     "reported_return_1y": report.return_1y if one_year else None}
+        jump = price_jump(h)
+        values |= check | {"company_id": company_id, "as_of_date": as_at, "first_price_date": h.dates[0],
+                           "price_jump_date": jump[0] if jump else None, "price_jump_percent": jump[1] if jump else None}
         stmt = insert(EtfPerformance).values(**values)
         session.execute(stmt.on_conflict_do_update(
             index_elements=[EtfPerformance.company_id],
@@ -177,3 +217,12 @@ def report_differences(session, threshold: Decimal = Decimal("2")) -> list[tuple
                                                 EtfPerformance.reported_return_1y.is_not(None))).all()
     return sorted(((c, ours, theirs) for c, ours, theirs in rows if abs(ours - theirs) > threshold),
                   key=lambda r: -abs(r[1] - r[2]))
+
+
+def price_jumps(session) -> list[tuple[str, date, Decimal]]:
+    """ETFs and LICs whose price history has a one-day jump beyond
+    JUMP_LIMIT (see price_jump()), newest first, for the nightly log."""
+    rows = session.execute(select(Company.asx_code, EtfPerformance.price_jump_date, EtfPerformance.price_jump_percent)
+                           .join(Company).where(EtfPerformance.price_jump_date.is_not(None))
+                           .order_by(EtfPerformance.price_jump_date.desc())).all()
+    return [tuple(r) for r in rows]

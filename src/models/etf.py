@@ -75,5 +75,8 @@ class EtfPerformance(Base):
     check_month: Mapped[date | None] = mapped_column(Date)
     check_return_1y: Mapped[Decimal | None] = mapped_column(_PCT)
     reported_return_1y: Mapped[Decimal | None] = mapped_column(_PCT)
+    report_checks: Mapped[dict | None] = mapped_column(JSONB)  # {period: [sift, asx]} at the report's month end
+    price_jump_date: Mapped[date | None] = mapped_column(Date)
+    price_jump_percent: Mapped[Decimal | None] = mapped_column(_PCT)
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.current_timestamp(), onupdate=func.current_timestamp())

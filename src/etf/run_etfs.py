@@ -101,6 +101,11 @@ def main(argv: list[str] | None = None) -> int:
         if differences:
             logger.info("1-year return differs from the ASX report by more than 2 points for %d ETFs: %s",
                         len(differences), ", ".join(f"{c} ({ours} vs {theirs})" for c, ours, theirs in differences[:10]))
+        jumps = performance.price_jumps(session)
+        if jumps:
+            logger.warning("Price history has a one-day jump beyond 40%% (a data fault; returns across it are marked) "
+                           "for %d ETFs and LICs: %s", len(jumps),
+                           ", ".join(f"{c} ({pct:+}% on {d})" for c, d, pct in jumps[:20]))
     return 0
 
 

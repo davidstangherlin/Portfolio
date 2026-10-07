@@ -220,6 +220,9 @@ def test_performance_and_report_check(db_session, tmp_path, fake_yahoo):
     assert vas.reported_return_1y == Decimal("12.50")
     assert [c for c, _, _ in performance.report_differences(db_session)] == ["VAS"]  # 10 vs 12.5
     assert performance.report_differences(db_session, Decimal("3")) == []
+    # Every period is checked, not just the year (§26.1), and a smooth history has no jump.
+    assert set(vas.report_checks) >= {"return_1y"} and vas.price_jump_date is None
+    assert performance.price_jumps(db_session) == []
 
 
 def test_every_report_in_the_folder_is_loaded_oldest_first(db_session, tmp_path):

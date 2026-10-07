@@ -680,3 +680,13 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
   .tf-cond input { width: 110px; }
   .tf-cond select { max-width: 46vw; }
 }
+
+/* Performance card (§26.1) */
+.perf-table .group-row td { white-space: normal; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding-top: 12px; background: transparent; }
+.perf-table td.flagged { color: var(--warning-text); }
+.perf-table .flag { cursor: help; }
+.perf-table .cell-note { font-size: 11px; color: var(--muted); font-weight: 400; }
+.perf-table td.muted { color: var(--muted); }
+.recent-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 12px; font-size: 13px; color: var(--ink-2); }
+.recent-label { color: var(--muted); }
+.check-list { margin: 6px 0 4px; padding-left: 18px; }

@@ -372,6 +372,12 @@ CREATE TABLE IF NOT EXISTS etf_performance (
     reported_return_1y NUMERIC(10, 2),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+-- Every period checked against the ASX report at its month end, as
+-- {"return_1y": [sift, asx], ...}, and the latest one-day price move too
+-- big to be real (a data fault in the price history) (§26.1).
+ALTER TABLE etf_performance ADD COLUMN IF NOT EXISTS report_checks JSONB;
+ALTER TABLE etf_performance ADD COLUMN IF NOT EXISTS price_jump_date DATE;
+ALTER TABLE etf_performance ADD COLUMN IF NOT EXISTS price_jump_percent NUMERIC(10, 2);
 
 -- 5h. ANALYST AND HOLDER INSIGHTS (docs/AS_BUILT.md §29)
 -- From Yahoo Finance, refreshed weekly (a seventh of the shares each night).

@@ -20,7 +20,10 @@ from src.portfolio.holdings import position_summaries
 
 RETURN_KEYS = ("return_1m", "return_3m", "return_6m", "return_1y", "return_3y", "return_5y", "return_10y",
                "return_since_inception")
-REPORT_GAP = Decimal("2")       # points between Sift's 1-year return and the ASX's before it's flagged
+REPORT_GAP = Decimal("2")       # points between Sift's return and the ASX's before it's flagged
+FRANKED_SHORTFALL = Decimal("4")  # Australian equity funds: the ASX adds franking credits, so Sift may run this much lower
+PERIOD_MONTHS = {"return_1m": 1, "return_3m": 3, "return_6m": 6, "return_1y": 12, "return_3y": 36,
+                 "return_5y": 60, "return_10y": 120}
 UNCATEGORISED = "Uncategorised"
 PRICE_DAYS = 365
 DISTRIBUTION_YEARS = 10
@@ -45,7 +48,7 @@ _ROWS = text("""
            p1.close_price AS current_price, p1.price_date, p2.close_price AS previous_close,
            f.as_of_date, f.first_price_date, f.return_1m, f.return_3m, f.return_6m, f.return_1y, f.return_3y,
            f.return_5y, f.return_10y, f.return_since_inception, f.distributions_12m, f.distribution_yield_12m,
-           f.check_month, f.check_return_1y, f.reported_return_1y
+           f.check_month, f.check_return_1y, f.reported_return_1y, f.report_checks, f.price_jump_date, f.price_jump_percent
     FROM companies c
     LEFT JOIN latest m ON m.company_id = c.company_id
     LEFT JOIN closes p1 ON p1.company_id = c.company_id AND p1.n = 1
@@ -59,6 +62,36 @@ _ROWS = text("""
 def premium_now(price, nta) -> Decimal | None:
     """The latest price's premium (+) or discount (-) to the last NTA, in percent."""
     return ((price / nta - 1) * 100).quantize(Decimal("0.01")) if price and nta and nta > 0 else None
+
+
+def _num(v) -> str:
+    return f"{v:+.1f}%"
+
+
+def report_flags(row: dict) -> dict[str, str]:
+    """The periods whose figure shouldn't be trusted, each with the reason
+    (docs/AS_BUILT.md §26.1): Sift's return to the ASX report's month end
+    differs from the report's by more than REPORT_GAP points (for an
+    Australian equity fund, a shortfall of up to FRANKED_SHORTFALL is the
+    franking credits the ASX counts), or the price history has a one-day
+    jump inside the period."""
+    flags = {}
+    month = row.get("check_month")
+    franked = (row.get("category") or "").startswith("Equity - Australia")
+    for key, (ours, theirs) in (row.get("report_checks") or {}).items():
+        gap = Decimal(str(ours)) - Decimal(str(theirs))
+        if gap > REPORT_GAP or gap < -(FRANKED_SHORTFALL if franked else REPORT_GAP):
+            flags[key] = f"to the end of {month:%B %Y} Sift has {_num(ours)}, the ASX report {_num(theirs)}"
+    jump, first, as_of = row.get("price_jump_date"), row.get("first_price_date"), row.get("as_of_date")
+    if jump and as_of:
+        for key, months in PERIOD_MONTHS.items():
+            if row.get(key) is not None and add_months(as_of, -months) < jump:
+                flags.setdefault(key, f"the price history jumps {_num(row['price_jump_percent'])} on {jump.day} {jump:%b %Y}, "
+                                      "which looks like a data fault")
+        if first and first < jump and row.get("return_since_inception") is not None:
+            flags.setdefault("return_since_inception", f"the price history jumps {_num(row['price_jump_percent'])} "
+                                                       f"on {jump.day} {jump:%b %Y}, which looks like a data fault")
+    return flags
 
 
 def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None, kind: str = "ETF") -> list[dict]:
@@ -77,6 +110,7 @@ def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None, 
         gap = (row["check_return_1y"] - row["reported_return_1y"]) if row["check_return_1y"] is not None \
             and row["reported_return_1y"] is not None else None
         row["report_gap"] = gap is not None and abs(gap) > REPORT_GAP
+        row["report_flags"] = report_flags(row)
         position = positions.get(row["asx_code"])
         row["held"] = position.units if position else None
         row["watchlists"] = watched.get(row["asx_code"], [])
@@ -92,7 +126,8 @@ def etf_rows(session, today: date, watched: dict[str, list[str]] | None = None, 
 
 def category_averages(rows: list[dict]) -> dict[str, dict]:
     """For each category: the number of ETFs, and the average of each
-    return, fee and yield over the ETFs that have one."""
+    return, fee and yield over the ETFs that have one (a figure flagged
+    by report_flags() is left out)."""
     groups: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         groups[r["category"]].append(r)
@@ -100,7 +135,7 @@ def category_averages(rows: list[dict]) -> dict[str, dict]:
     for category, members in groups.items():
         avg = {"category": category, "etfs": len(members)}
         for key in (*RETURN_KEYS, "mer_percent", "distribution_yield_12m", "premium_now"):
-            values = [m[key] for m in members if m.get(key) is not None]
+            values = [m[key] for m in members if m.get(key) is not None and key not in (m.get("report_flags") or {})]
             avg[key] = (sum(values, Decimal("0")) / len(values)).quantize(Decimal("0.01")) if values else None
             avg[f"{key}_n"] = len(values)
         out[category] = avg
