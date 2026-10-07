@@ -424,7 +424,10 @@ def compute_metrics(
         "price_vs_200d": markers.price_vs_moving_average(inputs.recent_closes),
         "range_position_52w": markers.range_position(inputs.recent_closes),
         "dividend_trend": markers.dividend_trend(history, settings.dividend_cut_ratio, settings.dividend_growth_ratio),
-        "data_confidence": markers.data_confidence(price, report, len(history), len(inputs.recent_closes)),
+        # Statements that couldn't be refreshed (no exchange rate) may be out of
+        # date or never converted, so nothing built on them is trusted (§7.7).
+        "data_confidence": "LOW" if getattr(inputs.company, "statements_issue", None)
+        else markers.data_confidence(price, report, len(history), len(inputs.recent_closes)),
     }
 
 

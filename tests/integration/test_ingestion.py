@@ -172,6 +172,17 @@ def test_no_exchange_rate_skips_the_company_instead_of_storing_unconverted(db_se
     monkeypatch.setattr(fundamentals_ingestion, "YahooClient", NoRates)
     assert fundamentals_ingestion.ingest_fundamentals(db_session, ["BIG"]) == {"BIG": 0}
     assert db_session.execute(select(FinancialReport)).first() is None
+    # Flagged (known issue #36) and retried tomorrow, not in a week.
+    company = db_session.execute(select(Company)).scalar_one()
+    db_session.refresh(company)
+    assert company.statements_issue.startswith("statements can't be converted: no USD/AUD rate")
+    assert company.fundamentals_fetched_at is None
+
+    # A later night with a rate stores them and clears the flag.
+    monkeypatch.setattr(fundamentals_ingestion, "YahooClient", _StatementsYahoo)
+    assert fundamentals_ingestion.ingest_fundamentals(db_session, ["BIG"]) == {"BIG": 1}
+    db_session.refresh(company)
+    assert company.statements_issue is None and company.fundamentals_fetched_at is not None
 
 
 def test_existing_company_gets_its_currencies_backfilled_once(db_session):

@@ -274,6 +274,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         row[field] = getattr(metric, field)
     row["industry"] = company.industry
     row["country"] = company.country
+    row["statements_issue"] = company.statements_issue
     row["business_summary"] = company.business_summary or None
     row["business_summary_short"] = short_summary(company.business_summary)
     row["insights"] = insights_payload(session, company.company_id, row.get("current_price"))

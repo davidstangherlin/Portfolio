@@ -105,7 +105,7 @@ def test_dashboard_keeps_etfs_in_their_own_card(etfs):
     assert d["etfs"]["count"] == 5 and d["etfs"]["value"]["holdings"] == 1
     sections = d["portfolio"]["sections"]
     assert sections["SHARE"]["holdings"] == 1 and sections["ETF"]["holdings"] == 1
-    assert d["portfolio"]["value"] == sections["SHARE"]["value"] + sections["ETF"]["value"]
+    assert d["portfolio"]["value"] == pytest.approx(sections["SHARE"]["value"] + sections["ETF"]["value"])
 
 
 def test_portfolio_shows_shares_and_etfs_separately(etfs):

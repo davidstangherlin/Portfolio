@@ -28,6 +28,9 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS business_summary TEXT;
 -- When the annual statements were last fetched. The nightly run refreshes
 -- them weekly, a seventh of the shares each night (AS_BUILT §16).
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS fundamentals_fetched_at TIMESTAMP WITH TIME ZONE;
+-- Why the latest statements couldn't be stored (no exchange rate for the
+-- reporting currency). Set: data confidence LOW, so never a BUY (§7.7).
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS statements_issue VARCHAR(255);
 -- SHARE, ETF (docs/AS_BUILT.md §25) or LIC (§27, listed investment companies
 -- and trusts). ETFs and LICs share the price and distribution tables with
 -- shares but are never valued, screened or scored as shares.

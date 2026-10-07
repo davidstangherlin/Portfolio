@@ -49,6 +49,24 @@ def rate_on(closes: list[tuple[date, Decimal]], on: date) -> Decimal | None:
     return r if on - d <= timedelta(days=MAX_RATE_GAP_DAYS) else None
 
 
+def invert(closes: list[tuple[date, Decimal]]) -> list[tuple[date, Decimal]]:
+    """A rate history quoted the other way round (USD per PGK from PGK per USD)."""
+    return [(d, (Decimal(1) / r).quantize(Decimal("0.0000000001"))) for d, r in closes if r and r > 0]
+
+
+def cross_rates(first: list[tuple[date, Decimal]], second: list[tuple[date, Decimal]]) -> list[tuple[date, Decimal]]:
+    """Chain two histories through a common currency: A->USD then USD->B
+    gives A->B on each date of the first, using the second's latest rate on
+    or before it. For currencies Yahoo has no direct pair for (the Papua New
+    Guinea kina, known issue #36)."""
+    out = []
+    for d, r in first:
+        r2 = rate_on(second, d)
+        if r2 is not None:
+            out.append((d, r * r2))
+    return out
+
+
 def convert_snapshot(snapshot, reporting_currency: str, rate: Decimal) -> None:
     """Multiply every statement figure by `rate` in place and record what was done."""
     for field in MONETARY_FIELDS:

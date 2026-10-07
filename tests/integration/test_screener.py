@@ -172,3 +172,24 @@ def test_trap_risk_flags_cheap_but_declining_fundamentals(db_session):
     assert row["fundamentals_trend"] == "DECLINING"
     assert row["mos_ok"] == "Y"  # this profile (docs/AS_BUILT.md §10.11) is cheap enough to pass
     assert row["trap_risk"] == "Y"
+
+
+def test_statements_that_cannot_be_converted_lower_confidence_and_rule_out_buy(db_session):
+    """BFL, KSL and SST report in Papua New Guinea kina (known issue #36):
+    while their statements can't be refreshed, nothing built on them is
+    trusted enough to be a BUY."""
+    from src.models import ValuationMetric
+    from src.screening.actions import suggest_action
+
+    company = _seed_and_value(db_session, "GOOD", "Basic Materials", Decimal("110000000"), Decimal("0.60"), Decimal("10.00"))
+    metric = lambda: db_session.query(ValuationMetric).filter_by(company_id=company.company_id).one()  # noqa: E731
+    assert metric().data_confidence != "LOW"
+    company.statements_issue = "statements can't be converted: no PGK/AUD rate within 10 days of 2025-12-31"
+    db_session.commit()
+    run_valuation(db_session, asx_codes=["GOOD"])
+    db_session.commit()
+    db_session.expire_all()
+    assert metric().data_confidence == "LOW"
+    row = {"mos_ok": "Y", "roe_ok": "Y", "de_ok": "Y", "yield_ok": "Y", "data_confidence": "LOW"}
+    action, reason = suggest_action(row)
+    assert action == "INVESTIGATE" and "low data confidence" in reason

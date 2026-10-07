@@ -17,12 +17,12 @@ import time
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.ingestion.common import ensure_profile, get_or_create_company
-from src.ingestion.currency import apply_conversion
+from src.ingestion.currency import CurrencyConversionError, apply_conversion
 from src.ingestion.dividend_history import dividends_for_fiscal_year, split_abnormal
 from src.ingestion.rolling import nightly_share
 from src.ingestion.yahoo_client import YahooClient
@@ -168,6 +168,7 @@ def ingest_fundamentals(
             client = YahooClient(asx_code)
             company = get_or_create_company(session, asx_code, client=client)
             ensure_profile(company, client)
+            session.commit()  # the company and its profile stand even if its statements can't be stored
             snapshots = client.get_annual_fundamentals(max_years=max_years)
             convert_to_trading_currency(client, company, snapshots)
             payments = client.get_dividend_payments()
@@ -180,9 +181,20 @@ def ingest_fundamentals(
                 upsert_financial_report(session, company.company_id, snapshot, company.country)
             if not getattr(client, "statements_failed", False):
                 company.fundamentals_fetched_at = func.now()  # due again in a week (§16)
+            company.statements_issue = None
             session.commit()
             logger.info("[%d/%d] Ingested %d annual reports for %s", i, total, len(snapshots), asx_code)
             results[asx_code] = len(snapshots)
+        except CurrencyConversionError as e:
+            # Known and flagged rather than an error: the stored statements are
+            # kept, the company's data confidence drops to LOW (so it can't be
+            # a BUY) and the company page says why. Retried every night.
+            session.rollback()
+            session.execute(update(Company).where(Company.asx_code == asx_code)
+                            .values(statements_issue=f"statements can't be converted: {e}"[:255]))
+            session.commit()
+            logger.warning("[%d/%d] Statements for %s not updated: %s (flagged, data confidence LOW)", i, total, asx_code, e)
+            results[asx_code] = 0
         except Exception:
             session.rollback()
             logger.exception("[%d/%d] Fundamentals ingestion failed for %s - skipping", i, total, asx_code)

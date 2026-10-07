@@ -882,6 +882,8 @@ async function renderCompany(code) {
     h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
     aboutCompany(c),
     h("p", { class: "reason", text: c.action_reason }),
+    c.statements_issue ? h("p", { class: "hint note", text: `The latest statements couldn't be stored: ${c.statements_issue.replace(/^statements can't be converted: /, "")}. ` +
+      "Sift keeps the figures it had, sets data confidence to low (so this can't be a BUY) and tries again each night. Check the company's reports before relying on these numbers." }) : null,
     summaryStrip(c, d.model),
     modelNote(d.model),
     held,

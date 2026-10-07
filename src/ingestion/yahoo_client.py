@@ -25,6 +25,7 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+from src.ingestion.currency import cross_rates, invert
 from src.ingestion.dividend_history import Payment
 
 logger = logging.getLogger(__name__)
@@ -235,16 +236,20 @@ class YahooClient:
         return snapshots
 
     @staticmethod
-    def get_fx_history(from_currency: str, to_currency: str, start: date, end: date) -> list[tuple[date, Decimal]]:
-        """Daily closing exchange rates (to_currency per from_currency), e.g.
-        USD->AUD from Yahoo's USDAUD=X. Empty on any failure; the caller
-        decides what an unavailable rate means."""
-        pair = f"{from_currency}{to_currency}=X"
+    def _fx_closes(pair: str, start: date, end: date) -> list[tuple[date, Decimal]]:
+        """Daily closes for one Yahoo currency symbol, or [] if Yahoo has
+        none. yfinance's own "possibly delisted" errors are silenced while
+        probing, since a missing symbol is expected and handled."""
+        yf_logger = logging.getLogger("yfinance")
+        level = yf_logger.level
+        yf_logger.setLevel(logging.CRITICAL)
         try:
             history = yf.Ticker(pair).history(start=start, end=end, interval="1d", auto_adjust=False)
         except Exception:
-            logger.exception("Failed to fetch exchange rates for %s", pair)
+            logger.warning("No exchange rates from Yahoo for %s", pair)
             return []
+        finally:
+            yf_logger.setLevel(level)
         if history is None or history.empty or "Close" not in history.columns:
             return []
         out = []
@@ -253,6 +258,36 @@ class YahooClient:
             if rate is not None and rate > 0:
                 out.append((ts.date() if hasattr(ts, "date") else ts, rate))
         return out
+
+    @classmethod
+    def get_fx_history(cls, from_currency: str, to_currency: str, start: date, end: date) -> list[tuple[date, Decimal]]:
+        """Daily closing exchange rates (to_currency per from_currency), e.g.
+        USD->AUD from Yahoo's USDAUD=X. When Yahoo has no direct pair (the
+        Papua New Guinea kina: no PGKAUD=X), the rate is chained through the
+        US dollar, trying each way Yahoo quotes it (PGKUSD=X, USDPGK=X,
+        PGK=X, which is USD->PGK). Empty if no route works; the caller
+        decides what an unavailable rate means."""
+        direct = cls._fx_closes(f"{from_currency}{to_currency}=X", start, end)
+        if direct or "USD" in (from_currency, to_currency):
+            return direct
+
+        def leg(base: str, quote: str) -> list[tuple[date, Decimal]]:
+            """base->quote where one side is USD; Yahoo's bare "XXX=X" is USD->XXX."""
+            other = quote if base == "USD" else base
+            closes = cls._fx_closes(f"{base}{quote}=X", start, end)
+            if not closes:
+                closes = invert(cls._fx_closes(f"{quote}{base}=X", start, end))
+            if not closes:
+                bare = cls._fx_closes(f"{other}=X", start, end)
+                closes = bare if base == "USD" else invert(bare)
+            return closes
+
+        to_usd = leg(from_currency, "USD")
+        from_usd = leg("USD", to_currency) if to_usd else []
+        rates = cross_rates(to_usd, from_usd)
+        if rates:
+            logger.info("%s/%s rates chained through USD (%d days)", from_currency, to_currency, len(rates))
+        return rates
 
     def get_dividend_payments(self) -> list[Payment]:
         """Every per-share dividend Yahoo has recorded, oldest first. Raw:

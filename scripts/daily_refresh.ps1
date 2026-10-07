@@ -64,7 +64,14 @@ function Invoke-Step {
     Write-Log ""
     Write-Log "--- $Name --- started $(Get-Date -Format 'HH:mm:ss')"
     $Clock = [Diagnostics.Stopwatch]::StartNew()
-    & $Command 2>&1 | ForEach-Object { Add-Content -Path $LogFile -Value $_ }
+    & $Command 2>&1 | ForEach-Object {
+        # Python logs to stderr, which Windows PowerShell wraps as error
+        # records; a blank stderr line would otherwise be written as
+        # "System.Management.Automation.RemoteException".
+        $Line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
+        if ($Line -eq 'System.Management.Automation.RemoteException') { $Line = '' }
+        Add-Content -Path $LogFile -Value $Line
+    }
     Write-Log "    $Name took $([math]::Round($Clock.Elapsed.TotalMinutes, 1)) min"
 }
 
