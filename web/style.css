@@ -576,8 +576,8 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .pair { white-space: nowrap; }
 .was { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--axis); }
 .workings-toggle { border: 0; }
-.workings-toggle > summary { gap: 10px; }
-.workings-toggle > summary .hint { font-weight: 400; }
+.workings-toggle > summary { display: inline-flex; gap: 10px; }  /* only the twisty and its label toggle, not the whole line */
+.workings-toggle > summary .axis-name { flex: none; }
 .workings { padding: 4px 0 0 15px; }
 .workings-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 8px; }
 .work-sec { border-top: 1px solid var(--grid); padding: 10px 0 6px; }

@@ -2876,10 +2876,9 @@ function workingsCard(code) {
     } catch (err) { body.replaceChildren(h("p", { class: "error", text: err.message })); }
   };
   const det = h("details", { class: "axis-block workings-toggle" },
-    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: "Show workings" }),
-      h("span", { class: "hint", text: "every step, with this company's numbers" })), body);
+    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: "Show workings" })), body);
   det.addEventListener("toggle", () => { if (det.open && !loaded) { loaded = true; load(); } });
-  const c = card("Workings and what-if", null, det, h("p", { class: "hint", style: "margin-top:8px" }, "Settings behind these steps: ",
+  const c = card("Workings and what-if", "Every step of the valuation, with this company's numbers.", det, h("p", { class: "hint", style: "margin-top:8px" }, "Settings behind these steps: ",
     h("a", { href: "#/admin", text: "Model and rules" }), ". ", helpLink("show-workings")));
   c.classList.add("wide");
   return c;
