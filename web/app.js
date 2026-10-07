@@ -2158,38 +2158,73 @@ function perfCell(row, k, note) {
     note ? h("div", { class: "cell-note", text: note }) : null);
 }
 
+/* Where the rank sits, by the share of the other funds that did better; none for under five funds. */
+const rankBand = (rank, of) => {
+  if (of < 5) return "";
+  const f = (rank - 1) / (of - 1);
+  return f <= 0.1 ? "top 10%" : f <= 0.25 ? "top quarter" : f <= 0.5 ? "top half" : f <= 0.75 ? "bottom half" : "bottom quarter";
+};
+function rankCell(p) {
+  if (!p || !p.rank) return h("td", { class: "num muted", text: NA });
+  return h("td", { class: "num" }, h("span", { class: "long" }, `${p.ordinal} of ${p.of}`, rankBand(p.rank, p.of) ? h("div", { class: "cell-note", text: rankBand(p.rank, p.of) }) : null),
+    h("span", { class: "short", text: `${p.ordinal}/${p.of}` }));
+}
+
+/* The fund against its market index, both from the ASX report (§26.2). */
+function indexTable(d) {
+  const x = d.index, code = d.etf.asx_code;
+  if (!x) return null;
+  const label = (k) => [...PERF_YEARLY, ...PERF_RECENT].find(([key]) => key === k)[1];
+  return h("div", { class: "index-block" },
+    h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: "Against its index" }), "Against its index"),
+      h("span", { class: "hint", text: ` to the end of ${monthName(x.month)}, both from the ASX report and both counting franking credits` })),
+    h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
+      h("thead", {}, h("tr", {}, [[code], [x.name, "Index"], ["Difference", "Diff"]].reduce((cells, [t, short]) =>
+        cells.concat(h("th", { class: "num" }, short ? [h("span", { class: "long", text: t }), h("span", { class: "short", text: short })] : t)),
+      [h("th", { text: "Period" })]))),
+      h("tbody", {}, x.periods.map((p) => {
+        const yearly = /_(3y|5y|10y)$/.test(p.key), diff = signedPct(p.difference).replace("%", "");
+        return h("tr", { class: "static" },
+          h("td", {}, h("span", { class: "long", text: label(p.key) + (yearly ? " (a year)" : "") }),
+            h("span", { class: "short", text: label(p.key).replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y") })),
+          retCell(p.fund), retCell(p.index),
+          h("td", { class: `num ${signClass(p.difference) || ""}`.trim() }, h("span", { class: "long", text: `${diff} points` }), h("span", { class: "short", text: diff })));
+      })))));
+}
+
 function performanceCard(d, compareSelect) {
-  const F = FUNDS[d.kind], e = d.etf, avg = d.category_average || {}, ref = d.reference;
+  const F = FUNDS[d.kind], e = d.etf, peers = d.peers || {}, ref = d.reference;
   const flaggedHere = (k) => flagOf(e, k) || flagOf(ref, k);
   const cats = PERF_YEARLY.map(([k, label]) => (flaggedHere(k) ? `${label} ⚠` : label));
   const yearly = (row) => PERF_YEARLY.map(([k]) => (row && !flagOf(row, k) ? row[k] : null));
+  const median = (k) => (peers[k] ? peers[k].median : null);
   const series = [{ name: e.asx_code, color: "--s1", values: yearly(e) },
-    { name: `${e.category} average`, color: "--s2", values: PERF_YEARLY.map(([k]) => avg[k] ?? null) }];
+    { name: `${e.category} median`, color: "--s2", values: PERF_YEARLY.map(([k]) => median(k)) }];
   if (ref) series.push({ name: ref.asx_code, color: "--s3", values: yearly(ref) });
 
-  const heads = ["Period", e.asx_code, "Category average", ref ? ref.asx_code : "Reference fund", "ASX report"];
+  const heads = ["Period", e.asx_code, ref ? ref.asx_code : "Reference fund", "Category median", "Rank in category"];
   const group = (text) => h("tr", { class: "static group-row" }, h("td", { colspan: 5, text }));
-  const line = (k, label, short) => h("tr", { class: "static" },
-    h("td", {}, h("span", { class: "long", text: label }), h("span", { class: "short", text: short })),
-    perfCell(e, k), retCell(avg[k] ?? null), perfCell(ref, k), retCell(e[`asx_${k}`] ?? null));
   const shortName = (label) => label.replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y");
+  const line = (k, label) => h("tr", { class: "static" },
+    h("td", {}, h("span", { class: "long", text: label }), h("span", { class: "short", text: shortName(label) })),
+    perfCell(e, k), perfCell(ref, k), retCell(median(k), "ph-hide"), rankCell(peers[k]));
   const since = "return_since_inception";
   const table = h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
     h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const short = { "Category average": "Category", "ASX report": "ASX" }[x];
-      const th = h("th", { class: i ? "num" : null, tabindex: 0 }, short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x);
-      return i === 2 ? withHelp(th, "Category average") : i === 3 ? withHelp(th, "Reference fund") : i === 4 ? withHelp(th, "ASX report") : th;
+      const short = { "Category median": "Median", "Rank in category": "Rank" }[x];
+      const th = h("th", { class: [i ? "num" : "", i === 3 ? "ph-hide" : ""].join(" ").trim() || null, tabindex: 0 }, short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x);
+      return i === 2 ? withHelp(th, "Reference fund") : i >= 3 ? withHelp(th, x) : th;
     }))),
     h("tbody", {},
-      group("A year (yearly rate)"), PERF_YEARLY.map(([k, label]) => line(k, label, shortName(label))),
-      group("Recent (not annualised)"), PERF_RECENT.map(([k, label]) => line(k, label, shortName(label))),
+      group("A year (yearly rate)"), PERF_YEARLY.map(([k, label]) => line(k, label)),
+      group("Recent (not annualised)"), PERF_RECENT.map(([k, label]) => line(k, label)),
       group("Since first price (a year)"),
       h("tr", { class: "static" },
         h("td", {}, h("span", { class: "long", text: "Since first price" }), h("span", { class: "short", text: "Start" })),
         perfCell(e, since, e.first_price_date ? `from ${sinceDate(e.first_price_date)}` : null),
-        h("td", { class: "num muted", title: "Not averaged: funds in a category start on different dates.", text: NA }),
         perfCell(ref, since, ref && ref.first_price_date ? `from ${sinceDate(ref.first_price_date)}` : null),
-        retCell(e[`asx_${since}`] ?? null)))));
+        h("td", { class: "num muted ph-hide", title: "Not compared: funds in a category start on different dates.", text: NA }),
+        h("td", { class: "num muted", text: NA })))));
 
   const recent = h("p", { class: "recent-row" }, h("span", { class: "recent-label", text: "Recent, not annualised:" }),
     PERF_RECENT.map(([k, label]) => h("span", { class: "recent-item" }, `${label} `,
@@ -2197,18 +2232,22 @@ function performanceCard(d, compareSelect) {
   const checks = [[e, e.asx_code], [ref, ref && ref.asx_code]].flatMap(([row, code]) => row && row.report_flags
     ? [...PERF_YEARLY, ...PERF_RECENT, [since, "Since first price"]].filter(([k]) => row.report_flags[k])
       .map(([k, label]) => `${code} ${label.toLowerCase()}: ${row.report_flags[k]}.`) : []);
-  const checkNote = checks.length ? h("div", { class: "hint note" },
-    h("strong", { text: "⚠ Figures to check. " }),
-    `Left off the chart and the category average. ${d.kind === "LIC" ? "" : "The ASX counts franking credits, so a franked Australian fund's ASX figure runs a little higher. "}`,
-    h("ul", { class: "check-list" }, checks.map((t) => h("li", { text: t }))), helpLink("asx-report-check")) : null;
+  const checked = e.report_checks && Object.keys(e.report_checks).length;
+  const checkLine = checks.length
+    ? h("div", { class: "hint note" }, h("strong", { text: "⚠ Figures to check. " }),
+      `Left off the chart and the category median and rank. ${d.kind === "LIC" ? "" : "The ASX counts franking credits, so a franked Australian fund's ASX figure runs a little higher. "}`,
+      h("ul", { class: "check-list" }, checks.map((t) => h("li", { text: t }))), helpLink("asx-report-check"))
+    : checked ? h("p", { class: "check-ok" }, h("span", { class: "tick", "aria-hidden": "true", text: "✓ " }),
+      `${e.asx_code}'s figures match the ASX report to the end of ${monthName(e.check_month)}. `, helpLink("asx-report-check")) : null;
 
   const c = card("Performance", `Total return with ${F.payouts.toLowerCase()} reinvested, as a yearly rate.`,
     h("div", { class: "compare-row" }, h("label", { text: "Compare with " }), compareSelect, " ", helpLink("reference-fund")),
-    checkNote,
+    checkLine,
     chartSlot((w) => columnChart({ categories: cats, series, yFmt: (v) => fmt(v, 0) + "%", label: `${e.asx_code} total return, % a year`, width: w })),
     recent,
     table,
-    avg.etfs ? h("p", { class: "hint", text: `Category average: the ${plural(avg.etfs, F.noun)} in ${e.category}, each period over those with a figure that passed its checks.` }) : null);
+    peers.return_1y ? h("p", { class: "hint", text: `Rank and median: among the ${F.nouns} in ${e.category} with a figure for each period that passed its checks. ` }, helpLink("category-average")) : null,
+    indexTable(d));
   c.classList.add("wide");
   return c;
 }

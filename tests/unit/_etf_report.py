@@ -102,7 +102,7 @@ def build_asx_2026(folder: Path, name: str = "asx-investment-products-july-2026-
         (None, ["GOLD", "SP", "Global X", "Global X Physical Gold", 0.4, 5476.49, 10.0, 20.0, 80000000,
                 0.000387, 40.0, 0, 0.04, 0.1327, 0.15, 0.1809]),
         ("Australian Indices", None),
-        (None, ["XJO", "Index", "S&P/ASX 200", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", 0.01, 0.06, 0.09, 0.08]),
+        (None, ["XJOAI", "Index", None, "S&P/ASX 200 Accumulation", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", 0.01, 0.06, 0.09, 0.08]),
     ]
     for mark, row in rows:
         if row is None:

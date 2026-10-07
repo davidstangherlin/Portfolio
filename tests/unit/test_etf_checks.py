@@ -81,3 +81,31 @@ def test_flagged_figures_stay_out_of_the_category_average():
             {"category": "Equity - Global", "return_1y": Decimal("-60"), "report_flags": {"return_1y": "jump"}}]
     avg = category_averages(rows)["Equity - Global"]
     assert avg["return_1y"] == Decimal("10.00") and avg["return_1y_n"] == 1
+
+
+def _fund(code, category="Equity - Global", r1y=None, fum=1, flags=None, kind="ETF"):
+    return {"asx_code": code, "category": category, "return_1y": r1y, "fum_aud": Decimal(fum), "security_type": kind,
+            "report_flags": flags or {}}
+
+
+def test_rank_and_median_within_the_category():
+    from src.etf.views import peer_ranks
+    rows = [_fund("NDQ", r1y=Decimal("18")), _fund("VGS", r1y=Decimal("12")), _fund("HACK", r1y=Decimal("40")),
+            _fund("BAD", r1y=Decimal("-60"), flags={"return_1y": "jump"}), _fund("NEW"), _fund("VAS", "Equity - Australia", Decimal("50"))]
+    p = peer_ranks(rows[0], rows)["return_1y"]
+    assert (p["rank"], p["of"], p["ordinal"], p["median"]) == (2, 3, "2nd", Decimal("18.00"))  # BAD flagged, NEW blank, VAS elsewhere
+    assert peer_ranks(rows[4], rows)["return_1y"]["rank"] is None                            # no figure of its own
+    assert "return_since_inception" not in peer_ranks(rows[0], rows)
+
+
+def test_the_default_comparison_is_the_broad_low_cost_fund():
+    from src.etf.views import default_reference
+    rows = [_fund("NDQ", fum=9), _fund("IVV", fum=14), _fund("VGS", fum=12), _fund("HACK", "Equity - Global Sectors", fum=1),
+            _fund("VAS", "Equity - Australia", fum=20), _fund("A200", "Equity - Australia", fum=6),
+            _fund("XYZ", "Crypto Assets", fum=1), _fund("ABC", "Crypto Assets", fum=2)]
+    by = {r["asx_code"]: r for r in rows}
+    assert default_reference(by["NDQ"], rows)["asx_code"] == "VGS"     # not IVV, the category's largest
+    assert default_reference(by["HACK"], rows)["asx_code"] == "VGS"    # across categories
+    assert default_reference(by["VGS"], rows)["asx_code"] == "IVV"     # never itself
+    assert default_reference(by["VAS"], rows)["asx_code"] == "A200"
+    assert default_reference(by["XYZ"], rows)["asx_code"] == "ABC"     # no preference: the category's largest

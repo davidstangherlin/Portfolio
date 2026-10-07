@@ -49,7 +49,7 @@ LATE_DAY = 15  # still missing after this day of the month: worth a warning
 # Raised whenever the reader starts taking more from the report: 1 ETFs,
 # 2 the real July 2026 layout (§25.1), 3 LICs (§27). A month loaded by an
 # older reader is loaded again from its saved file (§25.2).
-READER_VERSION = 3
+READER_VERSION = 4  # 4: keeps the benchmark index rows' returns (asx_index_returns, §26.2)
 
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 _MONTH_WORD = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s_\-]*'?(20\d\d|\d\d)(?!\d)", re.I)
@@ -210,6 +210,7 @@ class SheetRead:
     rows: int = 0
     notes: list[str] = field(default_factory=list)
     kind: str = "ETF"
+    indices: dict[str, dict] = field(default_factory=dict)  # benchmark index rows: code -> name and returns
 
 
 @dataclass
@@ -219,6 +220,7 @@ class Report:
     sheets: list[SheetRead]
     skipped_sheets: list[str]
     lics: dict[str, dict] = field(default_factory=dict)  # LICs and LITs, the same way
+    indices: dict[str, dict] = field(default_factory=dict)  # benchmark index rows (§26.2)
 
 
 def _clean(value) -> str:
@@ -440,6 +442,7 @@ def _read_sheet(name: str, cells: list[list], formats: list[list], kind: str = "
     type_col = by_field.get("product_type")
     category_col = by_field.get("category")
     out: dict[str, dict] = {}
+    indices: dict[str, dict] = {}
     section = None
     for _, row, fmt in data_rows:
         filled = [v for v in row if _clean(v)]
@@ -448,7 +451,8 @@ def _read_sheet(name: str, cells: list[list], formats: list[list], kind: str = "
             continue
         if code_col >= len(row) or not _is_code(row[code_col]):
             continue
-        if type_col and type_col.index < len(row) and _skip_type(row[type_col.index], kind):
+        is_index = bool(type_col and type_col.index < len(row) and _norm(_clean(row[type_col.index])) in _SKIP_TYPE_EXACT)
+        if type_col and type_col.index < len(row) and _skip_type(row[type_col.index], kind) and not is_index:
             continue
         code = _clean(row[code_col]).removesuffix(".AX")
         item: dict = {"raw": {}}
@@ -478,15 +482,30 @@ def _read_sheet(name: str, cells: list[list], formats: list[list], kind: str = "
             item["category"] = section
         if item.get("product_type"):
             item["product_type"] = TYPE_NAMES[kind].get(item["product_type"], item["product_type"])
+        if is_index:  # a benchmark, kept apart from the funds (§26.2)
+            indices[code] = {"name": item.get("fund_name"), "section": section, "_pct_format": item.get("_pct_format", set()),
+                             **{f: item.get(f) for f in RETURN_FIELDS if f != "return_since_inception"}}
+            continue
         out[code] = item
     read.rows = len(out)
     if category_col is None and any(r.get("category") for r in out.values()):
         read.notes.append("category: taken from the section headings between the rows")
-    _fix_fractions(read, out)
+    _fix_fractions(read, out | {f"index:{k}": v for k, v in indices.items()})  # indices are written the same way
     _fix_money(read, out)
-    for item in out.values():
+    for item in [*out.values(), *indices.values()]:
         item.pop("_pct_format", None)
+    read.indices = {k: v for k, v in indices.items() if _plausible_index(v)}
+    if len(read.indices) < len(indices):
+        read.notes.append(f"benchmark indices left out as implausible: {', '.join(sorted(set(indices) - set(read.indices)))}")
     return read, out
+
+
+def _plausible_index(item: dict) -> bool:
+    """Index returns that could be real: some report rows carry obviously
+    broken figures (a bond index at -51% a year over 3 years)."""
+    limits = {"return_1m": 30, "return_3m": 50, "return_6m": 60, "return_1y": 80, "return_3y": 40, "return_5y": 40, "return_10y": 40}
+    values = [(f, item.get(f)) for f in limits if item.get(f) is not None]
+    return bool(values) and all(abs(v) <= limits[f] for f, v in values)
 
 
 def _fix_fractions(read: SheetRead, rows: dict[str, dict]) -> None:
@@ -537,6 +556,7 @@ def read_report(path: Path, month: date | None = None) -> Report:
     names = list(book.sheetnames)
     sheets, skipped, all_cells = [], [], []
     found_by_kind: dict[str, dict[str, dict]] = {"ETF": {}, "LIC": {}}
+    indices: dict[str, dict] = {}
     for name in names:
         kind = sheet_kind(name, names)
         if kind is None:
@@ -554,6 +574,9 @@ def read_report(path: Path, month: date | None = None) -> Report:
             continue
         read, found = result
         sheets.append(read)
+        if kind == "ETF":  # the LIC list repeats the index rows laid out differently, so only the ETP list's are used
+            for code, idx in read.indices.items():
+                indices.setdefault(code, idx)
         rows = found_by_kind[kind]
         for code, item in found.items():
             if code in rows:  # listed on two sheets: keep what each adds
@@ -569,7 +592,7 @@ def read_report(path: Path, month: date | None = None) -> Report:
         raise ReportError(f"No ETP list found in {Path(path).name}: no sheet has an ASX code column "
                           f"(sheets: {', '.join(names)})")
     return Report(month or month_from_name(Path(path).name) or _month_in_cells(all_cells), found_by_kind["ETF"],
-                  sheets, skipped, found_by_kind["LIC"])
+                  sheets, skipped, found_by_kind["LIC"], indices)
 
 
 def describe(report: Report) -> str:
@@ -671,6 +694,17 @@ def load_report(session, path: Path, month: date | None = None) -> LoadResult:
             if gone:
                 session.execute(update(Company).where(Company.company_id.in_([c.company_id for c in gone]))
                                 .values(is_active=False))
+    for code, idx in report.indices.items():
+        session.execute(text("""
+            INSERT INTO asx_index_returns (report_month, code, name, return_1m, return_3m, return_6m, return_1y,
+                                           return_3y, return_5y, return_10y)
+            VALUES (:m, :c, :n, :r1m, :r3m, :r6m, :r1y, :r3y, :r5y, :r10y)
+            ON CONFLICT (report_month, code) DO UPDATE SET name = EXCLUDED.name, return_1m = EXCLUDED.return_1m,
+                return_3m = EXCLUDED.return_3m, return_6m = EXCLUDED.return_6m, return_1y = EXCLUDED.return_1y,
+                return_3y = EXCLUDED.return_3y, return_5y = EXCLUDED.return_5y, return_10y = EXCLUDED.return_10y
+        """), {"m": report.month, "c": code, "n": (idx.get("name") or code)[:120], "r1m": idx.get("return_1m"),
+              "r3m": idx.get("return_3m"), "r6m": idx.get("return_6m"), "r1y": idx.get("return_1y"),
+              "r3y": idx.get("return_3y"), "r5y": idx.get("return_5y"), "r10y": idx.get("return_10y")})
     if reclassified:
         logger.warning("Reclassified from the ASX report (shares now treated as ETFs or LICs): %s", ", ".join(reclassified))
     lic_count = len([c for c in report.lics if c not in report.rows])

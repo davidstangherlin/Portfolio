@@ -189,7 +189,10 @@ def test_the_real_2026_layout(tmp_path):
     fractions scaled, index rows, other sheets and footnotes left out."""
     report = read_report(build_asx_2026(tmp_path))
     assert report.month == date(2026, 7, 1)
-    assert sorted(report.rows) == ["G200", "GOLD", "HACK", "NDQ", "VAS"]  # not XJO, AFI or the notes
+    assert sorted(report.rows) == ["G200", "GOLD", "HACK", "NDQ", "VAS"]  # not XJOAI, AFI or the notes
+    # The index row is kept apart, with its returns (§26.2); the LIC sheet's copy (no figures) isn't used.
+    xjo = report.indices["XJOAI"]
+    assert xjo["name"] == "S&P/ASX 200 Accumulation" and (xjo["return_1m"], xjo["return_1y"], xjo["return_5y"]) == (1, 6, 8)
     assert set(report.skipped_sheets) == {"Spotlight ETPs", "Spotlight A-REITS  List", "Spotlight Infra  List"}
     vas = report.rows["VAS"]
     assert vas["category"] == "Equity - Australia" and vas["product_type"] == "ETF"

@@ -346,6 +346,23 @@ CREATE TABLE IF NOT EXISTS asx_report_loads (
     loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Benchmark index returns from the ASX report's index rows (Australian
+-- indices only, such as the S&P/ASX 200 Accumulation), to the report's
+-- month end, compared with each fund's own report figures (§26.2).
+CREATE TABLE IF NOT EXISTS asx_index_returns (
+    report_month DATE NOT NULL,
+    code VARCHAR(20) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    return_1m NUMERIC(10, 2),
+    return_3m NUMERIC(10, 2),
+    return_6m NUMERIC(10, 2),
+    return_1y NUMERIC(10, 2),
+    return_3y NUMERIC(10, 2),
+    return_5y NUMERIC(10, 2),
+    return_10y NUMERIC(10, 2),
+    PRIMARY KEY (report_month, code)
+);
+
 -- 5f. ETF PERFORMANCE (docs/AS_BUILT.md §25)
 -- Sift's own figures from daily prices and distributions
 -- (src/etf/performance.py), recalculated nightly; one row per ETF.

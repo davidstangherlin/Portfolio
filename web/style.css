@@ -690,3 +690,8 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .recent-row { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 12px; font-size: 13px; color: var(--ink-2); }
 .recent-label { color: var(--muted); }
 .check-list { margin: 6px 0 4px; padding-left: 18px; }
+.check-ok { margin: 4px 0 10px; font-size: 13px; color: var(--ink-2); }
+.check-ok .tick { color: var(--good-text); font-weight: 700; }
+.index-block { margin-top: 12px; }
+.index-block .hint { font-weight: 400; text-transform: none; letter-spacing: 0; }
+@media (max-width: 480px) { .perf-table .ph-hide { display: none; } }  /* the median is on the chart */

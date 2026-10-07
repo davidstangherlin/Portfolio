@@ -9,6 +9,7 @@ discount to net tangible assets (NTA). `kind` is ETF or LIC throughout.
 from __future__ import annotations
 
 from collections import defaultdict
+from statistics import median
 from datetime import date
 from decimal import Decimal
 
@@ -142,14 +143,83 @@ def category_averages(rows: list[dict]) -> dict[str, dict]:
     return out
 
 
+# The broad, low-cost fund an investor would weigh a fund against, by
+# category, first one listed wins (§26.2). Otherwise: the category's largest.
+_AU = ("VAS", "A200", "IOZ", "STW")
+_GLOBAL = ("VGS", "IWLD", "IVV")
+PREFERRED_REFERENCE = {
+    ("ETF", "Equity - Australia"): _AU, ("ETF", "Equity - Australia Strategy"): _AU, ("ETF", "Equity - Australia Sectors"): _AU,
+    ("ETF", "Equity - Australia Small/Mid Cap"): ("VSO", "ISO") + _AU,
+    ("ETF", "Equity - Global"): _GLOBAL, ("ETF", "Equity - Global Strategy"): _GLOBAL, ("ETF", "Equity - Global Sectors"): _GLOBAL,
+    ("ETF", "Equity - Asia"): ("VGE", "IEM") + _GLOBAL, ("ETF", "Equity - Emerging Markets"): ("VGE", "IEM") + _GLOBAL,
+    ("ETF", "Property - Australia"): ("VAP", "MVA"), ("ETF", "Property - Global"): ("REIT", "DJRE"),
+    ("ETF", "Fixed Income - Australia Dollar"): ("VAF", "IAF"), ("ETF", "Fixed Income - Global"): ("VBND", "VIF", "VAF"),
+    ("ETF", "Equity - Infrastructure"): ("IFRA", "VBLD"), ("ETF", "Mixed Asset"): ("VDHG", "VDBA"),
+    ("LIC", "Equity - Australia"): ("AFI", "ARG"), ("LIC", "Equity - Australia Strategy"): ("AFI", "ARG"),
+}
+# The ASX report's index for a category (Australian indices only: the report has no global ones).
+CATEGORY_INDEX = {"Equity - Australia": "XJOAI", "Equity - Australia Strategy": "XJOAI", "Equity - Australia Sectors": "XJOAI",
+                  "Equity - Australia Small/Mid Cap": "XSOAI", "Property - Australia": "XPJAI"}
+
+
 def default_reference(row: dict, rows: list[dict]) -> dict | None:
-    """The largest other fund in the same category, or failing that the
-    largest other fund: a sensible yardstick until you pick one."""
+    """The broad, low-cost alternative for the fund's category
+    (PREFERRED_REFERENCE), else the largest other fund in the same
+    category, else the largest other fund: a sensible yardstick until you
+    pick one."""
+    by_code = {r["asx_code"]: r for r in rows}
+    for code in PREFERRED_REFERENCE.get((row.get("security_type", "ETF"), row["category"]), ()):
+        if code != row["asx_code"] and code in by_code:
+            return by_code[code]
     others = [r for r in rows if r["asx_code"] != row["asx_code"]]
     size = lambda r: r["fum_aud"] or Decimal("0")  # noqa: E731
     same = [r for r in others if r["category"] == row["category"]]
     pool = same or others
     return max(pool, key=size) if pool else None
+
+
+def _ordinal(n: int) -> str:
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def peer_ranks(row: dict, rows: list[dict]) -> dict[str, dict]:
+    """For each period: the fund's rank among the funds in its category
+    with a figure that passed its checks (1 = best), out of how many, and
+    the category median (§26.2). The rank is None when the fund's own
+    figure is missing or flagged."""
+    peers = [r for r in rows if r["category"] == row["category"]]
+    out = {}
+    for key in RETURN_KEYS:
+        if key == "return_since_inception":
+            continue  # funds start on different dates
+        values = sorted((r[key] for r in peers if r.get(key) is not None and key not in (r.get("report_flags") or {})),
+                        reverse=True)
+        if not values:
+            continue
+        own = row.get(key) if key not in (row.get("report_flags") or {}) else None
+        rank = 1 + sum(1 for v in values if v > own) if own is not None else None
+        out[key] = {"rank": rank, "of": len(values), "median": Decimal(str(median(values))).quantize(Decimal("0.01")),
+                    "ordinal": _ordinal(rank) if rank else None}
+    return out
+
+
+def index_comparison(session, row: dict) -> dict | None:
+    """The fund against its market index, both from the ASX report to its
+    month end (so the same date and both counting franking): only for
+    categories with an Australian index in the report (CATEGORY_INDEX)."""
+    code, month = CATEGORY_INDEX.get(row["category"]), row.get("report_month")
+    if not code or not month:
+        return None
+    idx = session.execute(text("SELECT * FROM asx_index_returns WHERE code = :c AND report_month = :m"),
+                          {"c": code, "m": month}).mappings().first()
+    if idx is None:
+        return None
+    periods = [{"key": k, "fund": row.get(f"asx_{k}"), "index": idx[k]}
+               for k in ("return_1m", "return_3m", "return_6m", "return_1y", "return_3y", "return_5y", "return_10y")
+               if idx[k] is not None and row.get(f"asx_{k}") is not None]
+    for p in periods:
+        p["difference"] = (p["fund"] - p["index"]).quantize(Decimal("0.01"))
+    return {"code": code, "name": idx["name"], "month": month, "periods": periods} if periods else None
 
 
 def weekly(points: list[tuple[date, float]]) -> list[tuple[date, float]]:
@@ -214,6 +284,8 @@ def etf_detail(session, code: str, today: date, compare: str | None = None,
     return {
         "etf": row,
         "category_average": averages.get(row["category"]),
+        "peers": peer_ranks(row, rows),
+        "index": index_comparison(session, row),
         "reference": reference,
         "reference_options": [{"asx_code": r["asx_code"], "company_name": r["company_name"], "category": r["category"]}
                               for r in options if r["asx_code"] != code],

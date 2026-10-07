@@ -163,3 +163,17 @@ def test_an_open_page_learns_when_sift_is_updated(db_session):
     first = client.get("/api/companies").headers["X-Sift-Version"]
     assert first and client.get("/").headers["X-Sift-Version"] == first
     assert client.get("/api/lics").headers["Cache-Control"] == "no-store"
+
+
+
+def test_australian_funds_are_compared_with_their_index(lics):
+    """§26.2: VAS against the S&P/ASX 200 Accumulation, both from the ASX
+    report to July 2026; a global fund has no index in the report."""
+    client = TestClient(gui.create_app())
+    vas = client.get("/api/etf/VAS").json()
+    x = vas["index"]
+    assert x["code"] == "XJOAI" and x["name"] == "S&P/ASX 200 Accumulation" and x["month"] == "2026-07-01"
+    one_year = next(p for p in x["periods"] if p["key"] == "return_1y")
+    assert (one_year["fund"], one_year["index"], one_year["difference"]) == (6.71, 6.0, 0.71)
+    assert client.get("/api/etf/NDQ").json()["index"] is None
+    assert isinstance(vas["peers"], dict)  # ranks need Sift's own figures; VAS has no prices here (ranks: unit tests)
