@@ -248,6 +248,8 @@ disagree). It only ever writes portfolios and trades you enter, and only from it
 
 ```
 python gui.py           # this PC: open http://localhost:8000
+# or double-click start_sift.bat in the project folder: it uses .venv's Python directly
+# (no activation needed) and opens the browser
 python gui.py --lan     # also your phone on home Wi-Fi (see below)
 ```
 Press `Ctrl+C` to stop it. On start it brings the database up to date (the same step the
