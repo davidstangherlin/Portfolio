@@ -1157,11 +1157,11 @@ function topCard(d) {
   const c = card("Top opportunities", "Shares you don't hold: BUY first, then INVESTIGATE, highest score first.",
     d.top.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
       h("thead", {}, h("tr", {}, ["Score", "Company", "Margin of safety", "Valuation", "Action"].map((x, i) =>
-        withHelp(h("th", { class: [i === 2 ? "num" : "", i === 0 || i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
+        withHelp(h("th", { class: [i === 2 ? "center" : "", i === 0 || i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
       h("tbody", {}, d.top.map((r) => clickableRow(r.asx_code,
         h("td", { class: "opt2" }, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
         h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
-        h("td", { class: `num ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
+        h("td", { class: `center tabular ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
         h("td", { class: "opt2" }, valuationPill(r.margin_of_safety_percent)),
         h("td", {}, badge(r.action))))))) : h("p", { class: "empty", text: "No BUY or INVESTIGATE signals today." }),
     foot);

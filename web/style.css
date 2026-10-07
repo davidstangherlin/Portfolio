@@ -210,6 +210,8 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .grid th[aria-sort="ascending"]::after { content: " \25B2"; font-size: 9px; }
 .grid th[aria-sort="descending"]::after { content: " \25BC"; font-size: 9px; }
 .grid td.num, .grid th.num { text-align: right; }
+.grid td.center, .grid th.center { text-align: center; }
+.grid td.tabular { font-variant-numeric: tabular-nums; }
 .grid tbody tr { cursor: pointer; transition: background-color 0.12s; }
 .grid tbody tr:hover, .grid tbody tr:focus-visible { background: var(--hover); outline: none; }
 .code { font-weight: 650; }
