@@ -2370,16 +2370,78 @@ async function renderFund(kind, code, query) {
       h("span", { class: "tag", text: e.category }),
       watchButton(e.asx_code, d.watchlists)),
     h("p", { class: "co-sub", text: sub.filter(Boolean).join("  |  ") }),
+    d.profile && d.profile.description ? aboutCompany({ business_summary: d.profile.description, business_summary_short: d.profile.description_short }) : null,
     h("div", { class: "stats" }, tiles),
     held,
     watchNote(d.watchlists),
-    h("div", { class: "cards" }, performanceCard(d, compareSelect), growthCard(d), etfPriceCard(d),
+    h("div", { class: "cards" }, performanceCard(d, compareSelect), fundHoldingsCard(d), growthCard(d), etfPriceCard(d),
       kind === "LIC" ? ntaCard(d) : null, distributionsCard(d), etfFacts(e, d), sizeCard(d)),
   ].filter(Boolean));
   drawSlots();
   if (!query) window.scrollTo(0, 0);
 }
 const renderEtf = (code, query) => renderFund("ETF", code, query);
+
+/* ---------- what a fund holds (§26.3): Yahoo Finance's fund data ---------- */
+const SECTOR_NAMES = { realestate: "Real estate", consumer_cyclical: "Consumer cyclical", basic_materials: "Basic materials",
+  consumer_defensive: "Consumer defensive", technology: "Technology", communication_services: "Communication services",
+  financial_services: "Financial services", utilities: "Utilities", industrials: "Industrials", energy: "Energy", healthcare: "Health care" };
+const RATING_ORDER = [["us_government", "Government"], ["aaa", "AAA"], ["aa", "AA"], ["a", "A"], ["bbb", "BBB"], ["bb", "BB"],
+  ["b", "B"], ["below_b", "Below B"], ["other", "Not rated / other"]];
+const sectorName = (k) => SECTOR_NAMES[k] || (k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "));
+
+/* Horizontal bars, one hue, value labels beside each (magnitude, not identity). */
+function barList(items, max) {
+  const top = max || Math.max(...items.map(([, v]) => v), 1);
+  return h("div", { class: "bar-list" }, items.map(([label, v]) => h("div", { class: "bar-row", title: `${label}: ${fmt(v, 1)}%` },
+    h("span", { class: "bar-label", text: label }),
+    h("span", { class: "bar-track" }, h("span", { class: "bar-fill", style: `width:${Math.max(0.5, (v / top) * 100)}%` })),
+    h("span", { class: "bar-value", text: pct(v, 1) }))));
+}
+
+function assetMix(p) {
+  const parts = [["Shares", p.stock_percent, "--s1"], ["Bonds", p.bond_percent, "--s2"], ["Cash", p.cash_percent, "--s3"], ["Other", p.other_percent, "--neutral"]]
+    .filter(([, v]) => v > 0);
+  if (!parts.length) return null;
+  return h("div", { class: "asset-mix" },
+    h("div", { class: "mix-bar", role: "img", "aria-label": parts.map(([n, v]) => `${n} ${fmt(v, 1)}%`).join(", ") },
+      parts.map(([n, v, c]) => h("span", { class: "mix-seg", style: `flex-grow:${v};background:var(${c})`, title: `${n}: ${fmt(v, 1)}%` }))),
+    h("div", { class: "legend" }, parts.map(([n, v, c]) => h("span", {}, h("span", { class: "key rect", style: `background:var(${c})` }), `${n} ${pct(v, 1)}`))));
+}
+
+function fundHoldingsCard(d) {
+  const p = d.profile, lic = d.kind === "LIC", title = "What it holds";
+  if (!p) return card(title, "Not fetched yet. Sift fetches each fund's holdings and sectors from Yahoo Finance weekly, so this fills in within a week.");
+  const holdings = p.holdings || [], sectors = Object.entries(p.sector_weightings || {}).sort((a, b) => b[1] - a[1]), ratings = p.bond_ratings || {};
+  const note = h("p", { class: "card-foot hint" }, `Yahoo Finance (Morningstar data), fetched ${longDate(p.fetched_at.slice(0, 10))}. Refreshed weekly. `, helpLink("fund-holdings"));
+  if (!holdings.length && !sectors.length && !p.stock_percent && !p.bond_percent) {
+    return card(title, lic
+      ? "Yahoo Finance lists LICs as companies, so it has no holdings or sector breakdown for them. Each LIC names its top holdings in its monthly NTA report, on its own website or the ASX announcements page."
+      : "Yahoo Finance has no holdings or sector breakdown for this fund.", note);
+  }
+  const ratingRows = RATING_ORDER.filter(([k]) => ratings[k] > 0).map(([k, label]) => [label, ratings[k]]);
+  const bondStats = [p.duration_years !== null ? `Duration ${fmt(p.duration_years, 1)} years` : null,
+    p.maturity_years !== null ? `average maturity ${fmt(p.maturity_years, 1)} years` : null].filter(Boolean);
+  const holdingsTable = holdings.length ? h("div", {},
+    h("h3", { class: "holders-head", text: "Top 10 holdings" }),
+    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Holding" }), h("th", { class: "opt", text: "Code" }), h("th", { class: "num", text: "% of fund" }))),
+      h("tbody", {}, holdings.map((x) => h("tr", { class: "static" },
+        h("td", { class: "holder-name", text: x.name }), h("td", { class: "opt mono", text: x.symbol || "" }),
+        h("td", { class: "num", text: pct(x.weight_percent, 2) })))))),
+    p.top10_percent !== null ? h("p", { class: "hint", text: `The top 10 are ${pct(p.top10_percent, 1)} of the fund.` }) : null) : null;
+  const sectorBlock = sectors.length ? h("div", {}, h("h3", { class: "holders-head", text: "Sectors" }),
+    barList(sectors.map(([k, v]) => [sectorName(k), v]))) : null;
+  const bondBlock = ratingRows.length || bondStats.length ? h("div", {}, h("h3", { class: "holders-head", text: "Bonds" }),
+    bondStats.length ? h("p", { class: "hint", text: bondStats.join(", ") + "." }) : null,
+    ratingRows.length ? barList(ratingRows, 100) : null) : null;
+  const el = card(title, null,
+    assetMix(p) ? [h("h3", { class: "holders-head", text: "Asset mix" }), assetMix(p)] : null,
+    h("div", { class: "holdings-grid" }, holdingsTable, sectorBlock || bondBlock, sectorBlock ? bondBlock : null),
+    note);
+  el.classList.add("wide");
+  return el;
+}
 
 /* ---------- ETFs and LICs on the dashboard, in portfolios and in watchlists ---------- */
 function fundDashCard(kind, x) {

@@ -43,7 +43,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src.config import get_session
-from src.etf import views as etf_views
+from src.etf import profiles as fund_profiles, views as etf_views
 from src.ingestion.insights_ingestion import insights_payload
 from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
 from src.models import Holding, Portfolio
@@ -893,6 +893,10 @@ def create_app(password: str | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail=f"{code} isn't an {kind} Sift follows")
             detail["watchlists"] = company_watchlists(session, detail["etf"]["company_id"], detail["etf"])
             detail["kind"] = kind
+            profile = fund_profiles.profile_payload(session, detail["etf"]["company_id"])
+            if profile:
+                profile["description_short"] = short_summary(profile["description"])
+            detail["profile"] = profile
             return JSONResponse(_json_ready(detail))
 
     @app.get("/api/etfs")

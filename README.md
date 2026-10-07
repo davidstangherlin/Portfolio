@@ -421,6 +421,9 @@ Every ETF listed on the ASX is collected alongside the shares and shown under it
   watchlist. Watchlist triggers for ETFs are price at or below and yield above; margin of
   safety triggers are for shares only.
 - **Search** finds ETFs by code or name and opens their page.
+- **What it holds:** each ETF's description, asset mix, top 10 holdings and sector weightings (and
+  credit ratings and duration for bond funds) from Yahoo Finance, refreshed weekly; LICs show their
+  description. To fetch every fund now: `python -m src.etf.run_etfs --skip-report --profiles-all`.
 
 **LICs** (listed investment companies and trusts, such as AFI, ARG, WAM) come from the same
 ASX report's LIC sheet and have their own **LICs** heading, apart from shares and ETFs: an LIC

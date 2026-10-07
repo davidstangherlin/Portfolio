@@ -22,7 +22,7 @@ from datetime import date
 from pathlib import Path
 
 from src.config import get_session
-from src.etf import asx_report, performance
+from src.etf import asx_report, performance, profiles
 from src.etf.prices import ingest_etf_prices
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,6 +39,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-prices", action="store_true", help="don't fetch prices and distributions")
     parser.add_argument("--period", default="1mo", help="price history to fetch for ETFs already stored (default 1mo)")
     parser.add_argument("--delay", type=float, default=0.5, help="seconds between ETFs (default 0.5)")
+    parser.add_argument("--skip-profiles", action="store_true",
+                        help="don't fetch fund descriptions, holdings and sectors (also skipped with --skip-prices)")
+    parser.add_argument("--profiles-all", action="store_true",
+                        help="fetch every fund's profile that's due now, not just tonight's seventh")
     return parser.parse_args(argv)
 
 
@@ -93,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
             empty = [c for c, n in results.items() if n == 0]
             logger.info("ETF and LIC prices: %d/%d returned data%s", len(results) - len(empty), len(results),
                         f" - none for: {', '.join(empty[:30])}" if empty else "")
+
+        if not (args.skip_prices or args.skip_profiles):
+            profiles.ingest_fund_profiles(session, today, all_now=args.profiles_all, delay_seconds=args.delay)
 
         written = performance.update_performance(session)
         session.commit()

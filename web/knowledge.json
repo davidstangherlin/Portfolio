@@ -1278,6 +1278,33 @@
    ]
   },
   {
+   "id": "fund-holdings",
+   "title": "What a fund holds",
+   "category": "etfs",
+   "aliases": [
+    "holdings",
+    "top 10",
+    "sector weightings",
+    "sectors",
+    "asset mix",
+    "asset allocation",
+    "duration",
+    "credit rating",
+    "fund description"
+   ],
+   "definition": "An ETF's description, asset mix (shares, bonds, cash), top 10 holdings and sector weightings, and for bond funds their credit ratings and duration, from Yahoo Finance's fund data (supplied by Morningstar).",
+   "body": [
+    "Sift fetches it weekly, a seventh of the funds each night; Yahoo updates holdings monthly or quarterly, so they can be a few weeks old. Coverage of ASX funds varies: some show everything, some only a description.",
+    "The top 10's share of the fund shows how concentrated it is: a broad index fund's top 10 might be 25%, a concentrated or thematic fund's 60% or more.",
+    "Duration is how sensitive a bond fund is to interest rates: with a duration of 5 years, a 1 point rise in rates lowers its value by about 5%.",
+    "LICs: Yahoo lists them as companies, so Sift shows their description but no holdings or sectors. Each LIC names its top holdings in its monthly NTA report, on its website or the ASX announcements page."
+   ],
+   "related": [
+    "etf-page",
+    "lic"
+   ]
+  },
+  {
    "id": "etf-screener",
    "title": "ETF screener",
    "category": "etfs",

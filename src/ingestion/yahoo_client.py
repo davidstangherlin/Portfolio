@@ -332,6 +332,31 @@ class YahooClient:
         institutions = part("institutional holders", self._ticker.get_institutional_holders)
         return parse_insights(info, trend, major, funds, institutions, today)
 
+    def get_fund_profile(self) -> FundProfile | None:
+        """Description, asset mix, top 10 holdings, sector weightings and bond
+        details from Yahoo's fund data (one request). Yahoo lists LICs as
+        companies, with no fund data: they get the description from the
+        company profile instead. None if neither request works, so the fund
+        is tried again next run."""
+        yf_logger = logging.getLogger("yfinance")
+        level = yf_logger.level
+        yf_logger.setLevel(logging.CRITICAL)  # "no fund data" for an LIC is expected
+        try:
+            fd = self._ticker.get_funds_data()
+            description = fd.description
+            return parse_fund_profile(description, fd.asset_classes, fd.top_holdings, fd.sector_weightings,
+                                      fd.bond_ratings, fd.bond_holdings)
+        except Exception:
+            pass
+        finally:
+            yf_logger.setLevel(level)
+        try:
+            info = self._ticker.get_info()
+        except Exception:
+            logger.warning("No fund or company profile from Yahoo for %s", self.symbol)
+            return None
+        return FundProfile(description=(info.get("longBusinessSummary") or "").strip() or None, holdings=[])
+
 
 # ---------- analyst and holder insights (docs/AS_BUILT.md §29) ----------
 
@@ -460,4 +485,74 @@ def parse_insights(info: dict | None, trend, major, funds, institutions, today: 
         ratings=parse_ratings(trend, today),
         funds=parse_holders(funds),
         institutions=parse_holders(institutions),
+    )
+
+
+# ---------- fund profiles: description, holdings, sectors (docs/AS_BUILT.md §26.3) ----------
+
+@dataclass
+class FundHolding:
+    rank: int
+    symbol: str | None
+    name: str
+    weight_percent: Decimal | None
+
+
+@dataclass
+class FundProfile:
+    description: str | None = None
+    stock_percent: Decimal | None = None
+    bond_percent: Decimal | None = None
+    cash_percent: Decimal | None = None
+    other_percent: Decimal | None = None
+    sector_weightings: dict[str, float] | None = None  # percents, largest first
+    bond_ratings: dict[str, float] | None = None       # percents
+    duration_years: Decimal | None = None
+    maturity_years: Decimal | None = None
+    holdings: list[FundHolding] | None = None
+
+    @property
+    def top10_percent(self) -> Decimal | None:
+        weights = [h.weight_percent for h in self.holdings or [] if h.weight_percent is not None]
+        return sum(weights, Decimal("0")).quantize(Decimal("0.01")) if weights else None
+
+
+def _percents(values: dict | None) -> dict[str, float]:
+    """Yahoo's {key: fraction} as {key: percent}, zeros dropped, largest
+    first. Already-percent figures (summing well over 1) are left as they are."""
+    clean = {str(k): float(v) for k, v in (values or {}).items() if _to_decimal(v) is not None and float(v) > 0}
+    scale = 1 if sum(clean.values()) > 1.5 else 100
+    return dict(sorted(((k, round(v * scale, 2)) for k, v in clean.items()), key=lambda kv: -kv[1]))
+
+
+def _frame_value(frame, row: str):
+    if _empty(frame) or row not in frame.index:
+        return None
+    return _to_decimal(frame.loc[row].iloc[0])
+
+
+def parse_fund_profile(description: str | None, asset_classes: dict | None, top_holdings, sector_weightings: dict | None,
+                       bond_ratings: dict | None, bond_holdings) -> FundProfile:
+    """Yahoo's fund data (yfinance FundsData) as a FundProfile."""
+    assets = _percents(asset_classes)
+    other = sum(assets.get(k, 0) for k in ("preferredPosition", "convertiblePosition", "otherPosition"))
+    holdings = []
+    if not _empty(top_holdings):
+        for symbol, row in top_holdings.head(10).iterrows():
+            name = str(row.get("Name") or symbol or "").strip()
+            if not name:
+                continue
+            weight = _to_decimal(row.get("Holding Percent"))
+            holdings.append(FundHolding(len(holdings) + 1, str(symbol).strip() or None, name[:255],
+                                        (weight * 100).quantize(Decimal("0.01")) if weight is not None else None))
+    pct = lambda k: Decimal(str(assets[k])).quantize(Decimal("0.01")) if k in assets else None  # noqa: E731
+    return FundProfile(
+        description=(description or "").strip() or None,
+        stock_percent=pct("stockPosition"), bond_percent=pct("bondPosition"), cash_percent=pct("cashPosition"),
+        other_percent=Decimal(str(other)).quantize(Decimal("0.01")) if other else None,
+        sector_weightings=_percents(sector_weightings) or None,
+        bond_ratings=_percents(bond_ratings) or None,
+        duration_years=_frame_value(bond_holdings, "Duration"),
+        maturity_years=_frame_value(bond_holdings, "Maturity"),
+        holdings=holdings,
     )

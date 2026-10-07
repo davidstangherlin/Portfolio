@@ -695,3 +695,18 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .index-block { margin-top: 12px; }
 .index-block .hint { font-weight: 400; text-transform: none; letter-spacing: 0; }
 @media (max-width: 480px) { .perf-table .ph-hide { display: none; } }  /* the median is on the chart */
+
+/* What a fund holds (§26.3) */
+.holdings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 24px; align-items: start; }
+.asset-mix { margin-bottom: 4px; }
+.mix-bar { display: flex; gap: 2px; height: 14px; margin: 6px 0 8px; }
+.mix-seg { min-width: 3px; }
+.mix-seg:first-child { border-radius: 4px 0 0 4px; }
+.mix-seg:last-child { border-radius: 0 4px 4px 0; }
+.mix-seg:only-child { border-radius: 4px; }
+.bar-list { display: grid; gap: 6px; margin: 4px 0 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(110px, 40%) 1fr 52px; align-items: center; gap: 10px; font-size: 13px; }
+.bar-label { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 10px; }
+.bar-fill { display: block; height: 100%; background: var(--s1); border-radius: 0 4px 4px 0; }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }

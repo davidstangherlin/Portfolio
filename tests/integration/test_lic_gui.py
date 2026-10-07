@@ -177,3 +177,39 @@ def test_australian_funds_are_compared_with_their_index(lics):
     assert (one_year["fund"], one_year["index"], one_year["difference"]) == (6.71, 6.0, 0.71)
     assert client.get("/api/etf/NDQ").json()["index"] is None
     assert isinstance(vas["peers"], dict)  # ranks need Sift's own figures; VAS has no prices here (ranks: unit tests)
+
+
+
+def test_fund_pages_show_what_the_fund_holds(lics):
+    """§26.3: an ETF gets its description, asset mix, top 10 and sectors; an
+    LIC (a company on Yahoo) its description only; a failed fetch is retried."""
+    from src.etf import profiles
+    from src.ingestion.yahoo_client import FundHolding, FundProfile
+
+    class FakeYahoo:
+        def __init__(self, code):
+            self.code = code
+
+        def get_fund_profile(self):
+            if self.code == "VAS":
+                return FundProfile("Tracks the S&P/ASX 300. Holds about 300 companies. Rebalanced quarterly.",
+                                   stock_percent=Decimal("99.7"), cash_percent=Decimal("0.3"),
+                                   sector_weightings={"financial_services": 31.0, "basic_materials": 20.0},
+                                   holdings=[FundHolding(1, "BHP.AX", "BHP Group Ltd", Decimal("9.12"))])
+            if self.code == "AFI":
+                return FundProfile("Australian Foundation Investment Company invests in Australian shares.", holdings=[])
+            return None  # Yahoo unreachable for the rest
+
+    results = profiles.ingest_fund_profiles(lics, all_now=True, client_factory=FakeYahoo)
+    assert results["VAS"] and results["AFI"] and not results["NDQ"]
+    client = TestClient(gui.create_app())
+    vas = client.get("/api/etf/VAS").json()["profile"]
+    assert vas["top10_percent"] == 9.12 and vas["holdings"][0]["name"] == "BHP Group Ltd"
+    assert vas["sector_weightings"] == {"financial_services": 31.0, "basic_materials": 20.0}
+    assert vas["description_short"] == "Tracks the S&P/ASX 300. Holds about 300 companies."
+    afi = client.get("/api/lic/AFI").json()["profile"]
+    assert afi["description"].startswith("Australian Foundation") and afi["holdings"] == [] and afi["sector_weightings"] is None
+    assert client.get("/api/etf/NDQ").json()["profile"] is None
+    # Fetched this week: not due again; the failed ones are.
+    again = profiles.ingest_fund_profiles(lics, all_now=True, client_factory=FakeYahoo)
+    assert "VAS" not in again and "NDQ" in again

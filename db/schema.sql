@@ -363,6 +363,35 @@ CREATE TABLE IF NOT EXISTS asx_index_returns (
     PRIMARY KEY (report_month, code)
 );
 
+-- 5i. FUND PROFILES (docs/AS_BUILT.md §26.3)
+-- What each ETF or LIC holds, from Yahoo Finance's fund data (Morningstar),
+-- refreshed weekly: a seventh of the funds each night. LICs get the
+-- description only, since Yahoo lists them as companies. Percents as percents.
+CREATE TABLE IF NOT EXISTS fund_profiles (
+    company_id UUID PRIMARY KEY REFERENCES companies(company_id) ON DELETE CASCADE,
+    fetched_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    description TEXT,
+    stock_percent NUMERIC(7, 2),
+    bond_percent NUMERIC(7, 2),
+    cash_percent NUMERIC(7, 2),
+    other_percent NUMERIC(7, 2),
+    sector_weightings JSONB,                 -- {"technology": 32.1, ...} (JSONB doesn't keep order: sort when shown)
+    bond_ratings JSONB,                      -- {"aaa": 40.2, ...}
+    duration_years NUMERIC(8, 2),
+    maturity_years NUMERIC(8, 2),
+    top10_percent NUMERIC(7, 2)
+);
+
+-- The top 10 holdings, replaced on each fetch.
+CREATE TABLE IF NOT EXISTS fund_holdings (
+    company_id UUID REFERENCES companies(company_id) ON DELETE CASCADE,
+    rank SMALLINT NOT NULL,
+    symbol VARCHAR(30),
+    name VARCHAR(255) NOT NULL,
+    weight_percent NUMERIC(7, 2),
+    PRIMARY KEY (company_id, rank)
+);
+
 -- 5f. ETF PERFORMANCE (docs/AS_BUILT.md §25)
 -- Sift's own figures from daily prices and distributions
 -- (src/etf/performance.py), recalculated nightly; one row per ETF.
