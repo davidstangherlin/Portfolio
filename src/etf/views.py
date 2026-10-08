@@ -301,8 +301,10 @@ def etf_detail(session, code: str, today: date, compare: str | None = None,
     }
 
 
-def screener_payload(session, today: date, watched: dict[str, list[str]], watchlist_names: list[str],
+def screener_payload(session, today: date, watched: dict[str, list[str]], watchlists: list[dict],
                      kind: str = "ETF") -> dict:
+    """The ETF (or LIC) screener. `watchlists` is every list as {watchlist_id, name}:
+    the watchlist filter, and the row star that adds to one."""
     rows = etf_rows(session, today, watched, kind)
     return {
         "rows": rows,
@@ -311,6 +313,6 @@ def screener_payload(session, today: date, watched: dict[str, list[str]], watchl
         "category_averages": category_averages(rows),
         "as_of": max((r["as_of_date"] for r in rows if r["as_of_date"]), default=None),
         "report_month": max((r["report_month"] for r in rows if r["report_month"]), default=None),
-        "watchlists": [{"name": n} for n in watchlist_names],
+        "watchlists": watchlists,
         "kind": kind,
     }

@@ -284,7 +284,8 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
   it); and how far the track record has got.
 - **Watchlists:** named lists of companies to follow without owning them (for example
-  "Dividend ideas" or "Wait for a dip"). Add a company with **☆ Add to watchlist** on its page
+  "Dividend ideas" or "Wait for a dip"). Add a company with the **☆** at the left of its row in
+  the screener (the ETF and LIC lists have it too), with **☆ Add to watchlist** on its page
   (tick the lists, or name a new one), or from the watchlist's own page. Each entry can have a
   note and up to two triggers: **margin of safety above X%** and **price at or below $Y**. A
   trigger met shows a tick on the watchlist page and appears under Needs attention on the

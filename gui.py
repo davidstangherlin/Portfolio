@@ -881,9 +881,9 @@ def create_app(password: str | None = None) -> FastAPI:
     # ---------- ETFs (§26) and LICs (§27) ----------
     def fund_list(kind):
         with get_session() as session:
-            names = [w.name for w in watchlists.list_watchlists(session)]
+            lists = [{"watchlist_id": str(w.watchlist_id), "name": w.name} for w in watchlists.list_watchlists(session)]
             return JSONResponse(_json_ready(etf_views.screener_payload(
-                session, date.today(), watchlists.watched_codes(session), names, kind)))
+                session, date.today(), watchlists.watched_codes(session), lists, kind)))
 
     def fund_page(asx_code, compare, kind):
         code = asx_code.strip().upper()

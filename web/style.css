@@ -504,6 +504,14 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .watch-new { display: flex; gap: 6px; }
 .watch-new input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .watch-note { margin: 0 0 12px; }
+/* List pages: the star on the left of each row, and its picker floating under it. */
+.grid th.watch-cell, .grid td.watch-cell { width: 1%; padding-left: 6px; padding-right: 0; }
+.watch-toggle { border: 0; background: none; padding: 2px 4px; border-radius: 6px; font-size: 16px; line-height: 1; color: var(--muted); cursor: pointer; }
+.watch-toggle:hover { color: var(--twisty); background: var(--hover); }
+.watch-toggle:focus-visible { outline: 2px solid var(--twisty); outline-offset: 1px; }
+.watch-toggle.on { color: var(--twisty); }
+.watch-pop { position: absolute; top: 0; left: 0; z-index: 60; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .trigs { display: grid; gap: 2px; }
 .trig { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .trig .mark { display: inline-block; width: 14px; font-weight: 700; }

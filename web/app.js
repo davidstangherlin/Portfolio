@@ -481,8 +481,9 @@ function screenerRow(r) {
   const open = () => { location.hash = `#/company/${r.asx_code}`; };
   const d = cache.screener;
   return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } },
+    watchCell(r, d.watchlists),
     h("td", {}, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
-    h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
+    h("td", {}, h("span", { class: "code", text: r.asx_code }), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
       h("div", { class: "name", text: r.company_name || "" })),
     h("td", { class: "opt opt3", text: r.sector || NA }),
     h("td", { class: "num opt2", text: money(r.current_price) }),
@@ -519,6 +520,7 @@ async function renderScreener() {
     more.hidden = rows.length <= state.shown;
     more.textContent = `Show more (${rows.length - state.shown} remaining)`;
     for (const th of headRow.children) {
+      if (!th.dataset.sort) continue;
       th.setAttribute("aria-sort", th.dataset.sort === state.sort.key ? (state.sort.dir === "asc" ? "ascending" : "descending") : "none");
     }
     for (const chip of chips.children) chip.setAttribute("aria-pressed", state.actions.has(chip.dataset.action));
@@ -533,6 +535,7 @@ async function renderScreener() {
     } }, badge(action), h("span", { class: "n", text: n })));
   }
 
+  headRow.append(watchHead());
   for (const col of COLUMNS) {
     headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.opt3 ? "opt3" : "", col.opt4 ? "opt4" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
       scope: "col", tabindex: 0, text: col.label,
@@ -564,7 +567,7 @@ async function renderScreener() {
     tf.chips, tf.builder,
     h("div", { class: "table-wrap" }, table),
     more);
-  tf.attachMenu(table, COLUMNS.map((c) => c.key), () => shownRows);
+  tf.attachMenu(table, [null, ...COLUMNS.map((c) => c.key)], () => shownRows);
   refresh();
 }
 
@@ -1693,19 +1696,10 @@ function watchNote(lists) {
     l.triggered ? " (trigger met)" : l.triggers && l.triggers.length ? " (triggers set)" : ""]), "."]);
   return el;
 }
-function watchButton(code, lists) {
-  const wrap = h("div", { class: "watch-wrap" });
-  const btn = h("button", { type: "button", class: "btn small watch-btn", "aria-haspopup": "true", "aria-expanded": "false" });
-  const panel = h("div", { class: "watch-panel", role: "dialog", "aria-label": "Watchlists" });
-  panel.hidden = true;
+/* The watchlist tick boxes and "new watchlist" form, drawn into `panel`.
+   `lists` is every watchlist with `member` set; `changed()` runs after each change. */
+function watchPicker(panel, code, lists, changed) {
   const msg = formMessage();
-  const paint = () => {
-    const on = lists.filter((l) => l.member).length;
-    btn.textContent = on ? "★ On watchlist" : "☆ Add to watchlist";
-    btn.classList.toggle("on", on > 0);
-    const note = document.getElementById("watch-note");
-    if (note) note.replaceWith(watchNote(lists));
-  };
   const draw = () => {
     const name = h("input", { maxlength: 60, placeholder: "New watchlist name", autocomplete: "off", "aria-label": "New watchlist name" });
     const create = h("form", { class: "watch-new" }, name, h("button", { type: "submit", class: "btn small", text: "Add" }));
@@ -1714,7 +1708,7 @@ function watchButton(code, lists) {
       try {
         const w = await send("POST", "/api/watchlists", { name: name.value, asx_code: code });
         lists.push({ ...w, member: true });
-        afterChange(); paint(); draw();
+        changed(); draw();
       } catch (err) { showMessage(msg, err.message, false); }
     });
     panel.replaceChildren(h("h3", { text: "Watchlists" }),
@@ -1726,12 +1720,14 @@ function watchButton(code, lists) {
               await send("PUT", `/api/watchlists/${l.watchlist_id}/items/${code}`, {});
               Object.assign(l, { member: true, triggers: [], triggered: false, note: null });
             } else {
-              const extra = l.note || (l.triggers && l.triggers.length) ? " Its note and triggers will be deleted." : "";
+              // A list row doesn't carry the entry's note and triggers (undefined), so say they may go.
+              const extra = l.triggers === undefined ? " Any note and triggers on it will be deleted."
+                : l.note || l.triggers.length ? " Its note and triggers will be deleted." : "";
               if (!confirm(`Remove ${code} from ${l.name}?${extra}`)) { box.checked = true; return; }
               await send("DELETE", `/api/watchlists/${l.watchlist_id}/items/${code}`);
               l.member = false;
             }
-            afterChange(); paint();
+            changed();
           } catch (err) { box.checked = !box.checked; showMessage(msg, err.message, false); }
         });
         return h("label", {}, box, l.name);
@@ -1739,14 +1735,86 @@ function watchButton(code, lists) {
       create, msg,
       h("p", { class: "hint", style: "margin:8px 0 0" }, "Notes and triggers: open the list from ", h("a", { href: "#/watchlists", text: "Watchlists" }), "."));
   };
+  draw();
+}
+function watchButton(code, lists) {
+  const wrap = h("div", { class: "watch-wrap" });
+  const btn = h("button", { type: "button", class: "btn small watch-btn", "aria-haspopup": "true", "aria-expanded": "false" });
+  const panel = h("div", { class: "watch-panel", role: "dialog", "aria-label": "Watchlists" });
+  panel.hidden = true;
+  const paint = () => {
+    const on = lists.filter((l) => l.member).length;
+    btn.textContent = on ? "★ On watchlist" : "☆ Add to watchlist";
+    btn.classList.toggle("on", on > 0);
+    const note = document.getElementById("watch-note");
+    if (note) note.replaceWith(watchNote(lists));
+  };
   const setOpen = (open) => { panel.hidden = !open; btn.setAttribute("aria-expanded", open); };
   btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(panel.hidden); });
   panel.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", () => setOpen(false));
-  draw(); paint();
+  watchPicker(panel, code, lists, () => { afterChange(); paint(); });
+  paint();
   add(wrap, [btn, panel]);
   return wrap;
 }
+
+/* List pages (screener, ETFs, LICs): a star on the left of each row. ☆ adds
+   it to a watchlist, ★ shows it's on one; either opens the same picker as the
+   company page, floating under the star. `lists` is the page's watchlists
+   ({watchlist_id, name}); `r.watchlists` the names of the ones the row is on. */
+let watchPop = null;
+function closeWatchPop(refocus) {
+  if (!watchPop) return;
+  const { el, btn } = watchPop;
+  watchPop = null;
+  el.remove();
+  btn.setAttribute("aria-expanded", "false");
+  if (refocus) btn.focus();
+}
+document.addEventListener("click", (e) => { if (watchPop && !watchPop.el.contains(e.target)) closeWatchPop(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWatchPop(true); });
+window.addEventListener("hashchange", () => closeWatchPop());
+
+function openWatchPop(btn, r, lists, changed) {
+  const again = watchPop && watchPop.btn === btn;
+  closeWatchPop();
+  if (again) return;  // a second click on the same star closes it
+  const entries = lists.map((w) => ({ ...w, member: r.watchlists.includes(w.name) }));
+  const el = h("div", { class: "watch-panel watch-pop", role: "dialog", "aria-label": `Watchlists for ${r.asx_code}` });
+  el.addEventListener("click", (e) => e.stopPropagation());
+  watchPicker(el, r.asx_code, entries, () => {
+    for (const w of entries) if (!lists.some((l) => l.watchlist_id === w.watchlist_id)) lists.push({ watchlist_id: w.watchlist_id, name: w.name });
+    r.watchlists = entries.filter((w) => w.member).map((w) => w.name);
+    loadWatchlistMenu();
+    changed();
+  });
+  document.body.append(el);
+  if (!matchMedia("(max-width: 560px)").matches) {  // phones: a fixed panel near the top (style.css)
+    const a = btn.getBoundingClientRect(), box = el.getBoundingClientRect();
+    const below = a.bottom + 6 + box.height <= innerHeight - 8;
+    el.style.left = `${scrollX + Math.max(8, Math.min(a.left, innerWidth - box.width - 8))}px`;
+    el.style.top = `${scrollY + (below ? a.bottom + 6 : Math.max(8, a.top - 6 - box.height))}px`;
+  }
+  watchPop = { el, btn };
+  btn.setAttribute("aria-expanded", "true");
+  (el.querySelector("input") || el).focus();
+}
+function watchCell(r, lists) {
+  const btn = h("button", { type: "button", class: "watch-toggle", "aria-haspopup": "dialog", "aria-expanded": "false" });
+  const paint = () => {
+    const on = r.watchlists;
+    btn.textContent = on.length ? "★" : "☆";
+    btn.classList.toggle("on", on.length > 0);
+    btn.title = on.length ? `On watchlist: ${on.join(", ")}. Click to change.` : "Add to a watchlist";
+    btn.setAttribute("aria-label", on.length ? `${r.asx_code} is on watchlist ${on.join(", ")}: change` : `Add ${r.asx_code} to a watchlist`);
+  };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); openWatchPop(btn, r, lists, paint); });
+  btn.addEventListener("keydown", (e) => e.stopPropagation());  // Enter on the star doesn't open the row
+  paint();
+  return h("td", { class: "watch-cell" }, btn);
+}
+const watchHead = () => h("th", { class: "watch-cell", scope: "col", title: "Watchlist" }, h("span", { class: "sr-only", text: "Watchlist" }));
 
 async function renderWatchlists(query) {
   app.replaceChildren(h("p", { class: "loading", text: "Loading watchlists..." }));
@@ -1957,13 +2025,13 @@ const retCell = (v, cls = "") => h("td", { class: `num ${cls} ${signClass(v) || 
 const premText = (v) => (v === null || v === undefined ? NA : v < 0 ? `${fmt(-v, 1)}% discount` : v > 0 ? `${fmt(v, 1)}% premium` : "at NTA");
 const premCell = (v, cls = "") => h("td", { class: `num ${cls}`.trim() },
   h("span", { class: "long", text: premText(v) }), h("span", { class: "short", text: signedPct(v) }));
-const nameCell = (r, kind) => h("td", {}, h("span", { class: "code", text: r.asx_code }), watchStar(r.watchlists),
+const nameCell = (r, kind, star = true) => h("td", {}, h("span", { class: "code", text: r.asx_code }), star ? watchStar(r.watchlists) : null,
   r.held !== null && r.held !== false ? h("span", { class: "held-tag", text: "HELD" }) : null,
   kind === "LIC" && r.product_type === "LIT" ? kindTag("LIT") : null, h("div", { class: "name", text: r.company_name || "" }));
 
 const FUND_COLUMNS = {
   ETF: [
-    { key: "asx_code", label: "ETF", cell: (r) => nameCell(r, "ETF") },
+    { key: "asx_code", label: "ETF", cell: (r) => nameCell(r, "ETF", false) },
     { key: "category", label: "Category", cls: "opt3", cell: (r) => h("td", { class: "opt3" }, h("div", { class: "clip", title: r.category, text: r.category })) },
     { key: "issuer", label: "Issuer", cls: "opt4", cell: (r) => h("td", { class: "opt4" }, h("div", { class: "clip", title: r.issuer || "", text: r.issuer || NA })) },
     { key: "mer_percent", label: "Fee", num: true, cell: (r) => h("td", { class: "num", text: pct(r.mer_percent, 2) }) },
@@ -1976,7 +2044,7 @@ const FUND_COLUMNS = {
     { key: "avg_spread_percent", label: "Spread", num: true, cls: "opt", cell: (r) => h("td", { class: "num opt", text: pct(r.avg_spread_percent, 2) }) },
   ],
   LIC: [
-    { key: "asx_code", label: "LIC", cell: (r) => nameCell(r, "LIC") },
+    { key: "asx_code", label: "LIC", cell: (r) => nameCell(r, "LIC", false) },
     { key: "category", label: "Category", cls: "opt3", cell: (r) => h("td", { class: "opt3" }, h("div", { class: "clip", title: r.category, text: r.category })) },
     { key: "premium_now", label: "Premium/discount to NTA", short: "vs NTA", num: true, cell: (r) => premCell(r.premium_now) },
     { key: "mer_percent", label: "Fee", num: true, cell: (r) => h("td", { class: "num", text: pct(r.mer_percent, 2) }) },
@@ -2051,11 +2119,12 @@ async function renderFunds(kind) {
   function refresh() {
     const rows = fundSorted(kind, tf.apply(fundFiltered(kind, d)));
     shownRows = rows.slice(0, st.shown);
-    tbody.replaceChildren(...shownRows.map((r) => rowTo(fundHref(kind, r.asx_code), ...columns.map((c) => c.cell(r)))));
+    tbody.replaceChildren(...shownRows.map((r) => rowTo(fundHref(kind, r.asx_code), watchCell(r, d.watchlists), ...columns.map((c) => c.cell(r)))));
     count.textContent = `${rows.length} shown`;
     more.hidden = rows.length <= st.shown;
     more.textContent = `Show more (${rows.length - st.shown} remaining)`;
     for (const th of headRow.children) {
+      if (!th.dataset.sort) continue;
       th.setAttribute("aria-sort", th.dataset.sort === st.sort.key ? (st.sort.dir === "asc" ? "ascending" : "descending") : "none");
     }
   }
@@ -2065,6 +2134,7 @@ async function renderFunds(kind) {
       : { key: col.key, dir: ["asx_code", "category", "issuer", "mer_percent", "avg_spread_percent", "premium_now", "performance_fee"].includes(col.key) ? "asc" : "desc" };
     refresh();
   }
+  headRow.append(watchHead());
   for (const col of columns) {
     headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.cls || ""].join(" ").trim() || null, "data-sort": col.key,
       scope: "col", tabindex: 0, onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } },
@@ -2090,7 +2160,7 @@ async function renderFunds(kind) {
     tf.chips, tf.builder,
     h("div", { class: "table-wrap" }, table),
     more);
-  tf.attachMenu(table, columns.map((c) => c.key), () => shownRows);
+  tf.attachMenu(table, [null, ...columns.map((c) => c.key)], () => shownRows);
   refresh();
   window.scrollTo(0, 0);
 }

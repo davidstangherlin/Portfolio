@@ -144,3 +144,5 @@ def test_watchlist_triggers_by_type(etfs):
     # The ETF page shows which lists it's on.
     lists = client.get("/api/etf/VAS").json()["watchlists"]
     assert [(x["name"], x["member"], x["triggered"]) for x in lists] == [("Mixed", True, True)]
+    # The ETF list carries each list's id, for the row star that adds to it.
+    assert client.get("/api/etfs").json()["watchlists"] == [{"watchlist_id": w["watchlist_id"], "name": "Mixed"}]

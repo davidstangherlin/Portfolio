@@ -1081,10 +1081,10 @@
    "category": "watchlists",
    "definition": "Named lists of companies and ETFs to follow without owning them, each with an optional note and triggers.",
    "body": [
-    "Add a company or ETF with Add to watchlist on its page, or from the watchlist's own page.",
+    "Add a company, ETF or LIC with the star at the left of its row in the screener, ETF or LIC list (☆ adds, ★ means it's on a list; either opens the list picker), with Add to watchlist on its page, or from the watchlist's own page.",
     "Triggers: price at or below $Y for any; margin of safety above X% for shares; yield above X% for ETFs and LICs (the 12-month yield); discount to NTA of at least X% for LICs. A trigger met shows a tick on the watchlist page and appears on the dashboard while it stays true: share triggers under Needs attention, ETF and LIC triggers in their own cards.",
     "Each watchlist shows its shares, ETFs and LICs under separate headings, with the figures that suit each.",
-    "Watched companies carry a pink star in the screener, and watched ETFs in the ETF screener; both can filter to one watchlist or to any.",
+    "Watched companies, ETFs and LICs show a pink ★ at the left of their row in the screener and the ETF and LIC lists (hover for the list names); each list can filter to one watchlist or to any.",
     "Only companies Sift values, and ETFs it follows, can be watched. Watchlists are separate from the nightly ticker file (allords.txt), which decides which companies are valued."
    ],
    "aliases": [
