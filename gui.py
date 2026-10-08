@@ -49,6 +49,7 @@ from src.models import Company, DailyPrice, DividendPayment, FinancialReport, Va
 from src.models import Holding, Portfolio
 from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
 from src.portfolio.holdings import HoldingsError
+from src import preferences
 from src.screening import movers
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
@@ -462,6 +463,7 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "changes": changes,
         "tracking": tracking_status(session) | {"headline": track_report.headline(session)},
         "top": top,
+        "layout": preferences.get_preference(session, preferences.DASHBOARD_LAYOUT),
         "movers": {"shares": movers.share_movers(session, rows, watched, today),
                    "etfs": movers.fund_movers(etfs), "lics": movers.fund_movers(lics)},
         "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
@@ -668,6 +670,20 @@ def create_app(password: str | None = None) -> FastAPI:
         with get_session() as session:
             return JSONResponse(_json_ready(dashboard_payload(session, date.today(), datetime.now())))
 
+    @app.put("/api/dashboard/layout")
+    def api_dashboard_layout(body: dict = Body(...)):
+        """Save the dashboard's widget order, hidden widgets and widths."""
+        def action(session):
+            layout = preferences.clean_layout(body)
+            preferences.set_preference(session, preferences.DASHBOARD_LAYOUT, layout)
+            return {"layout": layout}
+        return change(action)
+
+    @app.delete("/api/dashboard/layout")
+    def api_dashboard_layout_reset():
+        """Back to the default layout."""
+        return change(lambda session: {"reset": preferences.clear_preference(session, preferences.DASHBOARD_LAYOUT)})
+
     @app.get("/api/track-record")
     def api_track_record(version: str | None = None):
         with get_session() as session:
@@ -724,7 +740,7 @@ def create_app(password: str | None = None) -> FastAPI:
             try:
                 result = action(session)
                 session.commit()
-            except (HoldingsError, WatchlistError, ScenarioError, SettingsError) as exc:
+            except (HoldingsError, WatchlistError, ScenarioError, SettingsError, preferences.PreferenceError) as exc:
                 session.rollback()
                 raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
         return JSONResponse(_json_ready(result))

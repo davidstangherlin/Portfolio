@@ -284,7 +284,11 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   most on the last trading day, by percentage, and the top 5 each way for ETFs and LICs);
   **Top opportunities** (BUY, then
   INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
-  it); and how far the track record has got.
+  it); and how far the track record has got. **Arrange the widgets:** click a widget's pin
+  (top right) to unlock it, then drag it by its title bar, use the arrows, switch it between
+  half and full width, or hide it; click the pin again to lock it. The layout is saved in the
+  database, so it's the same in every browser; **Reset to default layout** under the widgets
+  undoes it all.
 - **Watchlists:** named lists of companies to follow without owning them (for example
   "Dividend ideas" or "Wait for a dip"). Add a company with the **☆** at the left of its row in
   the screener (the ETF and LIC lists have it too), with **☆ Add to watchlist** on its page

@@ -131,6 +131,7 @@
     "Biggest movers: the 10 screener shares that rose most and the 10 that fell most on the last trading day, by percentage change from the previous close, then the top 5 each way for ETFs and for LICs. Only prices from that day count, so a suspended stock's old move isn't shown. No price or volume floor: a very cheap stock can top the list.",
     "Top opportunities: up to six shares you don't hold, BUY first then INVESTIGATE, by score and margin of safety.",
     "Today's suggested actions: counts per action; click one to open the screener filtered to it.",
+    "Arranging the widgets: each widget has a pin at its top right and starts pinned. Click the pin to unlock it, then drag it by its title bar (mouse or finger), or use the arrows, switch it between half and full width, or hide it. Click the pin again to lock it. Hidden widgets are listed under the dashboard with a Show button, and Reset to default layout puts everything back. The layout is saved in Sift's database, so every browser and your phone show the same; widgets are pinned again each time the page opens.",
     "ETFs: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch with today's move, 1-year return and yield.",
     "LICs: the same for listed investment companies and trusts, with each one's premium or discount to NTA."
    ],

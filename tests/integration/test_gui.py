@@ -143,6 +143,20 @@ def test_dashboard_lists_the_days_biggest_movers(seeded):
     assert data["movers"]["etfs"]["up"] == [] and data["movers"]["lics"]["as_of"] is None
 
 
+def test_dashboard_layout_is_saved_shown_and_reset(seeded):
+    client = TestClient(gui.create_app())
+    assert client.get("/api/dashboard").json()["layout"] is None
+    layout = {"cards": [{"id": "movers", "hidden": False, "wide": True}, {"id": "tracking", "hidden": True, "wide": None}]}
+    assert client.put("/api/dashboard/layout", json=layout).status_code == 403  # Sift's own pages only
+    assert client.put("/api/dashboard/layout", json=layout, headers=WRITE).json() == {"layout": layout}
+    assert client.get("/api/dashboard").json()["layout"] == layout
+    bad = client.put("/api/dashboard/layout", json={"cards": [{"id": "x", "hidden": "no"}]}, headers=WRITE)
+    assert bad.status_code == 400 and bad.json()["detail"].startswith("Hidden is true or false")
+    assert client.get("/api/dashboard").json()["layout"] == layout  # unchanged by the refused one
+    assert client.delete("/api/dashboard/layout", headers=WRITE).json() == {"reset": True}
+    assert client.get("/api/dashboard").json()["layout"] is None
+
+
 def test_cgt_discount_dates_within_90_days_need_attention(seeded):
     from datetime import datetime
 

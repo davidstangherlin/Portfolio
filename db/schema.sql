@@ -477,6 +477,16 @@ CREATE TABLE IF NOT EXISTS top_holders (
     PRIMARY KEY (company_id, holder_kind, rank)
 );
 
+-- 5j. INTERFACE PREFERENCES (docs/AS_BUILT.md §20)
+-- Choices made in the web pages that should follow you to any browser,
+-- such as the dashboard's widget order, hidden widgets and widths. One JSON
+-- value per key; validated by src/preferences.py before it's stored.
+CREATE TABLE IF NOT EXISTS ui_preferences (
+    pref_key VARCHAR(60) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that

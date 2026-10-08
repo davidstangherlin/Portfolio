@@ -725,3 +725,29 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .bar-track { height: 10px; }
 .bar-fill { display: block; height: 100%; background: var(--s1); border-radius: 0 4px 4px 0; }
 .bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+/* ---------- dashboard layout: pins, drag, hide, width (web/dashlayout.js) ---------- */
+.cards.dash > .card { position: relative; }
+.cards.dash > .card > h2 { padding-right: 30px; }
+.dl-btn { border: 1px solid transparent; background: none; color: var(--muted); border-radius: 6px; padding: 3px 7px;
+  font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.dl-btn:hover { background: var(--hover); color: var(--ink); }
+.dl-btn:focus-visible { outline: 2px solid var(--twisty); outline-offset: 1px; }
+.dl-pin { position: absolute; top: 9px; right: 9px; padding: 4px; opacity: 0.45; }
+.dl-pin svg { width: 15px; height: 15px; display: block; transition: transform 0.15s; }
+.card:hover > .dl-pin, .dl-pin:focus-visible { opacity: 1; }
+.card.dl-open { outline: 2px dashed var(--twisty); outline-offset: 2px; }
+.card.dl-open > .dl-pin { opacity: 1; color: var(--twisty); }
+.card.dl-open > .dl-pin svg { transform: rotate(45deg); }
+.dl-bar { display: none; align-items: center; flex-wrap: wrap; gap: 2px; margin: -6px 30px 10px 0; padding: 3px 4px 3px 8px;
+  border-radius: 8px; background: var(--surface-2); color: var(--ink-2); font-size: 12px; cursor: grab; touch-action: none; user-select: none; }
+.card.dl-open > .dl-bar { display: flex; }
+.dl-grip { margin-right: auto; padding-right: 6px; }
+.card.dl-open > h2 { cursor: grab; touch-action: none; user-select: none; }
+.card.dl-dragging { opacity: 0.9; box-shadow: 0 14px 36px rgba(15, 23, 42, 0.28); z-index: 5; }
+.card.dl-dragging, .card.dl-dragging > .dl-bar, .card.dl-dragging > h2 { cursor: grabbing; }
+html.dl-drag-on, html.dl-drag-on body { overflow-anchor: none; }  /* the drag keeps the widget under the pointer itself */
+.dl-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 12px 2px 0; font-size: 12px; color: var(--muted); }
+.dl-foot .dl-btn { border-color: var(--border); }
+.dl-hidden { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+@media (max-width: 820px) { .dl-width { display: none; } }

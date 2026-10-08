@@ -1238,8 +1238,17 @@ async function renderDashboard() {
     pageHead("Dashboard", today),
     pf.holdings.length ? portfolioStrip(pf) : null,
     pf.holdings.length ? sectionLine(pf.sections) : null,
-    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), d.movers ? moversCard(d.movers) : null, topCard(d), fundDashCard("ETF", d.etfs), fundDashCard("LIC", d.lics),
-      pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null, actionsCard(d), trackingCard(d.tracking)),
+    ...dashboardLayout(d, [
+      { id: "attention", title: "Needs attention", build: () => attentionCard(d) },
+      { id: "changes", title: "What changed", build: () => changesCard(d) },
+      { id: "movers", title: "Biggest movers", build: () => (d.movers ? moversCard(d.movers) : null) },
+      { id: "top", title: "Top opportunities", build: () => topCard(d) },
+      { id: "etfs", title: "ETFs", build: () => fundDashCard("ETF", d.etfs) },
+      { id: "lics", title: "LICs", build: () => fundDashCard("LIC", d.lics) },
+      { id: "portfolios", title: "Portfolios", build: () => (pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null) },
+      { id: "actions", title: "Today's suggested actions", build: () => actionsCard(d) },
+      { id: "tracking", title: "Track record", build: () => trackingCard(d.tracking) },
+    ]),
     statusFoot(d.status),
   ].filter(Boolean));
   window.scrollTo(0, 0);
