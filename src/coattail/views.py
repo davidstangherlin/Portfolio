@@ -54,6 +54,8 @@ _MANAGERS = [(name, re.compile(pattern, re.IGNORECASE)) for name, pattern in MAN
 _SUFFIX = re.compile(r"[,\s]+(inc\.?|incorporated|pty\.?|llc|l\.?l\.?c\.?|l\.?p\.?|ltd\.?|limited|plc|corp\.?|corporation|co\.?|"
                      r"group|holdings?|& co\.?|ag|sa|n\.?a\.?)$", re.IGNORECASE)
 
+_FETCHED = text("SELECT company_id FROM company_insights WHERE company_id IN :ids").bindparams(bindparam("ids", expanding=True))
+
 _HOLDINGS = text("""
     SELECT company_id, holder_kind, holder, shares, percent_held, percent_change, date_reported
     FROM top_holders WHERE company_id IN :ids
@@ -95,10 +97,14 @@ def shares_change(shares, percent_change) -> int | None:
 
 def holdings(session, rows: list[dict], watched: dict[str, list[str]]) -> dict:
     """Every top holder of every screener company, with its manager. `rows`
-    are load_universe's; `companies` carries what the page shows for each."""
+    are load_universe's; `companies` carries what the page shows for each.
+    `fetched` counts the screener companies whose insights have been fetched
+    (the weekly refresh fetches a seventh a night), `with_holders` those
+    with any holder listed: how complete the lists are."""
     by_id = {r["company_id"]: r for r in rows if r.get("company_id")}
-    companies, out = {}, []
+    companies, out, fetched = {}, [], 0
     if by_id:
+        fetched = len(session.execute(_FETCHED, {"ids": list(by_id)}).all())
         for m in session.execute(_HOLDINGS, {"ids": list(by_id)}).mappings():
             r = by_id[m["company_id"]]
             code = r["asx_code"]
@@ -114,4 +120,4 @@ def holdings(session, rows: list[dict], watched: dict[str, list[str]]) -> dict:
                         "new": change is not None and change >= NEW_POSITION, "date_reported": m["date_reported"]})
     out.sort(key=lambda m: (m["manager"], m["asx_code"], m["holder"]))
     return {"as_of": max((m["date_reported"] for m in out if m["date_reported"]), default=None),
-            "screened": len(rows), "companies": companies, "holdings": out}
+            "screened": len(rows), "fetched": fetched, "with_holders": len(companies), "companies": companies, "holdings": out}

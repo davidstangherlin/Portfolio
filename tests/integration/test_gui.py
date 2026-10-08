@@ -180,6 +180,7 @@ def test_coattail_groups_holders_by_manager_with_shares_bought_or_sold(seeded):
     assert data["holdings"][1]["manager_id"] == "vanguard"
     assert data["companies"]["GOOD"]["held"] is True and len(data["companies"]["GOOD"]["scores"]) == len(data["axes"])
     assert data["as_of"] == "2026-06-30" and data["screened"] == 2
+    assert data["with_holders"] == 1 and data["fetched"] == 0  # holders inserted directly, insights never fetched
 
 
 def test_cgt_discount_dates_within_90_days_need_attention(seeded):

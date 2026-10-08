@@ -1573,7 +1573,7 @@ async function renderPortfolio(id, note) {
 }
 
 /* ---------- Coattail: following the smart money (§31) ---------- */
-const coattailState = { hideIndex: true, months: 12, q: "" };
+const coattailState = { hideIndex: false, months: 12, q: "" };
 const COATTAIL_MONTHS = [[3, "Reported in the last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "Any time"]];
 let coattailData = null;
 const countText = (v) => new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v));
@@ -1619,25 +1619,26 @@ function cardWheel(scores, axes, max, size = 116) {
   const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
   const pt = (i, f) => [c + R * f * Math.cos(angle(i)), c + R * f * Math.sin(angle(i))];
   const poly = (f) => axes.map((_, i) => pt(i, f).join(",")).join(" ");
-  const pad = size * 0.3;  // room either side for the longest label, PERFORMANCE
-  const svg = s("svg", { viewBox: `${-pad} 0 ${size + pad * 2} ${size}`, width: size + pad * 2, height: size, class: "card-wheel", role: "img",
+  const left = size * 0.36, right = size * 0.22;  // room for MOMENTUM on the left and PERF. on the right
+  const svg = s("svg", { viewBox: `${-left} 0 ${size + left + right} ${size}`, width: size + left + right, height: size, class: "card-wheel", role: "img",
     "aria-label": "Average score of the companies held: " + axes.map((a, i) => `${a} ${fmt(scores[i], 1)} of ${max}`).join(", ") });
   for (const f of [1 / 3, 2 / 3, 1]) svg.append(s("polygon", { points: poly(f), fill: "none", stroke: "var(--grid)", "stroke-width": 1 }));
   svg.append(s("polygon", { points: scores.map((v, i) => pt(i, Math.max(v, 0.15) / max).join(",")).join(" "),
     fill: "var(--s1)", "fill-opacity": 0.35, stroke: "var(--s1)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
   axes.forEach((a, i) => {
     const [x, y] = pt(i, 1.32), cos = Math.cos(angle(i));
-    svg.append(s("text", { x, y: y + 3, "text-anchor": Math.abs(cos) < 0.2 ? "middle" : cos > 0 ? "start" : "end", class: "card-wheel-label", text: a.toUpperCase() }));
+    svg.append(s("text", { x, y: y + 3, "text-anchor": Math.abs(cos) < 0.2 ? "middle" : cos > 0 ? "start" : "end", class: "card-wheel-label",
+      text: (a === "Performance" ? "Perf." : a).toUpperCase() }));
   });
   return svg;
 }
-const monogram = (name) => name.split(/[\s.&-]+/).filter((w) => /^[A-Za-z]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+const firstWords = (name) => name.split(/\s+/).slice(0, 2).join(" ");
 const hueOf = (name) => [...name].reduce((t, ch) => (t * 31 + ch.charCodeAt(0)) % 360, 7);
 
 function holderCard(g, d) {
   const extra = g.positions.length - 3;
   return h("a", { class: "holder-card", href: `#/coattail/${g.id}`, style: `--hc-hue: ${hueOf(g.name)}` },
-    h("div", { class: "hc-band", "aria-hidden": "true" }, h("span", { class: "hc-mono", text: monogram(g.name) })),
+    h("div", { class: "hc-band", "aria-hidden": "true" }, h("span", { class: "hc-title", text: firstWords(g.name) })),
     h("div", { class: "hc-body" }, h("h3", { class: "hc-name", text: g.name }), cardWheel(g.avg, d.axes, d.checks_per_axis)),
     h("div", { class: "hc-foot" },
       g.positions.slice(0, 3).map((p) => h("span", { class: "hc-code", text: p.code })),
@@ -1704,7 +1705,10 @@ async function renderCoattail() {
     h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
     h("div", { class: "controls" }, search, ...coattailControls(refresh), count),
     ...(d.holdings.length ? [h("div", { class: "cards" }, intro),
-      h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })), grid]
+      h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })),
+      h("p", { class: "hint coverage" }, `Holder lists cover ${fmt(d.with_holders, 0)} of ${plural(d.screened, "screener company", "screener companies")}. Yahoo lists each company's top 10 funds and top 10 institutions, so a manager outside a company's top 10 isn't shown for it.`,
+        d.fetched < d.screened ? ` ${plural(d.screened - d.fetched, "company hasn't", "companies haven't")} been fetched yet; the weekly refresh fetches a seventh each night.` : "", " ", helpLink("holder-moves")),
+      grid]
       : [h("p", { class: "empty", text: "No holder lists yet. They arrive with the weekly analyst and holder refresh." })]),
     h("div", { class: "cards coattail-next" }, next));
   refresh();
@@ -1720,8 +1724,12 @@ async function renderCoattailHolder(id) {
   const body = h("div");
   function draw() {
     const g = coattailManagers(d, coattailHoldings(d)).find((x) => x.id === id);
+    const all = coattailManagers(d, d.holdings).find((x) => x.id === id);
+    const hidden = all ? all.positions.length - (g ? g.positions.length : 0) : 0;
+    const showAll = hidden ? h("p", { class: "hint" }, `${plural(hidden, "more company is", "more companies are")} hidden by the filters above. `,
+      h("button", { type: "button", class: "btn small", text: "Show all", onclick: () => { Object.assign(coattailState, { hideIndex: false, months: 0 }); draw(); syncControls(); } })) : null;
     if (!g) {
-      body.replaceChildren(h("p", { class: "empty", text: "No holdings for this holder under the current filters." }));
+      body.replaceChildren(...[h("p", { class: "empty", text: "No holdings for this holder under the current filters." }), showAll].filter(Boolean));
       return;
     }
     const heads = [["Score", "opt2"], ["Company"], ["Held through", "opt"], ["Shares", "num"], ["Change", "num"], ["% held", "num opt2"], ["Value now", "num"], ["Reported", "num opt"], ["Action", "opt2"]];
@@ -1742,12 +1750,13 @@ async function renderCoattailHolder(id) {
         h("td", { class: "opt2" }, badge(p.company.action))))));
     body.replaceChildren(
       h("div", { class: "holder-head" },
-        h("div", { class: "hc-band hc-band-lg", style: `--hc-hue: ${hueOf(g.name)}`, "aria-hidden": "true" }, h("span", { class: "hc-mono", text: monogram(g.name) })),
+        h("div", { class: "hc-band hc-band-lg", style: `--hc-hue: ${hueOf(g.name)}`, "aria-hidden": "true" }, h("span", { class: "hc-title", text: firstWords(g.name) })),
         h("div", { class: "holder-facts" },
           h("p", {}, `Holds ${plural(g.positions.length, "screener company", "screener companies")}, worth ${compact(g.value)} at today's prices.`),
           h("p", {}, `Since their previous reports: adding to ${g.adding}, cutting ${g.cutting}.`),
           h("p", { class: "hint", text: "The wheel is the average score of the companies it holds." })),
         cardWheel(g.avg, d.axes, d.checks_per_axis, 150)),
+      ...(showAll ? [showAll] : []),
       (() => {
         const c = card("Holdings", "Each company once, through the manager's largest listed holding in it; hover +1 more fund for the others. Change is shares bought (+) or sold (-) since that holder's previous report; hover it for the percentage.",
           h("div", { class: "table-wrap" }, table));
@@ -1756,10 +1765,12 @@ async function renderCoattailHolder(id) {
       })());
   }
   const name = (d.holdings.find((m) => m.manager_id === id) || {}).manager || "Holder";
+  const controls = h("div", { class: "controls" }, ...coattailControls(draw));
+  const syncControls = () => controls.replaceChildren(...coattailControls(draw));
   app.replaceChildren(
     h("a", { class: "back", href: "#/coattail", text: "← Coattail" }),
     pageHead(name, "Fund manager"),
-    h("div", { class: "controls" }, ...coattailControls(draw)),
+    controls,
     body);
   draw();
   window.scrollTo(0, 0);
