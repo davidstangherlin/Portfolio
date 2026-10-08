@@ -1172,9 +1172,10 @@ function topCard(d) {
   return c;
 }
 
-/* Biggest movers on the last trading day, by percentage: screener shares
-   (10 each way), ETFs and LICs (5 each way). Rows open the company or fund. */
-function moversCard(m) {
+/* Biggest movers on the last trading day, by percentage: 5 each way for
+   screener shares (with their score wheel), ETFs and LICs. Rows open the
+   company or fund. `d` is the dashboard payload, for the wheel's axes. */
+function moversCard(m, d) {
   const groups = [["Shares in the screener", m.shares, (c) => `#/company/${c}`, "SHARE"],
     ["ETFs", m.etfs, (c) => fundHref("ETF", c), "ETF"], ["LICs", m.lics, (c) => fundHref("LIC", c), "LIC"]].filter(([, x]) => x && x.as_of);
   if (!groups.length) {
@@ -1182,11 +1183,17 @@ function moversCard(m) {
   }
   const day = groups[0][1].as_of;
   const price = (v) => money(v, v !== null && v !== undefined && v < 1 ? 3 : 2);
-  const side = (title, rows, href, kind, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
-    h("thead", {}, h("tr", {}, h("th", { text: title }), h("th", { class: "num opt2", text: "Close" }), h("th", { class: "num", text: "Day move" }))),
-    h("tbody", {}, rows.length ? rows.map((r) => rowTo(href(r.asx_code), nameCell(r, kind),
-      h("td", { class: "num opt2 tabular", text: price(r.price) }), retCell(r.change_percent, "tabular")))
-      : h("tr", {}, h("td", { colspan: 3, class: "hint", text: none })))));
+  const side = (title, rows, href, kind, none) => {
+    const share = kind === "SHARE";
+    return h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
+      h("thead", {}, h("tr", {}, share ? withHelp(h("th", { tabindex: 0, text: "Score" }), "Score") : null, h("th", { text: title }),
+        h("th", { class: "num opt2", text: "Close" }), h("th", { class: "num", text: "Day move" }))),
+      h("tbody", {}, rows.length ? rows.map((r) => rowTo(href(r.asx_code),
+        share ? h("td", { class: "mover-score" }, r.scores ? [wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
+          h("span", { class: "score-total", text: sum(r.scores) })] : null) : null,
+        nameCell(r, kind), h("td", { class: "num opt2 tabular", text: price(r.price) }), retCell(r.change_percent, "tabular")))
+        : h("tr", {}, h("td", { colspan: share ? 4 : 3, class: "hint", text: none })))));
+  };
   const c = card("Biggest movers", `Percentage change from the previous close to the close on ${longDate(day)}. ★ watchlist, HELD in a portfolio.`,
     groups.map(([label, x, href, kind]) => h("div", { class: "movers-group" },
       h("h3", { class: "sub-head" }, label, h("span", { class: "hint", text: ` · ranked from ${fmt(x.traded, 0)}${x.as_of !== day ? `, to ${longDate(x.as_of)}` : ""}` })),
@@ -1241,7 +1248,7 @@ async function renderDashboard() {
     ...dashboardLayout(d, [
       { id: "attention", title: "Needs attention", build: () => attentionCard(d) },
       { id: "changes", title: "What changed", build: () => changesCard(d) },
-      { id: "movers", title: "Biggest movers", build: () => (d.movers ? moversCard(d.movers) : null) },
+      { id: "movers", title: "Biggest movers", build: () => (d.movers ? moversCard(d.movers, d) : null) },
       { id: "top", title: "Top opportunities", build: () => topCard(d) },
       { id: "etfs", title: "ETFs", build: () => fundDashCard("ETF", d.etfs) },
       { id: "lics", title: "LICs", build: () => fundDashCard("LIC", d.lics) },

@@ -140,6 +140,7 @@ def test_dashboard_lists_the_days_biggest_movers(seeded):
     assert [(r["asx_code"], r["change_percent"], r["held"]) for r in shares["up"]] == [("GOOD", 5.26, True)]
     assert [(r["asx_code"], r["change_percent"]) for r in shares["down"]] == [("DEAR", -6.25)]
     assert shares["traded"] == 2 and shares["as_of"] == "2026-10-02"
+    assert len(shares["up"][0]["scores"]) == len(data["axes"])  # the score wheel
     assert data["movers"]["etfs"]["up"] == [] and data["movers"]["lics"]["as_of"] is None
 
 

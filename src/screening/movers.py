@@ -12,7 +12,9 @@ from decimal import Decimal
 
 from sqlalchemy import bindparam, text
 
-SHARE_MOVERS = 10
+from src.screening.enriched import score_list
+
+SHARE_MOVERS = 5
 FUND_MOVERS = 5
 CLOSES_WINDOW_DAYS = 31  # how far back to look for the previous close (long breaks, a missed night)
 
@@ -59,14 +61,14 @@ def top_movers(rows: list[dict], n: int) -> dict:
 
 
 def share_movers(session, rows: list[dict], watched: dict[str, list[str]], today: date, n: int = SHARE_MOVERS) -> dict:
-    """Movers among the screener's companies (`rows` from load_universe)."""
+    """Movers among the screener's companies (`rows` from load_universe), each with its score wheel."""
     closes = last_two_closes(session, [r["company_id"] for r in rows], today)
     out = []
     for r in rows:
         day, now, before = closes.get(r["company_id"], (None, None, None))
         out.append({"asx_code": r["asx_code"], "company_name": r["company_name"], "price": now, "price_date": day,
                     "change_percent": day_change(before, now), "held": r["held"] is not None,
-                    "watchlists": watched.get(r["asx_code"], [])})
+                    "watchlists": watched.get(r["asx_code"], []), "scores": score_list(r)})
     return top_movers(out, n)
 
 

@@ -280,8 +280,9 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   base; **Needs attention** (held shares flagged SELL or REVIEW, parcels reaching the
   capital gains tax (CGT) discount within 90 days, and watchlist triggers met); **What changed**
   (companies whose suggested action moved since the previous night, watchlist companies first,
-  then better moves first); **Biggest movers** (the 10 screener shares that rose and fell
-  most on the last trading day, by percentage, and the top 5 each way for ETFs and LICs);
+  then better moves first); **Biggest movers** (the 5 screener shares that rose and fell
+  most on the last trading day, by percentage, with their score wheels, and the top 5 each
+  way for ETFs and LICs);
   **Top opportunities** (BUY, then
   INVESTIGATE, by score); today's action counts (click one to open the screener filtered to
   it); and how far the track record has got. **Arrange the widgets:** click a widget's pin
