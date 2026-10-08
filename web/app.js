@@ -1573,7 +1573,7 @@ async function renderPortfolio(id, note) {
 }
 
 /* ---------- Coattail: following the smart money (§31) ---------- */
-const coattailState = { hideIndex: false, months: 12, q: "", sort: "held" };
+const coattailState = { hideIndex: false, months: 12, sort: "held" };
 /* Who's investing order: each key's figure, largest first; ties by value held, then name. */
 const HOLDER_SORTS = [["held", "Companies held", (g) => g.positions.length], ["adding", "Adding", (g) => g.adding],
   ["cutting", "Cutting", (g) => g.cutting], ["value", "Value held", (g) => g.value]];
@@ -1666,8 +1666,19 @@ async function renderCoattail() {
   const d = coattailData = await getJSON("/api/coattail");
   const st = coattailState;
   const summary = h("div"), grid = h("div", { class: "holder-grid" }), count = h("span", { class: "count" });
-  const search = h("input", { type: "search", class: "search", placeholder: "Search holders or companies", value: st.q, "aria-label": "Search holders or companies",
-    oninput: (e) => { st.q = e.target.value; refresh(); } });
+  /* Who's investing filters like the other lists (web/tablefilter.js): search,
+     and conditions on any of these. Search also finds the companies held. */
+  const HOLDER_FIELDS = {
+    name: { label: "Holder", type: "text", get: (g) => g.name },
+    held: { label: "Companies held", type: "num", get: (g) => g.positions.length },
+    adding: { label: "Adding", type: "num", get: (g) => g.adding },
+    cutting: { label: "Cutting", type: "num", get: (g) => g.cutting },
+    value: { label: "Value held", type: "num", get: (g) => g.value, text: (g) => compact(g.value) },
+    codes: { label: "Holds", type: "text", get: (g) => g.positions.map((p) => p.code).join(", ") },
+  };
+  let currentGroups = [];
+  const tf = tableFilter("coattail-holders", HOLDER_FIELDS, () => currentGroups, () => refresh(),
+    { placeholder: "Search holders or companies", extraSearch: (g) => g.positions.map((p) => p.company.company_name || "").join(" ") });
 
   /* Click an Adding or Cutting number for the managers behind it, in a row
      opened under the company; click it again to close. */
@@ -1707,7 +1718,7 @@ async function renderCoattail() {
   };
   const side = (title, rows, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
     h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "center", text: "Adding" }),
-      h("th", { class: "center", text: "Cutting" }), withHelp(h("th", { class: "opt2", tabindex: 0, text: "Sift's action" }), "Action"))),
+      h("th", { class: "center", text: "Cutting" }), withHelp(h("th", { class: "opt2", tabindex: 0, text: "Recommendation" }), "Action"))),
     h("tbody", {}, rows.length ? rows.map((x) => {
       let tr = null;
       tr = rowTo(`#/company/${x.code}`,
@@ -1731,19 +1742,18 @@ async function renderCoattail() {
         "No company has more managers adding than cutting."),
       side("Most cut", list.filter((x) => x.net < 0).sort((a, b) => a.net - b.net || b.cutting - a.cutting || a.code.localeCompare(b.code)).slice(0, 10),
         "No company has more managers cutting than adding.")));
-    const q = st.q.trim().toLowerCase();
+    currentGroups = groups;
     const key = (HOLDER_SORTS.find(([k]) => k === st.sort) || HOLDER_SORTS[0])[2];
     groups.sort((a, b) => key(b) - key(a) || b.value - a.value || a.name.localeCompare(b.name));
     for (const btn of sortSeg.children) btn.setAttribute("aria-pressed", btn.dataset.sort === st.sort);
-    const shown = q ? groups.filter((g) => g.name.toLowerCase().includes(q)
-      || g.positions.some((p) => p.code.toLowerCase() === q || (p.company.company_name || "").toLowerCase().includes(q))) : groups;
-    grid.replaceChildren(...(shown.length ? shown.map((g) => holderCard(g, d)) : [h("p", { class: "empty", text: "No holders match." })]));
-    count.textContent = plural(shown.length, "holder");
+    const shown = tf.apply(groups);
+    grid.replaceChildren(...(shown.length ? shown.map((g) => holderCard(g, d)) : [h("p", { class: "empty", text: "No holders match these filters." })]));
+    count.textContent = tf.active() ? `${shown.length} of ${plural(groups.length, "holder")}` : plural(groups.length, "holder");
   }
   const sortSeg = h("div", { class: "segmented holder-sort", role: "group", "aria-label": "Sort holders by" },
     HOLDER_SORTS.map(([k, label]) => h("button", { type: "button", "data-sort": k, "aria-pressed": String(k === st.sort), text: label,
       onclick: () => { st.sort = k; refresh(); } })));
-  const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report: click a number to see who. Sift's action is Sift's own suggestion for the company, to compare with what the managers are doing. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
+  const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report: click a number to see who. Recommendation is Sift's own suggested action for the company, to compare with what the managers are doing. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
   intro.classList.add("wide");
   const next = card("Coming next", null, h("ul", { class: "plain-list" },
     h("li", { text: "ASX director trades: directors buying or selling their own company's shares (Appendix 3Y notices)." }),
@@ -1753,11 +1763,12 @@ async function renderCoattail() {
   app.replaceChildren(
     pageHead("Coattail", `Following the smart money in ${plural(d.screened, "screener company", "screener companies")}`),
     h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
-    h("div", { class: "controls" }, search, ...coattailControls(refresh), count),
+    h("div", { class: "controls" }, ...coattailControls(refresh)),
     ...(d.holdings.length ? [h("div", { class: "cards" }, intro),
       h("div", { class: "section-head" },
         h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })),
         h("div", { class: "holder-sort-wrap" }, h("span", { class: "hint", text: "Sort by" }), sortSeg)),
+      h("div", { class: "controls tf-controls" }, tf.search, tf.toggle, count), tf.chips, tf.builder,
       h("p", { class: "hint coverage" }, `Holder lists cover ${fmt(d.with_holders, 0)} of ${plural(d.screened, "screener company", "screener companies")}. Yahoo lists each company's top 10 funds and top 10 institutions, so a manager outside a company's top 10 isn't shown for it.`,
         d.fetched < d.screened ? ` ${plural(d.screened - d.fetched, "company hasn't", "companies haven't")} been fetched yet; the weekly refresh fetches a seventh each night.` : "", " ", helpLink("holder-moves")),
       grid]
@@ -1784,9 +1795,9 @@ async function renderCoattailHolder(id) {
       body.replaceChildren(...[h("p", { class: "empty", text: "No holdings for this holder under the current filters." }), showAll].filter(Boolean));
       return;
     }
-    const heads = [["Score", "opt2"], ["Company"], ["Held through", "opt"], ["Shares", "num"], ["Change", "num"], ["% held", "num opt2"], ["Value now", "num"], ["Reported", "num opt"], ["Action", "opt2"]];
+    const heads = [["Score", "opt2"], ["Company"], ["Held through", "opt"], ["Shares", "num"], ["Change", "num"], ["% held", "num opt2"], ["Value now", "num"], ["Reported", "num opt"], ["Recommendation", "opt2"]];
     const table = h("table", { class: "grid" },
-      h("thead", {}, h("tr", {}, heads.map(([t, cls]) => withHelp(h("th", { class: cls || null, tabindex: 0, text: t }), t === "Change" ? "Holder change" : t)))),
+      h("thead", {}, h("tr", {}, heads.map(([t, cls]) => withHelp(h("th", { class: cls || null, tabindex: 0, text: t }), ({ Change: "Holder change", Recommendation: "Action" })[t] || t)))),
       h("tbody", {}, g.positions.map((p) => rowTo(`#/company/${p.code}`,
         h("td", { class: "opt2" }, wheel(p.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(p.company.scores) })),
         nameCell(p.company, "SHARE"),
