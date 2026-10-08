@@ -49,6 +49,7 @@ from src.models import Company, DailyPrice, DividendPayment, FinancialReport, Va
 from src.models import Holding, Portfolio
 from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
 from src.portfolio.holdings import HoldingsError
+from src.screening import movers
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
@@ -461,6 +462,8 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "changes": changes,
         "tracking": tracking_status(session) | {"headline": track_report.headline(session)},
         "top": top,
+        "movers": {"shares": movers.share_movers(session, rows, watched, today),
+                   "etfs": movers.fund_movers(etfs), "lics": movers.fund_movers(lics)},
         "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
                        "debt_to_equity": universe.args.max_debt_equity, "yield": universe.args.min_yield},
     }

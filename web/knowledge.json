@@ -128,6 +128,7 @@
     "Portfolio strip: value at the latest close, today's change, unrealised gain and cost base across every portfolio.",
     "Needs attention: held shares flagged SELL or REVIEW, parcels reaching the CGT discount within 90 days, held shares missing from the nightly ticker file, and watchlist triggers met.",
     "What changed: companies whose suggested action moved since the previous night. Watchlist companies come first, then better moves. A move between actions of equal rank, or one caused by your own buying or selling, isn't listed.",
+    "Biggest movers: the 10 screener shares that rose most and the 10 that fell most on the last trading day, by percentage change from the previous close, then the top 5 each way for ETFs and for LICs. Only prices from that day count, so a suspended stock's old move isn't shown. No price or volume floor: a very cheap stock can top the list.",
     "Top opportunities: up to six shares you don't hold, BUY first then INVESTIGATE, by score and margin of safety.",
     "Today's suggested actions: counts per action; click one to open the screener filtered to it.",
     "ETFs: watchlist triggers met on ETFs, ETF parcels reaching the CGT discount, and the ETFs you hold or watch with today's move, 1-year return and yield.",

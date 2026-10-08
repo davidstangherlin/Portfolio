@@ -529,6 +529,11 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .verdict-text .tag { margin-left: 8px; }
 .order { font-weight: 600; margin: 6px 0 0; }
 .sub-head { font-size: 13px; margin: 16px 0 8px; color: var(--ink); }
+.movers-group .sub-head { margin: 14px 0 6px; }
+.card > .hint + .movers-group .sub-head { margin-top: 4px; }
+.movers-group .sub-head .hint { font-weight: 400; }
+.movers-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .movers-cols { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
 .inline-select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-left: auto; }
 .card .segmented.periods { max-width: 420px; }
 .segmented.periods button { white-space: nowrap; }

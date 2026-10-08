@@ -1172,6 +1172,31 @@ function topCard(d) {
   return c;
 }
 
+/* Biggest movers on the last trading day, by percentage: screener shares
+   (10 each way), ETFs and LICs (5 each way). Rows open the company or fund. */
+function moversCard(m) {
+  const groups = [["Shares in the screener", m.shares, (c) => `#/company/${c}`, "SHARE"],
+    ["ETFs", m.etfs, (c) => fundHref("ETF", c), "ETF"], ["LICs", m.lics, (c) => fundHref("LIC", c), "LIC"]].filter(([, x]) => x && x.as_of);
+  if (!groups.length) {
+    return card("Biggest movers", null, h("p", { class: "empty", text: "Appears once Sift has two closing prices to compare." }));
+  }
+  const day = groups[0][1].as_of;
+  const price = (v) => money(v, v !== null && v !== undefined && v < 1 ? 3 : 2);
+  const side = (title, rows, href, kind, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
+    h("thead", {}, h("tr", {}, h("th", { text: title }), h("th", { class: "num opt2", text: "Close" }), h("th", { class: "num", text: "Day move" }))),
+    h("tbody", {}, rows.length ? rows.map((r) => rowTo(href(r.asx_code), nameCell(r, kind),
+      h("td", { class: "num opt2 tabular", text: price(r.price) }), retCell(r.change_percent, "tabular")))
+      : h("tr", {}, h("td", { colspan: 3, class: "hint", text: none })))));
+  const c = card("Biggest movers", `Percentage change from the previous close to the close on ${longDate(day)}. ★ watchlist, HELD in a portfolio.`,
+    groups.map(([label, x, href, kind]) => h("div", { class: "movers-group" },
+      h("h3", { class: "sub-head" }, label, h("span", { class: "hint", text: ` · ranked from ${fmt(x.traded, 0)}${x.as_of !== day ? `, to ${longDate(x.as_of)}` : ""}` })),
+      h("div", { class: "movers-cols" },
+        side("Biggest rises", x.up, href, kind, "Nothing rose."),
+        side("Biggest falls", x.down, href, kind, "Nothing fell.")))));
+  c.classList.add("wide");
+  return c;
+}
+
 function actionsCard(d) {
   const chips = Object.entries(d.action_counts).filter(([, n]) => n).map(([a, n]) =>
     h("a", { class: "chip", href: `#/screener?action=${a}` }, badge(a), h("span", { class: "n", text: n })));
@@ -1213,7 +1238,7 @@ async function renderDashboard() {
     pageHead("Dashboard", today),
     pf.holdings.length ? portfolioStrip(pf) : null,
     pf.holdings.length ? sectionLine(pf.sections) : null,
-    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), topCard(d), fundDashCard("ETF", d.etfs), fundDashCard("LIC", d.lics),
+    h("div", { class: "cards dash" }, attentionCard(d), changesCard(d), d.movers ? moversCard(d.movers) : null, topCard(d), fundDashCard("ETF", d.etfs), fundDashCard("LIC", d.lics),
       pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null, actionsCard(d), trackingCard(d.tracking)),
     statusFoot(d.status),
   ].filter(Boolean));

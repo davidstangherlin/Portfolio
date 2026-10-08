@@ -123,6 +123,26 @@ def test_dashboard_lists_holdings_attention_and_opportunities(seeded, tmp_path):
     assert data["status"]["last_run"] is None
 
 
+def test_dashboard_lists_the_days_biggest_movers(seeded):
+    from datetime import datetime, timedelta
+
+    from src.models.company import Company
+    from src.models.daily_price import DailyPrice
+
+    # Each company's previous close: GOOD rose from $9.50 to $10, DEAR fell from $64 to $60.
+    for code, before in (("GOOD", "9.50"), ("DEAR", "64.00")):
+        c = seeded.query(Company).filter_by(asx_code=code).one()
+        last = seeded.query(DailyPrice).filter_by(company_id=c.company_id).one()
+        seeded.add(DailyPrice(company_id=c.company_id, price_date=last.price_date - timedelta(days=1), close_price=Decimal(before)))
+    seeded.commit()
+    data = gui._json_ready(gui.dashboard_payload(seeded, date(2026, 10, 5), datetime(2026, 10, 5, 9, 0)))
+    shares = data["movers"]["shares"]
+    assert [(r["asx_code"], r["change_percent"], r["held"]) for r in shares["up"]] == [("GOOD", 5.26, True)]
+    assert [(r["asx_code"], r["change_percent"]) for r in shares["down"]] == [("DEAR", -6.25)]
+    assert shares["traded"] == 2 and shares["as_of"] == "2026-10-02"
+    assert data["movers"]["etfs"]["up"] == [] and data["movers"]["lics"]["as_of"] is None
+
+
 def test_cgt_discount_dates_within_90_days_need_attention(seeded):
     from datetime import datetime
 
