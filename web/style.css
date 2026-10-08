@@ -686,6 +686,17 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .holder-facts { flex: 1 1 260px; }
 .holder-facts p { margin: 0 0 4px; }
 .grid .also { color: var(--muted); cursor: help; }
+.count-btn { font: inherit; font-weight: 700; color: inherit; background: none; border: 1px solid var(--border); border-radius: 999px;
+  min-width: 30px; padding: 1px 9px; cursor: pointer; }
+.count-btn:hover, .count-btn[aria-expanded="true"] { background: var(--hover); border-color: currentColor; }
+.count-btn:focus-visible { outline: 2px solid var(--twisty); outline-offset: 1px; }
+.grid tbody tr.who-row { cursor: default; }
+.grid tbody tr.who-row:hover { background: none; }
+.who-row td { background: var(--surface-2); white-space: normal; padding: 8px 14px 10px; }
+.who-title { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.who-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.who-list a { font-weight: 650; margin-right: 8px; }
+.who-change { font-weight: 650; margin-right: 4px; }
 :root[data-theme="dark"] .hc-band { background: linear-gradient(120deg, hsl(var(--hc-hue) 35% 24%), hsl(calc(var(--hc-hue) + 40) 30% 18%)); }
 :root[data-theme="dark"] .hc-title { color: hsl(var(--hc-hue) 60% 75%); }
 @media (prefers-color-scheme: dark) {

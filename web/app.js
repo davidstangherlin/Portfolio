@@ -1664,21 +1664,60 @@ async function renderCoattail() {
   const search = h("input", { type: "search", class: "search", placeholder: "Search holders or companies", value: st.q, "aria-label": "Search holders or companies",
     oninput: (e) => { st.q = e.target.value; refresh(); } });
 
+  /* Click an Adding or Cutting number for the managers behind it, in a row
+     opened under the company; click it again to close. */
+  function whoRow(x, which) {
+    const list = which === "adding" ? x.adders : x.cutters;
+    return h("tr", { class: "who-row" }, h("td", { colspan: 5 },
+      h("div", { class: "who-title", text: `${which === "adding" ? "Adding to" : "Cutting"} ${x.code}: ${plural(list.length, "manager")}` }),
+      h("ul", { class: "who-list" }, list.map(({ g, p }) => h("li", {},
+        h("a", { href: `#/coattail/${g.id}`, text: g.name }),
+        h("span", { class: `who-change ${signClass(p.main.shares_change) || ""}`.trim(), title: p.main.percent_change === null ? "" : `${signedPct(p.main.percent_change)} since the previous report`,
+          text: p.main.new ? "new holding" : `${sharesChange(p.main.shares_change)} shares` }),
+        h("span", { class: "hint", text: ` via ${p.main.holder}${p.main.date_reported ? `, reported ${longDate(p.main.date_reported)}` : ""}` }))))));
+  }
+  const countCell = (x, which, row) => {
+    const n = x[which];
+    const td = h("td", { class: `center tabular ${which === "adding" ? "pos" : "neg"}` });
+    if (!n) { td.textContent = "0"; return td; }
+    const btn = h("button", { type: "button", class: "count-btn", "aria-expanded": "false", text: String(n),
+      title: `Show the ${plural(n, "manager")} ${which === "adding" ? "adding to" : "cutting"} ${x.code}`,
+      "aria-label": `${plural(n, "manager")} ${which} ${x.code}: show them` });
+    const toggle = (e) => {
+      e.stopPropagation();
+      const tr = row(), open = tr.nextElementSibling && tr.nextElementSibling.classList.contains("who-row") ? tr.nextElementSibling : null;
+      const same = open && open.dataset.which === which;
+      if (open) open.remove();
+      for (const b of tr.querySelectorAll(".count-btn")) b.setAttribute("aria-expanded", "false");
+      if (same) return;
+      const who = whoRow(x, which);
+      who.dataset.which = which;
+      tr.after(who);
+      btn.setAttribute("aria-expanded", "true");
+    };
+    btn.addEventListener("click", toggle);
+    btn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(e); } else e.stopPropagation(); });
+    td.append(btn);
+    return td;
+  };
   const side = (title, rows, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
-    h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "num", text: "Adding" }),
-      h("th", { class: "num", text: "Cutting" }), h("th", { class: "opt2", text: "Action" }))),
-    h("tbody", {}, rows.length ? rows.map((x) => rowTo(`#/company/${x.code}`,
-      h("td", { class: "mover-score" }, wheel(x.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
-        h("span", { class: "score-total", text: sum(x.company.scores) })),
-      nameCell(x.company, "SHARE"), h("td", { class: "num pos", text: String(x.adding) }), h("td", { class: "num neg", text: String(x.cutting) }),
-      h("td", { class: "opt2" }, badge(x.company.action))))
-      : h("tr", {}, h("td", { colspan: 5, class: "hint", text: none })))));
+    h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "center", text: "Adding" }),
+      h("th", { class: "center", text: "Cutting" }), withHelp(h("th", { class: "opt2", tabindex: 0, text: "Sift's action" }), "Action"))),
+    h("tbody", {}, rows.length ? rows.map((x) => {
+      let tr = null;
+      tr = rowTo(`#/company/${x.code}`,
+        h("td", { class: "mover-score" }, wheel(x.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
+          h("span", { class: "score-total", text: sum(x.company.scores) })),
+        nameCell(x.company, "SHARE"), countCell(x, "adding", () => tr), countCell(x, "cutting", () => tr),
+        h("td", { class: "opt2" }, badge(x.company.action)));
+      return tr;
+    }) : h("tr", {}, h("td", { colspan: 5, class: "hint", text: none })))));
   function refresh() {
     const groups = coattailManagers(d, coattailHoldings(d));
     const by = new Map();
     for (const g of groups) for (const p of g.positions) {
-      const t = by.get(p.code) || { code: p.code, company: p.company, adding: 0, cutting: 0 };
-      if (p.main.shares_change > 0) t.adding++; else if (p.main.shares_change < 0) t.cutting++;
+      const t = by.get(p.code) || { code: p.code, company: p.company, adding: 0, cutting: 0, adders: [], cutters: [] };
+      if (p.main.shares_change > 0) { t.adding++; t.adders.push({ g, p }); } else if (p.main.shares_change < 0) { t.cutting++; t.cutters.push({ g, p }); }
       by.set(p.code, t);
     }
     const list = [...by.values()].map((x) => ({ ...x, net: x.adding - x.cutting }));
@@ -1693,7 +1732,7 @@ async function renderCoattail() {
     grid.replaceChildren(...(shown.length ? shown.map((g) => holderCard(g, d)) : [h("p", { class: "empty", text: "No holders match." })]));
     count.textContent = plural(shown.length, "holder");
   }
-  const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
+  const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report: click a number to see who. Sift's action is Sift's own suggestion for the company, to compare with what the managers are doing. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
   intro.classList.add("wide");
   const next = card("Coming next", null, h("ul", { class: "plain-list" },
     h("li", { text: "ASX director trades: directors buying or selling their own company's shares (Appendix 3Y notices)." }),
