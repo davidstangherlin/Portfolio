@@ -158,6 +158,25 @@ def test_dashboard_layout_is_saved_shown_and_reset(seeded):
     assert client.get("/api/dashboard").json()["layout"] is None
 
 
+def test_coattail_lists_big_holders_moving_biggest_change_first(seeded):
+    from sqlalchemy import text
+
+    from src.models.company import Company
+
+    good = seeded.query(Company).filter_by(asx_code="GOOD").one()
+    for rank, (kind, holder, change) in enumerate([("FUND", "Smart Value Fund", "25.5"), ("FUND", "Big Index Fund", "-3"),
+                                                   ("INSTITUTION", "Steady Holdings", "0"), ("INSTITUTION", "Seller Co", "-40")], 1):
+        seeded.execute(text("""INSERT INTO top_holders (company_id, holder_kind, rank, holder, shares, percent_held, percent_change,
+                               date_reported) VALUES (:c, :k, :r, :h, 1000, 2.5, :p, '2026-06-30')"""),
+                       {"c": good.company_id, "k": kind, "r": rank, "h": holder, "p": Decimal(change)})
+    seeded.commit()
+    data = TestClient(gui.create_app()).get("/api/coattail").json()
+    assert [(m["holder"], m["percent_change"], m["index_fund"]) for m in data["moves"]] == [
+        ("Seller Co", -40.0, False), ("Smart Value Fund", 25.5, False), ("Big Index Fund", -3.0, True)]  # no change: left out
+    assert data["companies"]["GOOD"]["held"] is True and len(data["companies"]["GOOD"]["scores"]) == 5
+    assert data["as_of"] == "2026-06-30" and data["screened"] == 2
+
+
 def test_cgt_discount_dates_within_90_days_need_attention(seeded):
     from datetime import datetime
 

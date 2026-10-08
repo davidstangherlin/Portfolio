@@ -326,6 +326,10 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   Filter by rules version to judge each set of rules on its own results. Results start one month
   after recording begins; until then each panel says when its results are due. The dashboard's
   Track record card shows the headline BUY result once there is one.
+- **Coattail:** follow the smart money. Big funds and institutions adding to or cutting their
+  holdings in the screener's companies (from Yahoo's top holder lists, refreshed weekly):
+  which companies they're adding to and cutting most, and every move, with index funds hidden
+  by default. ASX director trades and substantial holders are planned next.
 - **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or

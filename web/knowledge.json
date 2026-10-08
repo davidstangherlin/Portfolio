@@ -54,6 +54,10 @@
    "name": "Analysts and holders"
   },
   {
+   "id": "coattail",
+   "name": "Coattail"
+  },
+  {
    "id": "market",
    "name": "Market and general terms"
   }
@@ -72,6 +76,7 @@
     "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
     "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
     "Track record: whether Sift's suggestions have actually worked.",
+    "Coattail: follow the smart money. Big funds and institutions adding to or cutting their holdings in the screener's companies, with ASX director trades and substantial holders to come.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
     "Model and rules (settings gear, Admin): every setting and formula, and what-if scenarios.",
     "Search: type a company or ETF code or name, or a term such as franking, in the box at the top."
@@ -1941,6 +1946,74 @@
    ],
    "related": [
     "analyst-ratings"
+   ]
+  },
+  {
+   "id": "coattail",
+   "title": "Coattail investing",
+   "category": "coattail",
+   "glossary": "term",
+   "glossary_title": "Coattail investing",
+   "aliases": [
+    "coattail",
+    "coattails",
+    "smart money",
+    "follow the smart money",
+    "copy trading",
+    "riding on someone's coattails"
+   ],
+   "definition": "Coattail investing simply means letting the \"smart money\" do the heavy lifting, then copying their moves.",
+   "body": [
+    "The term comes from the everyday phrase \"riding on someone's coattails\": tagging along right behind a successful person so you can benefit from their effort and momentum.",
+    "In plain English: instead of spending hours researching financial reports yourself, you watch what famous investors or large hedge funds (such as Warren Buffett or Ray Dalio) buy and sell, and then make the same trades in your own account. You're effectively using their multi-million-dollar research teams and expertise to guide your own choices.",
+    "In Sift: the Coattail page focuses on the ASX. It shows big funds and institutions adding to or cutting their holdings in the screener's companies. ASX director trades (Appendix 3Y notices) and substantial holder notices (stakes of 5% or more) are coming next. Famous US investors' portfolios, from their quarterly 13F filings, are noted for later.",
+    "Keep in mind: holdings are reported after the event, often weeks or months later; you see what they bought but not why, or when they'll sell; and their time frame and position size may differ from yours. Their moves are a lead for your own research, alongside Sift's valuation, not a replacement for it."
+   ],
+   "related": [
+    "holder-moves",
+    "major-holders"
+   ],
+   "links": [
+    {
+     "text": "Open Coattail",
+     "href": "#/coattail"
+    }
+   ]
+  },
+  {
+   "id": "holder-moves",
+   "title": "Big funds moving",
+   "category": "coattail",
+   "labels": [
+    "Holder change"
+   ],
+   "aliases": [
+    "fund buying",
+    "institutional buying",
+    "holder change",
+    "most added to",
+    "most cut",
+    "index funds"
+   ],
+   "definition": "Funds and institutions that added to or cut their holding in a screener company since their previous report.",
+   "hover": "How much this holder changed its holding since its previous report, as a percentage of what it held before. 999%+ means a new or almost new position.",
+   "body": [
+    "Source: the top 10 fund and top 10 institutional holders Yahoo Finance lists for each screener company, refreshed weekly. They come mostly from overseas funds' own filings, so Australian super funds are often missing, and each holding is as at its report date.",
+    "Change is the change in the number of shares held since the holder's previous report: +25% means it holds a quarter more shares than before; -40% means it sold four in ten.",
+    "Where the funds are going counts, for each company, how many listed holders added and how many cut. Most added to has more adding than cutting, Most cut the reverse.",
+    "Index funds and ETFs buy and sell to match their index, not because of a view on the company, so they're hidden by default; untick Hide index funds to include them. Sift spots them by name (index, ETF, iShares, SPDR, MSCI and similar), so a few may slip through.",
+    "Use Reported to keep to recent filings: old reports say little about what a fund thinks now."
+   ],
+   "related": [
+    "coattail",
+    "major-holders",
+    "analyst-ratings"
+   ],
+   "links": [
+    {
+     "text": "Open Coattail",
+     "href": "#/coattail"
+    }
    ]
   },
   {

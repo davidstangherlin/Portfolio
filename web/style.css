@@ -655,6 +655,10 @@ details.archived[open] > summary .twisty { transform: rotate(90deg); }
 .grid.holders { table-layout: fixed; width: 100%; }
 .grid.holders th:first-child { width: 40%; }
 .grid.holders .holder-name { white-space: normal; }
+/* Coattail (§31) */
+.grid .holder-name { white-space: normal; min-width: 160px; max-width: 320px; }
+.grid .holder-name + .name .tag { margin-left: 6px; }
+.plain-list { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
 @media (max-width: 600px) {
   .grid.holders th, .grid.holders td { padding: 8px 6px; font-size: 13px; }
   .grid.holders th:first-child { width: 42%; }

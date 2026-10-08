@@ -50,6 +50,7 @@ from src.models import Holding, Portfolio
 from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
 from src.portfolio.holdings import HoldingsError
 from src import preferences
+from src.coattail import views as coattail
 from src.screening import movers
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
@@ -683,6 +684,14 @@ def create_app(password: str | None = None) -> FastAPI:
     def api_dashboard_layout_reset():
         """Back to the default layout."""
         return change(lambda session: {"reset": preferences.clear_preference(session, preferences.DASHBOARD_LAYOUT)})
+
+    @app.get("/api/coattail")
+    def api_coattail():
+        """The Coattail page (§31): big holders moving in the screener's companies."""
+        with get_session() as session:
+            rows = load_universe(session, date.today()).rows
+            payload = coattail.holder_moves(session, rows, watchlists.watched_codes(session))
+            return JSONResponse(_json_ready(payload | {"axes": list(AXES), "checks_per_axis": CHECKS_PER_AXIS}))
 
     @app.get("/api/track-record")
     def api_track_record(version: str | None = None):

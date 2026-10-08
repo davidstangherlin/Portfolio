@@ -1002,6 +1002,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-08 | User asked to reorder the dashboard widgets by drag and drop, with a pin to lock and unlock each one. User chose saving in Sift's database, a pin per widget, and all three extras: hide/show, half or full width, and reset. Added `ui_preferences`, `src/preferences.py`, `PUT`/`DELETE /api/dashboard/layout` and `web/dashlayout.js`. Found in the browser check: moving the widget in the page ended the pointer capture, so a touch drag stopped after one step; the drag now follows the pointer on the window, and keeps the widget under the finger while the page scrolls. 619 tests pass (10 new). Checked in headless Chromium with mouse at 1400px and touch at 390px. §20 |
 | 2026-10-08 | User asked for 5 rather than 10 screener shares each way in Biggest movers, each with its score wheel. `SHARE_MOVERS` is now 5 and share movers carry `scores`; the card shows the wheel and total like Top opportunities. §20 |
 | 2026-10-08 | User asked not to be asked to confirm when removing a stock from a watchlist. Unticking in the watchlist picker (row star, company, ETF and LIC pages) and Remove on a watchlist page now act straight away; deleting a whole watchlist still asks. §22 |
+| 2026-10-08 | User asked for a Coattail heading with their definition in the knowledge base. User chose ASX sources: big funds moving in ASX companies, director trades and substantial holders, with famous US investors noted for later. Built stage 1 (big funds moving, from the holder lists already collected weekly) with the menu heading, page and two knowledge entries; director trades and substantial holders wait on a source for ASX announcements, which the build environment can't reach. 629 tests pass (10 new). Checked in headless Chromium at 1400px light and dark, and 390px. §31 |
 
 ---
 
@@ -1652,3 +1653,21 @@ Every list view can be searched and filtered by any column: the share screener, 
 **Structure.** `web/tablefilter.js` loads before `app.js`. The pure part (`tfNumber`, `tfReady`, `tfTest`, `tfApply`, `tfUpsert`) runs in Node for tests; the controls use `app.js`'s `h()`. Pages describe their columns as fields (`label`, `type` num or text, `get` the value, `text` the value as shown): `SCREENER_FIELDS`, `fundFields(kind)`, `WATCH_SHARE_FIELDS`, `fundWatchFields(kind)`, `holdingFields(kind)`. The screeners call `tableFilter()` inside their own refresh; watchlists and portfolios use `filterableTable()`, which redraws the table on each change. Help: "Filtering a table" (`table-filters`).
 
 **Tests.** `tests/js/table_filter.test.js`, run by `tests/unit/test_table_filter.py` (skipped without Node). A browser check covered every table at desktop and phone widths, including a press and hold on a phone.
+
+## 31. Coattail: Following the Smart Money (`src/coattail/`, added 2026-10-08)
+
+A menu heading of its own, after Track record, for coattail investing: watching what big, well-researched investors buy and sell, as a lead for your own research. The user's focus is the ASX; famous US investors are noted for later.
+
+**Stage 1 (built): Big funds moving.** `src/coattail/views.py` `holder_moves()` reads `top_holders` (§29: Yahoo's top 10 fund and top 10 institutional holders per screener company, refreshed weekly) and returns every holder whose `percent_change` since its previous report isn't zero, biggest change first, with each company's name, action, held flag, watchlists and score wheel. `GET /api/coattail` serves it with the wheel's axes.
+
+- **Index funds.** A fund whose name says it tracks an index (index, ETF, tracker, iShares, SPDR, MSCI, FTSE, Russell, S&P) is marked `index_fund`; institutions never are, since they run both kinds. The page hides index funds by default, because they trade to match their index, not on a view of the company.
+- **Page.** Search and the condition builder (§30) over the moves, a Reported filter (last 3, 6 or 12 months, or any time; 6 by default) and Hide index funds. *Where the funds are going* counts, per company, holders adding and cutting under the current filters: Most added to (more adding than cutting) and Most cut, 10 each, with the score wheel and action. *Every move* lists each holder's change, % held and report date, 100 at a time; a change of 1,000% or more shows as 999%+ (a new or nearly new position). A Coming next card lists stages 2 and 3.
+- **Limits.** Yahoo's holder lists come mostly from overseas funds' filings, so Australian super funds are often missing, and each figure is as at its report date, often months old.
+
+**Stage 2 (planned): ASX director trades and substantial holders.** Appendix 3Y notices (directors trading their own company's shares) and substantial holder notices (forms 603, 604 and 605: stakes of 5% or more). Both are ASX announcements; a source is to be confirmed (ASX's own announcement data, which Sift can't reach from the build environment, or a paid feed, which the public service in the multi-user plan would need anyway).
+
+**Stage 3 (later): famous US investors.** Quarterly 13F filings from SEC EDGAR (free and official) for funds such as Berkshire Hathaway and Bridgewater: holdings, and what was bought and sold. US shares only, and up to 45 days after the quarter.
+
+**Knowledge base.** New category Coattail: `coattail` (the user's definition, how Sift applies it, and what to keep in mind) and `holder-moves` (the Holder change hover). Getting around lists the page.
+
+**Tests.** `tests/unit/test_coattail.py` (index fund names) and `test_coattail_lists_big_holders_moving_biggest_change_first` in `tests/integration/test_gui.py`.

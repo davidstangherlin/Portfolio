@@ -921,7 +921,7 @@ function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
 const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/etfs/, "ETFs"], [/^#\/etf\//, "ETF"], [/^#\/lics/, "LICs"], [/^#\/lic\//, "LIC"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
-  [/^#\/track-record/, "Track record"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
+  [/^#\/track-record/, "Track record"], [/^#\/coattail/, "Coattail"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
 function backLink(fallback = "#/screener") {
   const target = previousPage || fallback;
   const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
@@ -1570,6 +1570,107 @@ async function renderPortfolio(id, note) {
       parcelsCard(d, reload, notice), salesCard(d, reload, notice), cgtCard(d)),
   ].filter(Boolean));
   if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
+}
+
+/* ---------- Coattail: following the smart money (§31) ---------- */
+const coattailState = { hideIndex: true, months: 6, shown: PAGE_SIZE };
+const COATTAIL_MONTHS = [[3, "Last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "Any time"]];
+const holderChange = (v) => (v === null || v === undefined ? NA : Math.abs(v) >= 1000 ? `${v > 0 ? "+" : "-"}999%+` : signedPct(v));
+
+async function renderCoattail() {
+  app.replaceChildren(h("p", { class: "loading", text: "Loading Coattail..." }));
+  const d = await getJSON("/api/coattail");
+  const st = coattailState;
+  const co = (code) => d.companies[code];
+  const fields = {
+    asx_code: { label: "Company", type: "text", get: (m) => m.asx_code, text: (m) => `${m.asx_code} ${co(m.asx_code).company_name || ""}` },
+    holder: { label: "Holder", type: "text", get: (m) => m.holder },
+    kind: { label: "Type", type: "text", get: (m) => (m.kind === "FUND" ? "Fund" : "Institution") },
+    percent_held: { label: "% held", type: "num", get: (m) => m.percent_held, text: (m) => pct(m.percent_held, 2) },
+    percent_change: { label: "Change", type: "num", get: (m) => m.percent_change, text: (m) => holderChange(m.percent_change) },
+    date_reported: { label: "Reported", type: "text", get: (m) => m.date_reported, text: (m) => (m.date_reported ? longDate(m.date_reported) : NA) },
+  };
+  const visible = () => {
+    const cutoff = st.months ? monthsBefore(new Date().toISOString().slice(0, 10), st.months) : null;
+    return d.moves.filter((m) => (!st.hideIndex || !m.index_fund) && (!cutoff || (m.date_reported && m.date_reported >= cutoff)));
+  };
+  const summary = h("div"), tbody = h("tbody"), count = h("span", { class: "count" });
+  const more = h("button", { class: "more", type: "button" });
+  let shownRows = [];
+  const tf = tableFilter("coattail", fields, visible, () => { st.shown = PAGE_SIZE; refresh(); }, { placeholder: "Search companies and holders" });
+
+  const companyRow = (c, adding, cutting) => rowTo(`#/company/${c.asx_code}`,
+    h("td", { class: "mover-score" }, wheel(c.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
+      h("span", { class: "score-total", text: sum(c.scores) })),
+    nameCell(c, "SHARE"), h("td", { class: "num pos", text: String(adding) }), h("td", { class: "num neg", text: String(cutting) }),
+    h("td", { class: "opt2" }, badge(c.action)));
+  function drawSummary(moves) {
+    const by = new Map();
+    for (const m of moves) {
+      const t = by.get(m.asx_code) || { adding: 0, cutting: 0 };
+      m.percent_change > 0 ? t.adding++ : t.cutting++;
+      by.set(m.asx_code, t);
+    }
+    const list = [...by].map(([code, t]) => ({ code, ...t, net: t.adding - t.cutting }));
+    const side = (title, rows, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
+      h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "num", text: "Adding" }),
+        h("th", { class: "num", text: "Cutting" }), h("th", { class: "opt2", text: "Action" }))),
+      h("tbody", {}, rows.length ? rows.map((x) => companyRow(co(x.code), x.adding, x.cutting))
+        : h("tr", {}, h("td", { colspan: 5, class: "hint", text: none })))));
+    const top = list.filter((x) => x.net > 0).sort((a, b) => b.net - a.net || b.adding - a.adding || a.code.localeCompare(b.code)).slice(0, 10);
+    const cut = list.filter((x) => x.net < 0).sort((a, b) => a.net - b.net || b.cutting - a.cutting || a.code.localeCompare(b.code)).slice(0, 10);
+    summary.replaceChildren(h("div", { class: "movers-cols" },
+      side("Most added to", top, "No company has more holders adding than cutting."),
+      side("Most cut", cut, "No company has more holders cutting than adding.")));
+  }
+  function moveRow(m) {
+    const c = co(m.asx_code);
+    return rowTo(`#/company/${m.asx_code}`,
+      h("td", {}, h("span", { class: "code", text: m.asx_code }), h("div", { class: "name", text: c.company_name || "" })),
+      h("td", {}, h("div", { class: "holder-name", text: m.holder }),
+        h("div", { class: "name" }, m.kind === "FUND" ? "Fund" : "Institution", m.index_fund ? h("span", { class: "tag sm", text: "Index" }) : null)),
+      h("td", { class: "num opt2", text: pct(m.percent_held, 2) }),
+      h("td", { class: `num ${signClass(m.percent_change) || ""}`.trim(), text: holderChange(m.percent_change) }),
+      h("td", { class: "num opt", text: m.date_reported ? longDate(m.date_reported) : NA }));
+  }
+  function refresh() {
+    const rows = tf.apply(visible());
+    drawSummary(rows);
+    shownRows = rows.slice(0, st.shown);
+    tbody.replaceChildren(...shownRows.map(moveRow));
+    count.textContent = `${plural(rows.length, "move")}`;
+    more.hidden = rows.length <= st.shown;
+    more.textContent = `Show more (${rows.length - st.shown} remaining)`;
+  }
+  more.addEventListener("click", () => { st.shown += PAGE_SIZE; refresh(); });
+  const hideIndex = h("label", {}, h("input", { type: "checkbox", checked: st.hideIndex,
+    onchange: (e) => { st.hideIndex = e.target.checked; st.shown = PAGE_SIZE; refresh(); } }), "Hide index funds");
+  const months = h("select", { "aria-label": "Reported", onchange: (e) => { st.months = Number(e.target.value); st.shown = PAGE_SIZE; refresh(); } },
+    COATTAIL_MONTHS.map(([v, t]) => h("option", { value: v, selected: v === st.months, text: t })));
+  const heads = [["Company"], ["Holder"], ["% held", "num opt2"], ["Change", "num"], ["Reported", "num opt"]];
+  const table = h("table", { class: "grid" }, h("thead", {}, h("tr", {}, heads.map(([t, cls]) =>
+    withHelp(h("th", { class: cls || null, tabindex: 0, text: t }), t === "Change" ? "Holder change" : t)))), tbody);
+
+  const movesCard = card("Big funds moving", `Funds and institutions that added to or cut their holding in a screener company since their previous report, biggest change first. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`,
+    h("h3", { class: "sub-head", text: "Where the funds are going" }), summary,
+    h("h3", { class: "sub-head", text: "Every move" }),
+    d.moves.length ? [h("div", { class: "table-wrap" }, table), more]
+      : h("p", { class: "empty", text: "No holder changes yet. They arrive with the weekly analyst and holder refresh." }));
+  movesCard.classList.add("wide");
+  const next = card("Coming next", null, h("ul", { class: "plain-list" },
+    h("li", { text: "ASX director trades: directors buying or selling their own company's shares (Appendix 3Y notices)." }),
+    h("li", { text: "ASX substantial holders: investors crossing, raising or cutting a stake of 5% or more." }),
+    h("li", { text: "Later: famous US investors' portfolios, such as Berkshire Hathaway's and Bridgewater's, from their quarterly 13F filings." })));
+  next.classList.add("wide");
+  app.replaceChildren(
+    pageHead("Coattail", `Following the smart money in ${plural(d.screened, "screener company", "screener companies")}`),
+    h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
+    h("div", { class: "controls" }, tf.search, tf.toggle, months, hideIndex, count),
+    tf.chips, tf.builder,
+    h("div", { class: "cards" }, movesCard, next));
+  tf.attachMenu(table, Object.keys(fields).filter((k) => k !== "kind"), () => shownRows);
+  refresh();
+  window.scrollTo(0, 0);
 }
 
 /* ---------- track record: is Sift right, what did I miss, what now ---------- */
@@ -3082,6 +3183,7 @@ const ROUTES = [
   [/^#\/lics(?:\?(.*))?$/, "lics", (m) => { presetFunds("LIC", m[1]); return renderFunds("LIC"); }],
   [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
+  [/^#\/coattail$/, "coattail", () => renderCoattail()],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
   [/^#\/admin$/, "admin", () => renderAdmin()],
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
