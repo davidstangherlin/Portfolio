@@ -1573,7 +1573,10 @@ async function renderPortfolio(id, note) {
 }
 
 /* ---------- Coattail: following the smart money (§31) ---------- */
-const coattailState = { hideIndex: false, months: 12, q: "" };
+const coattailState = { hideIndex: false, months: 12, q: "", sort: "held" };
+/* Who's investing order: each key's figure, largest first; ties by value held, then name. */
+const HOLDER_SORTS = [["held", "Companies held", (g) => g.positions.length], ["adding", "Adding", (g) => g.adding],
+  ["cutting", "Cutting", (g) => g.cutting], ["value", "Value held", (g) => g.value]];
 const COATTAIL_MONTHS = [[3, "Reported in the last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "Any time"]];
 let coattailData = null;
 const countText = (v) => new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v));
@@ -1639,7 +1642,9 @@ function holderCard(g, d) {
   const extra = g.positions.length - 3;
   return h("a", { class: "holder-card", href: `#/coattail/${g.id}`, style: `--hc-hue: ${hueOf(g.name)}` },
     h("div", { class: "hc-band", "aria-hidden": "true" }, h("span", { class: "hc-title", text: firstWords(g.name) })),
-    h("div", { class: "hc-body" }, h("h3", { class: "hc-name", text: g.name }), cardWheel(g.avg, d.axes, d.checks_per_axis)),
+    h("div", { class: "hc-body" }, h("div", {}, h("h3", { class: "hc-name", text: g.name }),
+      h("div", { class: "hc-value", title: "Its listed holdings in screener companies, at today's prices", text: `${compact(g.value)} held` })),
+      cardWheel(g.avg, d.axes, d.checks_per_axis)),
     h("div", { class: "hc-foot" },
       g.positions.slice(0, 3).map((p) => h("span", { class: "hc-code", text: p.code })),
       h("span", { class: "hc-count", text: extra > 0 ? `+${plural(extra, "company", "companies")}` : plural(g.positions.length, "company", "companies") }),
@@ -1727,11 +1732,17 @@ async function renderCoattail() {
       side("Most cut", list.filter((x) => x.net < 0).sort((a, b) => a.net - b.net || b.cutting - a.cutting || a.code.localeCompare(b.code)).slice(0, 10),
         "No company has more managers cutting than adding.")));
     const q = st.q.trim().toLowerCase();
+    const key = (HOLDER_SORTS.find(([k]) => k === st.sort) || HOLDER_SORTS[0])[2];
+    groups.sort((a, b) => key(b) - key(a) || b.value - a.value || a.name.localeCompare(b.name));
+    for (const btn of sortSeg.children) btn.setAttribute("aria-pressed", btn.dataset.sort === st.sort);
     const shown = q ? groups.filter((g) => g.name.toLowerCase().includes(q)
       || g.positions.some((p) => p.code.toLowerCase() === q || (p.company.company_name || "").toLowerCase().includes(q))) : groups;
     grid.replaceChildren(...(shown.length ? shown.map((g) => holderCard(g, d)) : [h("p", { class: "empty", text: "No holders match." })]));
     count.textContent = plural(shown.length, "holder");
   }
+  const sortSeg = h("div", { class: "segmented holder-sort", role: "group", "aria-label": "Sort holders by" },
+    HOLDER_SORTS.map(([k, label]) => h("button", { type: "button", "data-sort": k, "aria-pressed": String(k === st.sort), text: label,
+      onclick: () => { st.sort = k; refresh(); } })));
   const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report: click a number to see who. Sift's action is Sift's own suggestion for the company, to compare with what the managers are doing. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
   intro.classList.add("wide");
   const next = card("Coming next", null, h("ul", { class: "plain-list" },
@@ -1744,7 +1755,9 @@ async function renderCoattail() {
     h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
     h("div", { class: "controls" }, search, ...coattailControls(refresh), count),
     ...(d.holdings.length ? [h("div", { class: "cards" }, intro),
-      h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })),
+      h("div", { class: "section-head" },
+        h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })),
+        h("div", { class: "holder-sort-wrap" }, h("span", { class: "hint", text: "Sort by" }), sortSeg)),
       h("p", { class: "hint coverage" }, `Holder lists cover ${fmt(d.with_holders, 0)} of ${plural(d.screened, "screener company", "screener companies")}. Yahoo lists each company's top 10 funds and top 10 institutions, so a manager outside a company's top 10 isn't shown for it.`,
         d.fetched < d.screened ? ` ${plural(d.screened - d.fetched, "company hasn't", "companies haven't")} been fetched yet; the weekly refresh fetches a seventh each night.` : "", " ", helpLink("holder-moves")),
       grid]
