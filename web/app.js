@@ -1573,90 +1573,127 @@ async function renderPortfolio(id, note) {
 }
 
 /* ---------- Coattail: following the smart money (§31) ---------- */
-const coattailState = { hideIndex: true, months: 6, shown: PAGE_SIZE };
-const COATTAIL_MONTHS = [[3, "Last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "Any time"]];
-const holderChange = (v) => (v === null || v === undefined ? NA : Math.abs(v) >= 1000 ? `${v > 0 ? "+" : "-"}999%+` : signedPct(v));
+const coattailState = { hideIndex: true, months: 12, q: "" };
+const COATTAIL_MONTHS = [[3, "Reported in the last 3 months"], [6, "Last 6 months"], [12, "Last 12 months"], [0, "Any time"]];
+let coattailData = null;
+const countText = (v) => new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v));
+const sharesText = (v) => (v === null || v === undefined ? NA : countText(v));
+const sharesChange = (v) => (v === null || v === undefined ? NA : v === 0 ? "no change" : `${v > 0 ? "+" : "-"}${countText(v)}`);
+
+/* The holdings that pass the page's filters. */
+function coattailHoldings(d) {
+  const st = coattailState;
+  const cutoff = st.months ? monthsBefore(new Date().toISOString().slice(0, 10), st.months) : null;
+  return d.holdings.filter((m) => (!st.hideIndex || !m.index_fund) && (!cutoff || (m.date_reported && m.date_reported >= cutoff)));
+}
+/* One entry per manager: for each company, its largest listed holding (the
+   institution line usually includes its own funds, so lines aren't added
+   up), whether that holding grew or shrank, its value now, and the average
+   score wheel of the companies held. */
+function coattailManagers(d, holdings) {
+  const map = new Map();
+  for (const m of holdings) {
+    const g = map.get(m.manager_id) || { id: m.manager_id, name: m.manager, byCode: new Map() };
+    const lines = g.byCode.get(m.asx_code) || [];
+    lines.push(m);
+    g.byCode.set(m.asx_code, lines);
+    map.set(m.manager_id, g);
+  }
+  return [...map.values()].map((g) => {
+    const positions = [...g.byCode].map(([code, lines]) => {
+      lines.sort((a, b) => (b.shares ?? -1) - (a.shares ?? -1));
+      const main = lines[0], c = d.companies[code];
+      return { code, company: c, main, others: lines.slice(1), value: main.shares !== null && c.price ? main.shares * c.price : null };
+    }).sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.code.localeCompare(b.code));
+    const avg = d.axes.map((_, i) => positions.reduce((t, p) => t + p.company.scores[i], 0) / positions.length);
+    return { ...g, positions, avg,
+      adding: positions.filter((p) => p.main.shares_change > 0).length,
+      cutting: positions.filter((p) => p.main.shares_change < 0).length,
+      value: positions.reduce((t, p) => t + (p.value || 0), 0) };
+  }).sort((a, b) => b.positions.length - a.positions.length || b.value - a.value || a.name.localeCompare(b.name));
+}
+
+/* A score wheel with small axis labels, for the holder cards. */
+function cardWheel(scores, axes, max, size = 116) {
+  const n = axes.length, c = size / 2, R = size * 0.33;
+  const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const pt = (i, f) => [c + R * f * Math.cos(angle(i)), c + R * f * Math.sin(angle(i))];
+  const poly = (f) => axes.map((_, i) => pt(i, f).join(",")).join(" ");
+  const pad = size * 0.3;  // room either side for the longest label, PERFORMANCE
+  const svg = s("svg", { viewBox: `${-pad} 0 ${size + pad * 2} ${size}`, width: size + pad * 2, height: size, class: "card-wheel", role: "img",
+    "aria-label": "Average score of the companies held: " + axes.map((a, i) => `${a} ${fmt(scores[i], 1)} of ${max}`).join(", ") });
+  for (const f of [1 / 3, 2 / 3, 1]) svg.append(s("polygon", { points: poly(f), fill: "none", stroke: "var(--grid)", "stroke-width": 1 }));
+  svg.append(s("polygon", { points: scores.map((v, i) => pt(i, Math.max(v, 0.15) / max).join(",")).join(" "),
+    fill: "var(--s1)", "fill-opacity": 0.35, stroke: "var(--s1)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+  axes.forEach((a, i) => {
+    const [x, y] = pt(i, 1.32), cos = Math.cos(angle(i));
+    svg.append(s("text", { x, y: y + 3, "text-anchor": Math.abs(cos) < 0.2 ? "middle" : cos > 0 ? "start" : "end", class: "card-wheel-label", text: a.toUpperCase() }));
+  });
+  return svg;
+}
+const monogram = (name) => name.split(/[\s.&-]+/).filter((w) => /^[A-Za-z]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+const hueOf = (name) => [...name].reduce((t, ch) => (t * 31 + ch.charCodeAt(0)) % 360, 7);
+
+function holderCard(g, d) {
+  const extra = g.positions.length - 3;
+  return h("a", { class: "holder-card", href: `#/coattail/${g.id}`, style: `--hc-hue: ${hueOf(g.name)}` },
+    h("div", { class: "hc-band", "aria-hidden": "true" }, h("span", { class: "hc-mono", text: monogram(g.name) })),
+    h("div", { class: "hc-body" }, h("h3", { class: "hc-name", text: g.name }), cardWheel(g.avg, d.axes, d.checks_per_axis)),
+    h("div", { class: "hc-foot" },
+      g.positions.slice(0, 3).map((p) => h("span", { class: "hc-code", text: p.code })),
+      h("span", { class: "hc-count", text: extra > 0 ? `+${plural(extra, "company", "companies")}` : plural(g.positions.length, "company", "companies") }),
+      g.adding ? h("span", { class: "hc-pill add", text: `${g.adding} adding` }) : null,
+      g.cutting ? h("span", { class: "hc-pill cut", text: `${g.cutting} cutting` }) : null));
+}
+
+function coattailControls(onChange) {
+  const st = coattailState;
+  const months = h("select", { "aria-label": "Reported", onchange: (e) => { st.months = Number(e.target.value); onChange(); } },
+    COATTAIL_MONTHS.map(([v, t]) => h("option", { value: v, selected: v === st.months, text: t })));
+  const hideIndex = h("label", {}, h("input", { type: "checkbox", checked: st.hideIndex,
+    onchange: (e) => { st.hideIndex = e.target.checked; onChange(); } }), "Hide index funds");
+  return [months, hideIndex];
+}
 
 async function renderCoattail() {
   app.replaceChildren(h("p", { class: "loading", text: "Loading Coattail..." }));
-  const d = await getJSON("/api/coattail");
+  const d = coattailData = await getJSON("/api/coattail");
   const st = coattailState;
-  const co = (code) => d.companies[code];
-  const fields = {
-    asx_code: { label: "Company", type: "text", get: (m) => m.asx_code, text: (m) => `${m.asx_code} ${co(m.asx_code).company_name || ""}` },
-    holder: { label: "Holder", type: "text", get: (m) => m.holder },
-    kind: { label: "Type", type: "text", get: (m) => (m.kind === "FUND" ? "Fund" : "Institution") },
-    percent_held: { label: "% held", type: "num", get: (m) => m.percent_held, text: (m) => pct(m.percent_held, 2) },
-    percent_change: { label: "Change", type: "num", get: (m) => m.percent_change, text: (m) => holderChange(m.percent_change) },
-    date_reported: { label: "Reported", type: "text", get: (m) => m.date_reported, text: (m) => (m.date_reported ? longDate(m.date_reported) : NA) },
-  };
-  const visible = () => {
-    const cutoff = st.months ? monthsBefore(new Date().toISOString().slice(0, 10), st.months) : null;
-    return d.moves.filter((m) => (!st.hideIndex || !m.index_fund) && (!cutoff || (m.date_reported && m.date_reported >= cutoff)));
-  };
-  const summary = h("div"), tbody = h("tbody"), count = h("span", { class: "count" });
-  const more = h("button", { class: "more", type: "button" });
-  let shownRows = [];
-  const tf = tableFilter("coattail", fields, visible, () => { st.shown = PAGE_SIZE; refresh(); }, { placeholder: "Search companies and holders" });
+  const summary = h("div"), grid = h("div", { class: "holder-grid" }), count = h("span", { class: "count" });
+  const search = h("input", { type: "search", class: "search", placeholder: "Search holders or companies", value: st.q, "aria-label": "Search holders or companies",
+    oninput: (e) => { st.q = e.target.value; refresh(); } });
 
-  const companyRow = (c, adding, cutting) => rowTo(`#/company/${c.asx_code}`,
-    h("td", { class: "mover-score" }, wheel(c.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
-      h("span", { class: "score-total", text: sum(c.scores) })),
-    nameCell(c, "SHARE"), h("td", { class: "num pos", text: String(adding) }), h("td", { class: "num neg", text: String(cutting) }),
-    h("td", { class: "opt2" }, badge(c.action)));
-  function drawSummary(moves) {
-    const by = new Map();
-    for (const m of moves) {
-      const t = by.get(m.asx_code) || { adding: 0, cutting: 0 };
-      m.percent_change > 0 ? t.adding++ : t.cutting++;
-      by.set(m.asx_code, t);
-    }
-    const list = [...by].map(([code, t]) => ({ code, ...t, net: t.adding - t.cutting }));
-    const side = (title, rows, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
-      h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "num", text: "Adding" }),
-        h("th", { class: "num", text: "Cutting" }), h("th", { class: "opt2", text: "Action" }))),
-      h("tbody", {}, rows.length ? rows.map((x) => companyRow(co(x.code), x.adding, x.cutting))
-        : h("tr", {}, h("td", { colspan: 5, class: "hint", text: none })))));
-    const top = list.filter((x) => x.net > 0).sort((a, b) => b.net - a.net || b.adding - a.adding || a.code.localeCompare(b.code)).slice(0, 10);
-    const cut = list.filter((x) => x.net < 0).sort((a, b) => a.net - b.net || b.cutting - a.cutting || a.code.localeCompare(b.code)).slice(0, 10);
-    summary.replaceChildren(h("div", { class: "movers-cols" },
-      side("Most added to", top, "No company has more holders adding than cutting."),
-      side("Most cut", cut, "No company has more holders cutting than adding.")));
-  }
-  function moveRow(m) {
-    const c = co(m.asx_code);
-    return rowTo(`#/company/${m.asx_code}`,
-      h("td", {}, h("span", { class: "code", text: m.asx_code }), h("div", { class: "name", text: c.company_name || "" })),
-      h("td", {}, h("div", { class: "holder-name", text: m.holder }),
-        h("div", { class: "name" }, m.kind === "FUND" ? "Fund" : "Institution", m.index_fund ? h("span", { class: "tag sm", text: "Index" }) : null)),
-      h("td", { class: "num opt2", text: pct(m.percent_held, 2) }),
-      h("td", { class: `num ${signClass(m.percent_change) || ""}`.trim(), text: holderChange(m.percent_change) }),
-      h("td", { class: "num opt", text: m.date_reported ? longDate(m.date_reported) : NA }));
-  }
+  const side = (title, rows, none) => h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
+    h("thead", {}, h("tr", {}, h("th", { text: "Score" }), h("th", { text: title }), h("th", { class: "num", text: "Adding" }),
+      h("th", { class: "num", text: "Cutting" }), h("th", { class: "opt2", text: "Action" }))),
+    h("tbody", {}, rows.length ? rows.map((x) => rowTo(`#/company/${x.code}`,
+      h("td", { class: "mover-score" }, wheel(x.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
+        h("span", { class: "score-total", text: sum(x.company.scores) })),
+      nameCell(x.company, "SHARE"), h("td", { class: "num pos", text: String(x.adding) }), h("td", { class: "num neg", text: String(x.cutting) }),
+      h("td", { class: "opt2" }, badge(x.company.action))))
+      : h("tr", {}, h("td", { colspan: 5, class: "hint", text: none })))));
   function refresh() {
-    const rows = tf.apply(visible());
-    drawSummary(rows);
-    shownRows = rows.slice(0, st.shown);
-    tbody.replaceChildren(...shownRows.map(moveRow));
-    count.textContent = `${plural(rows.length, "move")}`;
-    more.hidden = rows.length <= st.shown;
-    more.textContent = `Show more (${rows.length - st.shown} remaining)`;
+    const groups = coattailManagers(d, coattailHoldings(d));
+    const by = new Map();
+    for (const g of groups) for (const p of g.positions) {
+      const t = by.get(p.code) || { code: p.code, company: p.company, adding: 0, cutting: 0 };
+      if (p.main.shares_change > 0) t.adding++; else if (p.main.shares_change < 0) t.cutting++;
+      by.set(p.code, t);
+    }
+    const list = [...by.values()].map((x) => ({ ...x, net: x.adding - x.cutting }));
+    summary.replaceChildren(h("div", { class: "movers-cols" },
+      side("Most added to", list.filter((x) => x.net > 0).sort((a, b) => b.net - a.net || b.adding - a.adding || a.code.localeCompare(b.code)).slice(0, 10),
+        "No company has more managers adding than cutting."),
+      side("Most cut", list.filter((x) => x.net < 0).sort((a, b) => a.net - b.net || b.cutting - a.cutting || a.code.localeCompare(b.code)).slice(0, 10),
+        "No company has more managers cutting than adding.")));
+    const q = st.q.trim().toLowerCase();
+    const shown = q ? groups.filter((g) => g.name.toLowerCase().includes(q)
+      || g.positions.some((p) => p.code.toLowerCase() === q || (p.company.company_name || "").toLowerCase().includes(q))) : groups;
+    grid.replaceChildren(...(shown.length ? shown.map((g) => holderCard(g, d)) : [h("p", { class: "empty", text: "No holders match." })]));
+    count.textContent = plural(shown.length, "holder");
   }
-  more.addEventListener("click", () => { st.shown += PAGE_SIZE; refresh(); });
-  const hideIndex = h("label", {}, h("input", { type: "checkbox", checked: st.hideIndex,
-    onchange: (e) => { st.hideIndex = e.target.checked; st.shown = PAGE_SIZE; refresh(); } }), "Hide index funds");
-  const months = h("select", { "aria-label": "Reported", onchange: (e) => { st.months = Number(e.target.value); st.shown = PAGE_SIZE; refresh(); } },
-    COATTAIL_MONTHS.map(([v, t]) => h("option", { value: v, selected: v === st.months, text: t })));
-  const heads = [["Company"], ["Holder"], ["% held", "num opt2"], ["Change", "num"], ["Reported", "num opt"]];
-  const table = h("table", { class: "grid" }, h("thead", {}, h("tr", {}, heads.map(([t, cls]) =>
-    withHelp(h("th", { class: cls || null, tabindex: 0, text: t }), t === "Change" ? "Holder change" : t)))), tbody);
-
-  const movesCard = card("Big funds moving", `Funds and institutions that added to or cut their holding in a screener company since their previous report, biggest change first. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`,
-    h("h3", { class: "sub-head", text: "Where the funds are going" }), summary,
-    h("h3", { class: "sub-head", text: "Every move" }),
-    d.moves.length ? [h("div", { class: "table-wrap" }, table), more]
-      : h("p", { class: "empty", text: "No holder changes yet. They arrive with the weekly analyst and holder refresh." }));
-  movesCard.classList.add("wide");
+  const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
+  intro.classList.add("wide");
   const next = card("Coming next", null, h("ul", { class: "plain-list" },
     h("li", { text: "ASX director trades: directors buying or selling their own company's shares (Appendix 3Y notices)." }),
     h("li", { text: "ASX substantial holders: investors crossing, raising or cutting a stake of 5% or more." }),
@@ -1665,11 +1702,66 @@ async function renderCoattail() {
   app.replaceChildren(
     pageHead("Coattail", `Following the smart money in ${plural(d.screened, "screener company", "screener companies")}`),
     h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
-    h("div", { class: "controls" }, tf.search, tf.toggle, months, hideIndex, count),
-    tf.chips, tf.builder,
-    h("div", { class: "cards" }, movesCard, next));
-  tf.attachMenu(table, Object.keys(fields).filter((k) => k !== "kind"), () => shownRows);
+    h("div", { class: "controls" }, search, ...coattailControls(refresh), count),
+    ...(d.holdings.length ? [h("div", { class: "cards" }, intro),
+      h("h2", { class: "section-title" }, "Who's investing ", h("span", { class: "hint", text: "Click a holder to see every screener company it holds." })), grid]
+      : [h("p", { class: "empty", text: "No holder lists yet. They arrive with the weekly analyst and holder refresh." })]),
+    h("div", { class: "cards coattail-next" }, next));
   refresh();
+  window.scrollTo(0, 0);
+}
+
+async function renderCoattailHolder(id) {
+  if (!coattailData) {
+    app.replaceChildren(h("p", { class: "loading", text: "Loading holder..." }));
+    coattailData = await getJSON("/api/coattail");
+  }
+  const d = coattailData;
+  const body = h("div");
+  function draw() {
+    const g = coattailManagers(d, coattailHoldings(d)).find((x) => x.id === id);
+    if (!g) {
+      body.replaceChildren(h("p", { class: "empty", text: "No holdings for this holder under the current filters." }));
+      return;
+    }
+    const heads = [["Score", "opt2"], ["Company"], ["Held through", "opt"], ["Shares", "num"], ["Change", "num"], ["% held", "num opt2"], ["Value now", "num"], ["Reported", "num opt"], ["Action", "opt2"]];
+    const table = h("table", { class: "grid" },
+      h("thead", {}, h("tr", {}, heads.map(([t, cls]) => withHelp(h("th", { class: cls || null, tabindex: 0, text: t }), t === "Change" ? "Holder change" : t)))),
+      h("tbody", {}, g.positions.map((p) => rowTo(`#/company/${p.code}`,
+        h("td", { class: "opt2" }, wheel(p.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(p.company.scores) })),
+        nameCell(p.company, "SHARE"),
+        h("td", { class: "opt" }, h("div", { class: "holder-name", text: p.main.holder }),
+          h("div", { class: "name" }, p.main.kind === "FUND" ? "Fund" : "Institution", p.main.index_fund ? h("span", { class: "tag sm", text: "Index" }) : null,
+            p.others.length ? h("span", { class: "also", title: p.others.map((o) => `${o.holder}: ${sharesText(o.shares)} shares`).join("\n"), text: ` +${plural(p.others.length, "more fund")}` }) : null)),
+        h("td", { class: "num tabular", text: sharesText(p.main.shares) }),
+        h("td", { class: `num tabular ${signClass(p.main.shares_change) || ""}`.trim(), title: p.main.percent_change === null ? "" : `${signedPct(p.main.percent_change)} since the previous report`,
+          text: p.main.new ? "New" : sharesChange(p.main.shares_change) }),
+        h("td", { class: "num opt2", text: pct(p.main.percent_held, 2) }),
+        h("td", { class: "num tabular", text: p.value === null ? NA : compact(p.value) }),
+        h("td", { class: "num opt", text: p.main.date_reported ? longDate(p.main.date_reported) : NA }),
+        h("td", { class: "opt2" }, badge(p.company.action))))));
+    body.replaceChildren(
+      h("div", { class: "holder-head" },
+        h("div", { class: "hc-band hc-band-lg", style: `--hc-hue: ${hueOf(g.name)}`, "aria-hidden": "true" }, h("span", { class: "hc-mono", text: monogram(g.name) })),
+        h("div", { class: "holder-facts" },
+          h("p", {}, `Holds ${plural(g.positions.length, "screener company", "screener companies")}, worth ${compact(g.value)} at today's prices.`),
+          h("p", {}, `Since their previous reports: adding to ${g.adding}, cutting ${g.cutting}.`),
+          h("p", { class: "hint", text: "The wheel is the average score of the companies it holds." })),
+        cardWheel(g.avg, d.axes, d.checks_per_axis, 150)),
+      (() => {
+        const c = card("Holdings", "Each company once, through the manager's largest listed holding in it; hover +1 more fund for the others. Change is shares bought (+) or sold (-) since that holder's previous report; hover it for the percentage.",
+          h("div", { class: "table-wrap" }, table));
+        c.classList.add("wide");
+        return h("div", { class: "cards" }, c);
+      })());
+  }
+  const name = (d.holdings.find((m) => m.manager_id === id) || {}).manager || "Holder";
+  app.replaceChildren(
+    h("a", { class: "back", href: "#/coattail", text: "← Coattail" }),
+    pageHead(name, "Fund manager"),
+    h("div", { class: "controls" }, ...coattailControls(draw)),
+    body);
+  draw();
   window.scrollTo(0, 0);
 }
 
@@ -3184,6 +3276,7 @@ const ROUTES = [
   [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
   [/^#\/coattail$/, "coattail", () => renderCoattail()],
+  [/^#\/coattail\/([a-z0-9-]+)$/, "coattail", (m) => renderCoattailHolder(m[1])],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
   [/^#\/admin$/, "admin", () => renderAdmin()],
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],

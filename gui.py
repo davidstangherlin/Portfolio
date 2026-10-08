@@ -687,10 +687,10 @@ def create_app(password: str | None = None) -> FastAPI:
 
     @app.get("/api/coattail")
     def api_coattail():
-        """The Coattail page (§31): big holders moving in the screener's companies."""
+        """The Coattail page (§31): who holds the screener's companies, by manager."""
         with get_session() as session:
             rows = load_universe(session, date.today()).rows
-            payload = coattail.holder_moves(session, rows, watchlists.watched_codes(session))
+            payload = coattail.holdings(session, rows, watchlists.watched_codes(session))
             return JSONResponse(_json_ready(payload | {"axes": list(AXES), "checks_per_axis": CHECKS_PER_AXIS}))
 
     @app.get("/api/track-record")
