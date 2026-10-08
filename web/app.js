@@ -1761,10 +1761,6 @@ function watchPicker(panel, code, lists, changed) {
               await send("PUT", `/api/watchlists/${l.watchlist_id}/items/${code}`, {});
               Object.assign(l, { member: true, triggers: [], triggered: false, note: null });
             } else {
-              // A list row doesn't carry the entry's note and triggers (undefined), so say they may go.
-              const extra = l.triggers === undefined ? " Any note and triggers on it will be deleted."
-                : l.note || l.triggers.length ? " Its note and triggers will be deleted." : "";
-              if (!confirm(`Remove ${code} from ${l.name}?${extra}`)) { box.checked = true; return; }
               await send("DELETE", `/api/watchlists/${l.watchlist_id}/items/${code}`);
               l.member = false;
             }
@@ -1979,7 +1975,6 @@ async function renderWatchlist(id, note) {
   });
 
   const remove = async (e) => {
-    if (!confirm(`Remove ${e.asx_code} from ${d.name}?${e.note || e.triggers.length ? " Its note and triggers will be deleted." : ""}`)) return;
     try { await send("DELETE", `/api/watchlists/${d.watchlist_id}/items/${e.asx_code}`); afterChange(); await reload(`Removed ${e.asx_code}.`); }
     catch (err) { showMessage(notice, err.message, false); }
   };
