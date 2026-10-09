@@ -8,6 +8,7 @@ Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL
 - Commit and push to `main`. Before pushing: run the whole test suite (`.venv/bin/python -m pytest -q`) and, for page changes, check the page in a browser at desktop and phone widths.
 - Every change gets a row in the AS_BUILT change log (newest at the bottom of the table) and, for a new feature, its own numbered section. Keep `README.md` and the help articles in `web/knowledge.json` in step.
 - Personal data stays out of git: `allords.txt` and other ticker files, `.env`, `logs/`, `data/asx_reports/`. Never ask for the database password in chat.
+- UI colour: every action button is pink (`--action`: `.btn`, `.btn.primary` for the main one, `.icon-btn`), links are blue (`--accent`), deleting is red (`.btn.danger`). Use the classes or tokens, never raw colours (`web/style.css`, "Action colour").
 - Schema changes go in `db/schema.sql` and must be idempotent (`IF NOT EXISTS`); they apply on start-up and at the start of the nightly run.
 
 ## Search must keep up as Sift grows (§32)

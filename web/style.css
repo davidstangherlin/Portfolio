@@ -3,7 +3,10 @@
    UI colour (--accent) is separate from chart series colour (--s1 to --s3):
    the chart colours are validated for colour-blind separation and contrast
    on each theme's surface (dataviz method). Status colours always come
-   with a text label or icon, never colour alone. */
+   with a text label or icon, never colour alone.
+   Actions are pink (--action): every button that does something, solid for
+   the main one. Links that go somewhere are blue (--accent); deleting is red.
+   See "Action colour" at the end. */
 :root {
   color-scheme: light;
   --page: #f8faf9;
@@ -886,3 +889,29 @@ mark.find-hit.current { background: var(--twisty); color: var(--on-twisty); }
 .syn-input { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); }
 .syn-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
 .syn-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--grid); border-radius: 8px; }
+
+/* ---------- Action colour: one rule for every button (user's request, 2026-10-09) ----------
+   Pink (--action) for anything you click to do something; blue (--accent)
+   stays for links that go somewhere; red for deleting. Small help "i" icons
+   stay grey until hovered so headings aren't crowded. New buttons: use .btn
+   (.primary for the main one), .icon-btn, or these tokens; not raw colours. */
+:root { --action: var(--twisty); --on-action: var(--on-twisty); --action-soft: color-mix(in srgb, var(--twisty) 12%, transparent); }
+.btn { color: var(--action); }  /* secondary buttons: pink text on a plain button; .danger stays red */
+.btn:hover:not(:disabled) { border-color: var(--action); color: var(--action); }
+.btn.primary { background: var(--action); border-color: var(--action); color: var(--on-action); }
+.btn.primary:hover:not(:disabled) { color: var(--on-action); filter: brightness(1.06); }
+.btn:focus-visible, .more:focus-visible, .link-btn:focus-visible, .icon-x:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.icon-btn { color: var(--action); }
+.icon-btn:hover, .icon-btn[aria-expanded="true"] { color: var(--action); border-color: var(--action); background: var(--action-soft); }
+.icon-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+.search-go, .scope-btn { color: var(--action); }
+.search-go:hover, .scope-btn:hover, .scope-btn[aria-expanded="true"] { color: var(--action); background: var(--action-soft); }
+.search-go:focus-visible, .scope-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+.icon-x, .dl-btn, .watch-toggle { color: var(--action); }  /* the star: ☆ to add, ★ when on a list */
+.icon-x:hover, .dl-btn:hover { color: var(--action); background: var(--action-soft); }
+.link-btn { color: var(--action); }
+.more { color: var(--action); font-weight: 600; }
+.more:hover { border-color: var(--action); background: var(--action-soft); }
+.dd-menu a.dd-new { color: var(--action); }
+.info:hover, .info:focus-visible { border-color: var(--action); color: var(--action); }
+.tf-toggle:hover, .tf-toggle[aria-expanded="true"], .thumb:hover, .count-btn:hover { background: var(--action-soft); }
