@@ -487,6 +487,51 @@ CREATE TABLE IF NOT EXISTS ui_preferences (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5k. SEARCH INDEX (docs/AS_BUILT.md §32)
+-- One row per searchable thing across Sift: shares, ETFs, LICs, fund
+-- managers, watchlists, portfolios, help articles, pages and settings.
+-- Rebuilt by src/search/indexer.py: everything nightly, personal data the
+-- moment it's saved, help and pages when Sift starts, and on demand (Admin,
+-- or python -m src.search.reindex). owner_id is NULL for what everyone may
+-- see; personal rows carry their owner once Sift has user accounts.
+-- pg_trgm adds typo tolerance; without it (no permission to add it) search
+-- still works, matching whole and partial words only.
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'pg_trgm not available: search works without typo tolerance';
+END $$;
+CREATE TABLE IF NOT EXISTS search_index (
+    doc_id VARCHAR(160) PRIMARY KEY,           -- e.g. share:BHP, help:dcf, watchlist:{uuid}
+    area VARCHAR(12) NOT NULL,                 -- market, coattail, personal, help, pages: the unit of a rebuild
+    kind VARCHAR(12) NOT NULL,                 -- share, etf, lic, manager, watchlist, portfolio, help, page, setting
+    owner_id UUID,                             -- NULL: everyone's
+    code VARCHAR(20),
+    title TEXT NOT NULL,
+    subtitle TEXT,
+    body TEXT,
+    url TEXT NOT NULL,
+    facets JSONB NOT NULL DEFAULT '{}',        -- sector, category, recommendation, topic, codes
+    rank_boost REAL NOT NULL DEFAULT 0,
+    search_vector TSVECTOR,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_search_vector ON search_index USING GIN (search_vector);
+CREATE INDEX IF NOT EXISTS idx_search_area ON search_index (area);
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+        CREATE INDEX IF NOT EXISTS idx_search_title_trgm ON search_index USING GIN (lower(title) gin_trgm_ops);
+    END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS search_index_runs (
+    run_id SERIAL PRIMARY KEY,
+    area VARCHAR(12) NOT NULL,
+    trigger VARCHAR(20) NOT NULL,              -- nightly, startup, saved, manual
+    items INTEGER NOT NULL,
+    seconds NUMERIC(8, 2) NOT NULL,
+    finished_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 5b. SIGNAL SNAPSHOTS (prediction track record - see src/tracking/signals.py, docs/AS_BUILT.md §21)
 -- What Sift said about each company on each valuation date: the suggested
 -- action, valuation status, estimate and scores, exactly as shown that

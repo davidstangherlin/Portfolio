@@ -1019,14 +1019,120 @@ function findCompany(q) {
   return list.find((c) => c.code === up) || list.find((c) => c.code.startsWith(up)) ||
     list.find((c) => (c.name || "").toUpperCase().includes(up)) || null;
 }
+/* ---------- search scope (§32): everything, or this page ---------- */
+const PAGE_LABELS = { dashboard: "Dashboard", screener: "Screener", etfs: "ETFs", etf: "this ETF", lics: "LICs", lic: "this LIC",
+  company: "this company", "track-record": "Track record", coattail: "Coattail", help: "Help", admin: "Admin",
+  watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results" };
+const searchScope = { page: "dashboard", mode: "all" };
+/* The dashboard and the results page search everything by default; every other page, itself. */
+function setSearchPage(page) {
+  searchScope.page = page;
+  searchScope.mode = page === "dashboard" || page === "search" ? "all" : "page";
+  paintSearchScope();
+}
+function paintSearchScope() {
+  const input = document.getElementById("nav-search-input"), btn = document.getElementById("search-scope");
+  if (!input || !btn) return;
+  const label = PAGE_LABELS[searchScope.page] || "this page";
+  const all = searchScope.mode === "all";
+  input.placeholder = matchMedia("(max-width: 480px)").matches ? "Search" : all ? "Search everything" : `Search ${label}`;
+  input.setAttribute("aria-label", all ? "Search everything in Sift" : `Search ${label}`);
+  btn.title = all ? "Searching everything. Click to search this page instead." : `Searching ${label}. Click to search everything.`;
+  btn.setAttribute("aria-label", `Search scope: ${all ? "everything" : label}`);
+  btn.classList.toggle("page", !all);
+}
+function initSearchScope() {
+  const btn = document.getElementById("search-scope"), menu = document.getElementById("search-scope-menu");
+  const pick = (mode) => { searchScope.mode = mode; paintSearchScope(); menu.hidden = true; btn.setAttribute("aria-expanded", "false"); document.getElementById("nav-search-input").focus(); };
+  const draw = () => {
+    const label = PAGE_LABELS[searchScope.page] || "this page";
+    menu.replaceChildren(...[["all", "Everything", "Shares, ETFs, LICs, fund managers, your lists, help and settings"],
+      ["page", `This page: ${label}`, "Filter or find on the page you're on"]].map(([mode, title, sub]) =>
+      h("button", { type: "button", role: "menuitemradio", "aria-checked": String(searchScope.mode === mode), onclick: () => pick(mode) },
+        h("span", { class: "scope-tick", "aria-hidden": "true", text: searchScope.mode === mode ? "✓" : "" }),
+        h("span", {}, h("span", { class: "scope-title", text: title }), h("span", { class: "scope-sub", text: sub })))));
+  };
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    if (open) draw();
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  });
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); btn.focus(); } });
+}
+
+/* This page: a page with a search box (the lists, Help) gets the words in
+   it; any other page highlights the words where they appear, Enter again
+   for the next. */
+const findState = { q: "", hits: [], i: -1 };
+function clearFind() {
+  for (const m of app.querySelectorAll("mark.find-hit")) m.replaceWith(document.createTextNode(m.textContent));
+  app.normalize();
+  Object.assign(findState, { q: "", hits: [], i: -1 });
+}
+function thisPageSearch(q) {
+  const box = app.querySelector(".tf-search, .page-search");
+  if (box) {
+    box.value = q;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.scrollIntoView({ block: "center" });
+    return;
+  }
+  findInPage(q);
+}
+function findInPage(q) {
+  const form = document.getElementById("nav-search");
+  if (q && q.toLowerCase() === findState.q && findState.hits.length) {
+    findState.hits[findState.i]?.classList.remove("current");
+    findState.i = (findState.i + 1) % findState.hits.length;
+  } else {
+    clearFind();
+    if (!q) return;
+    const needle = q.toLowerCase(), walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement.closest("script, style, input, textarea, select, svg, .find-skip") || !n.nodeValue.toLowerCase().includes(needle)
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      let rest = node;
+      for (let at = rest.nodeValue.toLowerCase().indexOf(needle); at >= 0; at = rest.nodeValue.toLowerCase().indexOf(needle)) {
+        const hit = rest.splitText(at);
+        rest = hit.splitText(needle.length);
+        const mark = h("mark", { class: "find-hit", text: hit.nodeValue });
+        hit.replaceWith(mark);
+        findState.hits.push(mark);
+      }
+    }
+    Object.assign(findState, { q: needle, i: 0 });
+  }
+  if (!findState.hits.length) {  // not on this page: look everywhere instead
+    const input = document.getElementById("nav-search-input");
+    input.value = ""; input.blur();
+    cache.flash = `"${q}" isn't on that page, so these are results from everywhere.`;
+    location.hash = `#/search?q=${encodeURIComponent(q)}`;
+    return;
+  }
+  const cur = findState.hits[findState.i];
+  cur.classList.add("current");
+  cur.scrollIntoView({ block: "center" });
+  placeTipBelow(form, [h("div", { text: `${findState.i + 1} of ${plural(findState.hits.length, "match", "matches")} on this page. Enter for the next.` })]);
+  setTimeout(hideTip, 2200);
+}
+
 function initSearch() {
   const form = document.getElementById("nav-search"), input = document.getElementById("nav-search-input");
-  if (window.matchMedia("(max-width: 480px)").matches) input.placeholder = "Search";
+  initSearchScope();
   const go = (c) => { input.value = ""; input.blur(); closeMenus(); location.hash = FUNDS[c.type] ? fundHref(c.type, c.code) : `#/company/${c.code}`; };
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const q = input.value.trim();
+    if (searchScope.mode === "page") { thisPageSearch(q); return; }
     const exactCode = (cache.companies || []).find((x) => x.code === q.toUpperCase());
+    if (exactCode) { go(exactCode); return; }
+    if (q) { input.value = ""; input.blur(); closeMenus(); location.hash = `#/search?q=${encodeURIComponent(q)}`; return; }
     const term = exactCode ? null : findTerm(q);
     const c = exactCode || (term ? null : findCompany(q));
     const clear = () => { input.value = ""; input.blur(); closeMenus(); };
@@ -1837,6 +1943,101 @@ async function renderCoattailHolder(id) {
     body);
   draw();
   window.scrollTo(0, 0);
+}
+
+/* ---------- search results (§32): tick boxes down the left ---------- */
+const FACET_TITLES = { type: "Type", sector: "Sector or category", recommendation: "Recommendation", mine: "Mine", topic: "Knowledge articles" };
+const FACET_GROUPS = Object.keys(FACET_TITLES);
+const FACET_SHOWN = 8;  // boxes per group before "Show more"
+/* A snippet from the server, with its matched words between \u0002 and \u0003, as text and <mark>s. */
+function snippetNodes(s) {
+  return (s || "").split(/(\u0002[^\u0003]*\u0003)/).filter(Boolean).map((part) =>
+    part.startsWith("\u0002") ? h("mark", { text: part.slice(1, -1) }) : document.createTextNode(part));
+}
+async function renderSearch(query) {
+  const params = new URLSearchParams(query);
+  const q = params.get("q") || "";
+  const go = (p) => { location.hash = `#/search?${p.toString()}`; };
+  const box = h("input", { type: "search", class: "search-big", value: q, placeholder: "Search shares, ETFs, LICs, fund managers, your lists, help and settings",
+    "aria-label": "Search everything in Sift" });
+  const form = h("form", { class: "search-form", role: "search" }, box, h("button", { type: "submit", class: "btn primary", text: "Search" }));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = new URLSearchParams(); p.set("q", box.value.trim());
+    go(p);
+  });
+  if (!q.trim()) {
+    app.replaceChildren(pageHead("Search", "Everything in Sift"), form,
+      h("p", { class: "hint", text: "Type an ASX code, a company, ETF, LIC or fund manager, one of your watchlists or portfolios, a term such as franking, or a setting such as discount rate." }));
+    box.focus();
+    return;
+  }
+  app.replaceChildren(pageHead("Search", `Searching for "${q}"...`), form);
+  const api = new URLSearchParams(); api.set("q", q);
+  for (const g of FACET_GROUPS) for (const v of params.getAll(g)) api.append(g, v);
+  const d = await getJSON(`/api/search?${api.toString()}`);
+  const ticked = FACET_GROUPS.reduce((n, g) => n + params.getAll(g).length, 0);
+  const toggle = (g, v, on) => {
+    const p = new URLSearchParams(params);
+    const keep = p.getAll(g).filter((x) => x !== v);
+    p.delete(g); for (const x of keep) p.append(g, x);
+    if (on) p.append(g, v);
+    go(p);
+  };
+  const facets = h("aside", { class: "facets", "aria-label": "Filter the results" },
+    h("div", { class: "facets-head" }, h("span", { text: "Filter" }),
+      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear all", onclick: () => { const p = new URLSearchParams(); p.set("q", q); go(p); } }) : null),
+    d.facets.map((f) => {
+      const boxes = f.boxes.map((b, i) => h("label", { class: "facet-box", hidden: i >= FACET_SHOWN && !b.ticked },
+        h("input", { type: "checkbox", checked: b.ticked, onchange: (e) => toggle(f.group, b.value, e.target.checked) }),
+        h("span", { class: "facet-value", text: b.value }), h("span", { class: "facet-count", text: fmt(b.count, 0) })));
+      const hidden = boxes.filter((x) => x.hidden).length;
+      const more = hidden ? h("button", { type: "button", class: "link-btn facet-more", text: `Show ${hidden} more`,
+        onclick: () => { for (const x of boxes) x.hidden = false; more.remove(); } }) : null;
+      return h("fieldset", { class: "facet" }, h("legend", { text: FACET_TITLES[f.group] || f.group }), boxes, more);
+    }));
+  const filtersBtn = h("button", { type: "button", class: "btn small facets-toggle", "aria-expanded": "false", text: ticked ? `Filters (${ticked})` : "Filters",
+    onclick: () => { const open = !facets.classList.contains("open"); facets.classList.toggle("open", open); filtersBtn.setAttribute("aria-expanded", String(open)); } });
+  const results = d.results.length ? h("ol", { class: "results" }, d.results.map((r) => h("li", {},
+    h("a", { class: "result", href: r.url },
+      h("div", { class: "result-top" }, h("span", { class: `tag sm result-type t-${r.kind}`, text: r.type.replace(/s$/, "") }),
+        r.code ? h("span", { class: "code", text: r.code }) : null, h("span", { class: "result-title", text: r.title }),
+        r.recommendation ? badge(r.recommendation) : null,
+        r.mine.filter((m) => m !== "My lists").map((m) => h("span", { class: "tag sm mine-tag", text: m === "Held" ? "HELD" : "★ Watchlist" }))),
+      r.subtitle ? h("div", { class: "result-sub", text: r.subtitle }) : null,
+      r.snippet && r.snippet.replace(/[\u0002\u0003]/g, "") !== r.subtitle ? h("div", { class: "result-snippet" }, snippetNodes(r.snippet)) : null))))
+    : h("p", { class: "empty" }, ticked ? "Nothing matches with these filters. " : `Nothing in Sift matches "${q}". `,
+      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear the filters", onclick: () => { const p = new URLSearchParams(); p.set("q", q); go(p); } })
+        : "Try fewer or shorter words, or an ASX code.");
+  const sub = `${plural(d.total, "result")} for "${q}"${d.total > d.results.length ? `, showing the best ${d.results.length}` : ""}`;
+  const flash = cache.flash ? h("p", { class: "hint search-flash", text: cache.flash }) : null;
+  cache.flash = null;
+  app.replaceChildren(...[pageHead("Search", sub), form, flash,
+    h("div", { class: "search-layout" }, d.facets.length ? [filtersBtn, facets] : null, h("section", { class: "search-results" }, results))].filter(Boolean));
+  window.scrollTo(0, 0);
+}
+
+/* Admin: the search index's state, and a button to rebuild it now. */
+function searchIndexCard() {
+  const body = h("div", {}, h("p", { class: "loading", text: "Loading..." }));
+  const msg = formMessage();
+  const AREA_LABELS = { market: "Shares, ETFs and LICs", coattail: "Fund managers", personal: "Your watchlists and portfolios", help: "Help articles", pages: "Pages and settings" };
+  const draw = (s) => body.replaceChildren(
+    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, ["Area", "Items", "Last rebuilt", "By", "Took"].map((t, i) => h("th", { class: i === 1 || i === 4 ? "num" : null, text: t })))),
+      h("tbody", {}, s.areas.map((a) => h("tr", {}, h("td", { text: AREA_LABELS[a.area] || a.area }), h("td", { class: "num", text: fmt(a.items, 0) }),
+        h("td", { text: a.last ? new Date(a.last.finished_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "never" }),
+        h("td", { text: a.last ? a.last.trigger : NA }), h("td", { class: "num", text: a.last ? `${fmt(a.last.seconds, 2)}s` : NA })))))),
+    h("p", { class: "hint", text: s.typo_tolerance ? "Typo tolerance is on (pg_trgm)." : "Typo tolerance is off: the database doesn't allow the pg_trgm extension, so search matches whole and partial words only." }));
+  const btn = h("button", { type: "button", class: "btn", text: "Rebuild search index", onclick: async () => {
+    btn.disabled = true; btn.textContent = "Rebuilding...";
+    try { const s = await send("POST", "/api/admin/search/reindex", {}); draw(s); showMessage(msg, `Rebuilt: ${Object.entries(s.rebuilt).map(([a, n]) => `${n} ${a}`).join(", ")}.`, true); }
+    catch (err) { showMessage(msg, err.message, false); }
+    btn.disabled = false; btn.textContent = "Rebuild search index";
+  } });
+  getJSON("/api/admin/search").then(draw).catch((err) => body.replaceChildren(h("p", { class: "error", text: err.message })));
+  return card("Search index", "Rebuilt after each nightly run, your own lists the moment you save them, and help and pages when Sift starts. Rebuild now after loading data by hand.",
+    body, h("div", { class: "form-actions" }, btn, msg), h("p", { class: "hint" }, "Or from PowerShell: ", h("code", { text: ".venv\\Scripts\\python.exe -m src.search.reindex" }), " ", helpLink("sift-search")));
 }
 
 /* ---------- track record: is Sift right, what did I miss, what now ---------- */
@@ -2975,7 +3176,7 @@ async function renderHelp(query, focusId) {
   if (query !== undefined) helpState.q = new URLSearchParams(query).get("q") || "";
   const results = h("div", { class: "help-results" });
   const count = h("span", { class: "count" });
-  const search = h("input", { type: "search", value: helpState.q, placeholder: "Search terms, rules and how-tos",
+  const search = h("input", { type: "search", class: "page-search", value: helpState.q, placeholder: "Search terms, rules and how-tos",
     "aria-label": "Search help", autocomplete: "off" });
   const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by topic" });
   function draw() {
@@ -3090,7 +3291,8 @@ async function renderAdmin() {
   app.replaceChildren(pageHead("Model and rules", "Every setting behind Sift's results"), adminTabs("settings"),
     h("div", { class: "cards" }, pipeline, ...groups,
       card("Trying other values", null, h("p", { class: "hint" }, "Change these in a ",
-        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario")))));
+        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario"))),
+      searchIndexCard()));
   window.scrollTo(0, 0);
 }
 
@@ -3361,6 +3563,7 @@ const ROUTES = [
   [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
   [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
   [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => renderPortfolio(m[1])],
+  [/^#\/search(?:\?(.*))?$/, "search", (m) => renderSearch(m[1] || "")],
   [/^(#\/?)?$/, "dashboard", () => renderDashboard()],
 ];
 let previousPage = null;
@@ -3378,6 +3581,8 @@ function route() {
   if (["company", "etf", "lic"].includes(page) && currentHash && !detail(currentHash)) previousPage = currentHash;
   currentHash = hash;
   markCurrent(page);
+  Object.assign(findState, { q: "", hits: [], i: -1 });
+  setSearchPage(page);
   render(hash.match(re)).catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })));
 }
 window.addEventListener("hashchange", route);

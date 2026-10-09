@@ -326,6 +326,14 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   Filter by rules version to judge each set of rules on its own results. Results start one month
   after recording begins; until then each panel says when its results are due. The dashboard's
   Track record card shows the headline BUY result once there is one.
+- **Search** (top right) finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists
+  and portfolios, help articles, pages and settings. The pink **▾** beside the magnifying glass
+  chooses **Everything** or **This page**: the dashboard searches everything, every other page
+  itself (its list's search box, or highlighting the words on the page). Results come with tick
+  boxes down the left (type, sector or category, recommendation, Mine, knowledge article topic).
+  The index is rebuilt after each nightly run, your own lists when you save them, and help and
+  pages when Sift starts; rebuild it now from **Admin → Search index**, or with
+  `.venv\Scripts\python.exe -m src.search.reindex`.
 - **Coattail:** follow the smart money. A card per fund manager holding the screener's
   companies (Vanguard, BlackRock and so on, from Yahoo's top holder lists, refreshed weekly),
   with the average score wheel of what it holds and how many it's adding to and cutting; click
@@ -435,7 +443,6 @@ Every ETF listed on the ASX is collected alongside the shares and shown under it
   dashboard, Shares and ETFs subtotals in each portfolio, Shares and ETFs tables in each
   watchlist. Watchlist triggers for ETFs are price at or below and yield above; margin of
   safety triggers are for shares only.
-- **Search** finds ETFs by code or name and opens their page.
 - **What it holds:** each ETF's description, asset mix, top 10 holdings and sector weightings (and
   credit ratings and duration for bond funds) from Yahoo Finance, refreshed weekly; LICs show their
   description. To fetch every fund now: `python -m src.etf.run_etfs --skip-report --profiles-all`.
@@ -567,7 +574,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → ETFs → valuation → signal record → track record scoring → screener, logging everything to a timestamped file
+schema update → ingestion → ETFs → valuation → signal record → track record scoring → screener → search index, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step's heading in the log shows when it
 started, and a line after it says how long it took.
 

@@ -84,6 +84,7 @@ Invoke-Step "Valuation" { python -m src.valuation.run_valuation --all }
 Invoke-Step "Signal Record" { python -m src.tracking.record_signals }
 Invoke-Step "Track Record" { python -m src.tracking.score_signals }
 Invoke-Step "Suggested Actions" { python screen_asx.py --actions }
+Invoke-Step "Search Index" { python -m src.search.reindex --trigger nightly }
 
 Write-Log ""
 Write-Log "===== Daily Refresh Finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ====="

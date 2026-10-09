@@ -79,7 +79,7 @@
     "Coattail: follow the smart money. The fund managers holding the screener's companies, as cards you can open, and which companies they're adding to and cutting, with ASX director trades and substantial holders to come.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
     "Model and rules (settings gear, Admin): every setting and formula, and what-if scenarios.",
-    "Search: type a company or ETF code or name, or a term such as franking, in the box at the top."
+    "Search: the box at the top right finds anything in Sift, everywhere or just on the page you're on (the pink ▾ chooses). Results can be narrowed with tick boxes down the left."
    ],
    "related": [
     "data-chip",
@@ -2042,6 +2042,38 @@
     "Each table keeps its own filters while you move around Sift; they clear when the page reloads. Opening a screener from a dashboard link starts it without them."
    ],
    "related": []
+  },
+  {
+   "id": "sift-search",
+   "title": "Searching Sift",
+   "category": "guides",
+   "aliases": [
+    "search",
+    "find",
+    "search everything",
+    "this page",
+    "search scope",
+    "reindex",
+    "search index"
+   ],
+   "definition": "The search box in the menu bar finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists and portfolios, help articles, pages and settings.",
+   "body": [
+    "Everything or this page: the pink ▾ beside the magnifying glass chooses. The dashboard and the results page search everything; every other page searches itself by default.",
+    "This page: on a list (the screener, ETFs, LICs, Coattail, a watchlist or portfolio) the words go into that list's search box; on Help, into the help search; on any other page they're highlighted where they appear, and Enter again moves to the next. If they're not on the page, Sift shows results from everywhere instead.",
+    "Everything: an exact ASX code opens that company or fund straight away; anything else opens the results page. Each word can be the start of a word (wes finds Wesfarmers) and plurals match (dividends finds dividend). Small typos are forgiven when the exact words find little (vangaurd finds Vanguard).",
+    "Results: the best 100, exact codes and titles first, with the matched words highlighted. Tick boxes down the left narrow them by type, sector or category, recommendation, Mine (held, on a watchlist, your lists) and knowledge article topic, each with a count; ticking one box never hides the others in its group. On a phone, Filters opens the tick boxes.",
+    "Kept up to date: the index is rebuilt after each nightly run, your own watchlists and portfolios the moment you save them, and help and pages each time Sift starts. Rebuild it now from Admin (Search index), or in PowerShell with .venv\\Scripts\\python.exe -m src.search.reindex."
+   ],
+   "related": [
+    "getting-around",
+    "table-filters"
+   ],
+   "links": [
+    {
+     "text": "Open search",
+     "href": "#/search"
+    }
+   ]
   }
  ]
 }

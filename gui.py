@@ -35,7 +35,7 @@ from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
@@ -51,6 +51,7 @@ from src.portfolio import cgt, holdings as parcels_module, trade_input, views as
 from src.portfolio.holdings import HoldingsError
 from src import preferences
 from src.coattail import views as coattail
+from src.search import indexer as search_indexer, query as search_query
 from src.screening import movers
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
@@ -150,6 +151,21 @@ def error_message(exc: Exception) -> str:
         return "Can't reach the database. Check PostgreSQL is running and the settings in .env."
     first = (str(getattr(exc, "orig", None) or exc).strip().splitlines() or [""])[0][:300]
     return f"Server error ({type(exc).__name__}): {first}. The full details are in the window running gui.py."
+
+
+def prepare_search() -> str:
+    """Bring the search index up to date at start-up (§32): help and pages
+    always (they change only with a git pull), and everything when the
+    index is empty (a new install). Never stops the server starting."""
+    try:
+        with get_session() as session:
+            empty = not session.execute(text("SELECT 1 FROM search_index WHERE area = 'market' LIMIT 1")).first()
+            counts = search_indexer.reindex(session, search_indexer.AREAS if empty else ("help", "pages"), "startup")
+            session.commit()
+        return "Search index: " + ", ".join(f"{a} {n}" for a, n in counts.items()) + "."
+    except Exception as exc:  # noqa: BLE001 - search can be rebuilt later; the pages still work
+        logger.exception("Search index not prepared")
+        return f"Search index not updated ({type(exc).__name__}); rebuild it from Admin."
 
 
 def prepare_database() -> str | None:
@@ -742,12 +758,21 @@ def create_app(password: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="No such parcel")
         return found
 
+    def reindex_personal(session):
+        """Saved changes are searchable at once (§32). Search must never block a save."""
+        try:
+            with session.begin_nested():
+                search_indexer.reindex(session, ("personal",), "saved")
+        except Exception:  # noqa: BLE001
+            logger.exception("Search index: personal data not reindexed")
+
     def change(action):
         """Run one change in its own transaction; a HoldingsError is the
         person's mistake (400 with the message), never a half-saved change."""
         with get_session() as session:
             try:
                 result = action(session)
+                reindex_personal(session)
                 session.commit()
             except (HoldingsError, WatchlistError, ScenarioError, SettingsError, preferences.PreferenceError) as exc:
                 session.rollback()
@@ -953,6 +978,29 @@ def create_app(password: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="No such scenario")
         return found
 
+    # ---------- search (§32) ----------
+    @app.get("/api/search")
+    def api_search(q: str = "", type: list[str] = Query(default=[]), sector: list[str] = Query(default=[]),  # noqa: A002
+                   recommendation: list[str] = Query(default=[]), mine: list[str] = Query(default=[]),
+                   topic: list[str] = Query(default=[])):
+        selected = {"type": type, "sector": sector, "recommendation": recommendation, "mine": mine, "topic": topic}
+        with get_session() as session:
+            return JSONResponse(_json_ready(search_query.search(session, q, selected)))
+
+    @app.get("/api/admin/search")
+    def api_search_status():
+        with get_session() as session:
+            return JSONResponse(_json_ready(search_indexer.status(session)))
+
+    @app.post("/api/admin/search/reindex")
+    def api_search_reindex(body: dict = Body(default={})):
+        """Rebuild the search index now: every area, or those listed in `areas`."""
+        areas = [a for a in (body or {}).get("areas") or search_indexer.AREAS if a in search_indexer.AREAS]
+        with get_session() as session:
+            counts = search_indexer.reindex(session, areas, "manual")
+            session.commit()
+            return JSONResponse(_json_ready({"rebuilt": counts} | search_indexer.status(session)))
+
     @app.get("/api/admin/settings")
     def api_admin_settings():
         return JSONResponse(_json_ready(settings_payload()))
@@ -1056,6 +1104,8 @@ def main(argv: list[str] | None = None) -> int:
     problem = prepare_database()
     print("Database: up to date." if problem is None else
           f"Database update failed ({problem}). Pages may show errors; see docs/AS_BUILT.md §13.")
+    if problem is None:
+        print(prepare_search())
     print("Press Ctrl+C to stop.")
 
     import uvicorn  # imported here so tests can import this module without starting a server
