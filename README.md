@@ -256,6 +256,11 @@ python gui.py --lan     # also your phone on home Wi-Fi (see below)
 Press `Ctrl+C` to stop it. On start it brings the database up to date (the same step the
 nightly job runs first), so restarting it after a `git pull` is enough.
 
+**After a reboot**, double-click `sift_console.bat` for a command window ready to run Sift's
+scripts. It starts PostgreSQL if it's stopped (run it as administrator if that's refused),
+pulls the latest code, installs any new packages, brings the database up to date, then leaves
+you at a prompt with `.venv`'s Python switched on and a list of common commands.
+
 **Accounts (multi-user Phase 1).** Sift keeps a `users` table, and your portfolios,
 watchlists, what-if scenarios and dashboard layout belong to the first admin account,
 "Owner". Nothing changes in use: until sign-in arrives (Phase 3) every request, the command

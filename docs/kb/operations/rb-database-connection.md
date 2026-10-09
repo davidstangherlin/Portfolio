@@ -3,14 +3,14 @@ id: rb-database-connection
 title: Runbook: the database won't connect
 category: operations
 summary: Sift or the nightly run can't reach PostgreSQL; how to check the service, the connection settings and the port.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
 reviewed: 2026-10-09
 next_review: 2027-01-09
 related: [setup-and-configuration, rb-backup-restore, rb-page-error]
-code: [src/config.py, .env.example]
+code: [src/config.py, .env.example, sift_console.bat]
 ---
 
 ## Symptoms
@@ -30,7 +30,7 @@ Nothing works until the database is back. No data is lost by a stopped service.
 
 ## Fix
 
-- Service stopped: start it (Services, Start; or `Start-Service postgresql-x64-18` as administrator).
+- Service stopped: start it (Services, Start; or `Start-Service postgresql-x64-18` as administrator). After a reboot, `sift_console.bat` does this check and start for you (right-click, Run as administrator, if it says it couldn't).
 - Password changed: update `DATABASE_URL` in `.env`.
 - Disk full: free space, then start the service.
 - Database damaged: restore from the latest backup ([Backup and restore](kb:rb-backup-restore)).
