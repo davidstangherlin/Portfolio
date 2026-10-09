@@ -3,7 +3,7 @@ id: track-record
 title: Track record: recording and scoring Sift's calls
 category: features
 summary: How every night's calls are recorded, never edited, and scored at 1, 3, 6 and 12 months against the average screened company, and how the Track record page answers 'is Sift right?'.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -49,6 +49,7 @@ The track record judges the rules on results. It can only measure forward from t
 - **Is Sift accurate?** From the permanent monthly summary, per period: one sentence per action ("BUY calls beat the average screened share by 5.8 points over 3 months; 67% of 202 beat it"), its confidence (too early under 30 signals, moderate 30 to 100, solid above 100), a tick when the direction is what the action intends (BUY, ACCUMULATE, INVESTIGATE should beat the average; AVOID and SELL should trail it; WATCH, HOLD, REVIEW and IGNORE are neutral), and the order check: BUY above WATCH above AVOID on average excess return, judged only when all three have 30 signals. Averages across months are weighted by each month's count. A "By month" table lists each month for the chosen period.
 - **What did I miss?** From the last 14 months of detail, each signal at its longest scored horizon: BUY or INVESTIGATE on shares not held, with no parcel bought (any portfolio) from the signal date to 30 days after, that beat the average by more than 10 points. **Calls that saved money:** AVOID on shares not held, and SELL on shares held, that trailed it by more than 10 points. First qualifying call per company, best first, up to 20, with price then and now and whether it's still undervalued. Watchlist companies carry a ★.
 - **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why, checked in this order: you bought it; the price rose out of the buy zone (margin of safety at or below 20% and the price above the signal's); the estimated value fell (margin of safety at or below 20% without a price rise); or its action changed.
+- **Value, target and Graham then** (added 2026-10-09 at the user's request). Each night's row also records the Graham Number (from that night's valuation) and the analysts' consensus target and count in force (`company_insights.target_mean`, `analyst_count`, refreshed weekly), beside the price and Sift's estimated value it always held (`snapshot_values(row, analysts=...)`). Every per-company table on the page (New this week, Still open, Moved on, What did I miss?, Calls that saved money) shows Value then, Target then and Graham then for the night of the call (`report._targets_then()`; the outcome query and `person_nights()` carry them), each with its gap to that night's price on hover and a heading hover from the Help entry `targets-then`; on phones they fold away. Earlier nights were filled in by `db/schema.sql` section 13 from what Sift held that night: the Graham Number from the same night's `valuation_metrics` row, and the analysts' target only for nights on or after the latest weekly fetch (older nights stay blank, as the earlier targets weren't kept). Filling in a figure recorded that night doesn't change any call, so the record stays as it was made ([ADR-005](kb:adr-005-immutable-signal-record)). The AI tool `explain_call` returns the same figures with each change in the call's history.
 - **Rules version filter** limits the verdict, missed and saved lists to one `rules_version`. Empty panels say when their first results are due, or, with a version selected, that its signals aren't old enough yet.
 - **Dashboard:** the Track record card shows the BUY line at 3 months (1 month until then) once results exist.
 
@@ -64,7 +65,7 @@ The track record judges the rules on results. It can only measure forward from t
 
 ## Data
 
-- `signal_snapshots`: Sift's shared call per company per night; never edited
+- `signal_snapshots`: Sift's shared call per company per night, with the price, estimated value, Graham Number and analysts' target that night; calls never edited
 - `signal_outcomes`: what happened after a night, per horizon
 - `track_record_monthly`: the permanent monthly summary
 
@@ -78,6 +79,7 @@ Columns and types: [Data dictionary](kb:ref-data-dictionary).
 ## Known limits
 
 - Can't be backfilled (IMP-026).
+- The analysts' target before its first recording is blank: only the latest weekly target was kept until 2026-10-09.
 - The benchmark is the plain average of screened companies, not an index (IMP-029).
 
 The full list, with status: [Improvement register](#/admin/kb/register).

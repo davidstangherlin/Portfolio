@@ -163,6 +163,9 @@ def test_track_record_api(history, db_session):
     assert set(data["verdict"]) == {"1", "3", "6", "12"}
     assert data["versions"] == ["2026-10-05"] and data["proven"] == {"actions": ["BUY"], "proven": False, "horizon": None}
     assert data["missed"][0]["asx_code"] == "UP"
+    assert data["missed"][0]["value_then"] is not None  # what Sift's estimate stood at that night
+    assert {"target_then", "graham_then", "analysts_then"} <= set(data["missed"][0])
+    assert all({"value_then", "target_then", "graham_then"} <= set(i) for g in ("new", "open", "moved_on") for i in data["actionable"][g])
     assert TestClient(gui.create_app()).get("/api/track-record?version=2026-10-05").status_code == 200
 
 

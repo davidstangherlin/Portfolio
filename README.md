@@ -339,6 +339,9 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
     beat the average by more than 10 points, and AVOID and SELL calls that saved you money.
   - **What should I look at now?** Today's signals of the kind that has proven itself, still
     more than 20% below estimated value: new this week, still open, and those that have moved on.
+  - Each of these tables shows, for the night of the call, Sift's estimated value (Value then),
+    the analysts' consensus target (Target then) and the Graham Number (Graham then) beside the
+    price then; hover a figure for its gap to that night's price.
   Filter by rules version to judge each set of rules on its own results. Results start one month
   after recording begins; until then each panel says when its results are due. The dashboard's
   Track record card shows the headline BUY result once there is one.

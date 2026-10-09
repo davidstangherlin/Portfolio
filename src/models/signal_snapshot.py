@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,9 @@ class SignalSnapshot(Base):
     margin_of_safety_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     estimated_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     valuation_method: Mapped[str | None] = mapped_column(String(4))
+    graham_number: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    analyst_target: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))  # Yahoo's mean target that night
+    analyst_count: Mapped[int | None] = mapped_column(Integer)
     score_total: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     score_value: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     score_performance: Mapped[int] = mapped_column(SmallInteger, nullable=False)

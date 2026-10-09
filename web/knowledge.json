@@ -2354,6 +2354,39 @@
      "href": "#/coattail?tab=substantial"
     }
    ]
+  },
+  {
+   "id": "targets-then",
+   "title": "Value, target and Graham then",
+   "category": "track",
+   "labels": [
+    "Value then",
+    "Target then",
+    "Graham then"
+   ],
+   "aliases": [
+    "value then",
+    "target then",
+    "graham then",
+    "price target at the time",
+    "target price then",
+    "graham number then",
+    "estimated value then"
+   ],
+   "definition": "What three yardsticks for a share's worth stood at on the night of a call, beside the price that night: Sift's estimated value, the analysts' consensus price target and the Graham Number.",
+   "hover": "On the night of the call: Value then is Sift's estimated value; Target then the analysts' mean price target (Yahoo); Graham then the Graham Number. Hover a figure for its gap to that night's price. Blank where it wasn't recorded.",
+   "body": [
+    "Each night Sift records its call on every screened company with the price, its estimated value, the analysts' consensus target (with how many analysts) and the Graham Number, so the Track record tables can show what each said at the time, not what it says now.",
+    "Hover a figure for how far it sat above or below that night's price: a call made with the price well below all three had a wide cushion; one where the analysts' target sat below the price was against the crowd.",
+    "Earlier nights: the Graham Number is filled in from that night's valuation. The analysts' target is refreshed weekly, so for nights before it was recorded it's filled in only from the latest weekly fetch onward; older nights show blank. Recording a figure never changes a call.",
+    "The analysts' target is context only: it isn't used in Sift's estimated value, scores or calls."
+   ],
+   "related": [
+    "estimated-value",
+    "price-targets",
+    "graham-number",
+    "track-record-scoring"
+   ]
   }
  ]
 }

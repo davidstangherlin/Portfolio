@@ -122,3 +122,49 @@ def test_tracking_status_counts_and_due_dates(db_session):
     assert (status["days_recorded"], status["signals_recorded"], status["companies_latest"]) == (1, 2, 2)
     assert status["results_due"][0] == {"months": 1, "date": date(2026, 11, 2)}
     assert [d["months"] for d in status["results_due"]] == [1, 3, 6, 12]
+
+
+def _insights(session, company, target, count, fetched):
+    from sqlalchemy import text
+    session.execute(text("""
+        INSERT INTO company_insights (company_id, fetched_at, target_mean, analyst_count) VALUES (:c, :f, :t, :n)
+        ON CONFLICT (company_id) DO UPDATE SET fetched_at = :f, target_mean = :t, analyst_count = :n"""),
+        {"c": company.company_id, "f": fetched, "t": target, "n": count})
+    session.commit()
+
+
+def test_records_the_targets_in_force_that_night(db_session):
+    """Sift's estimated value, the Graham Number and the analysts' target
+    are kept with each night's call, for the Track record's "then" columns."""
+    from sqlalchemy import text
+    good, dear = _seed(db_session)
+    _insights(db_session, good, Decimal("14.50"), 6, TODAY)
+    record_signals(db_session, TODAY)
+    db_session.commit()
+    snaps = _snapshots(db_session)
+    graham = db_session.execute(text("SELECT graham_number FROM valuation_metrics WHERE company_id = :c AND as_of_date = :d"),
+                                {"c": good.company_id, "d": TODAY}).scalar()
+    g = snaps[good.company_id]
+    assert graham is not None and g.graham_number == graham
+    assert (g.analyst_target, g.analyst_count) == (Decimal("14.5000"), 6)
+    assert (snaps[dear.company_id].analyst_target, snaps[dear.company_id].analyst_count) == (None, None)
+
+
+def test_earlier_nights_are_filled_in_from_what_sift_held_then(db_session):
+    from sqlalchemy import text
+    from src.apply_schema import apply_schema
+    from src.config import get_engine
+    good, dear = _seed(db_session)
+    record_signals(db_session, TODAY)
+    db_session.execute(text("UPDATE signal_snapshots SET graham_number = NULL, analyst_target = NULL, analyst_count = NULL"))
+    db_session.commit()
+    _insights(db_session, good, Decimal("12"), 4, TODAY - timedelta(days=7))   # fetched before that night: in force then
+    _insights(db_session, dear, Decimal("70"), 9, TODAY + timedelta(days=1))   # fetched after: not known that night
+    before = {c: (s.action, s.price, s.estimated_value) for c, s in _snapshots(db_session).items()}
+    db_session.rollback()  # end the read, so the schema can take its locks
+    apply_schema(get_engine())
+    db_session.expire_all()
+    snaps = _snapshots(db_session)
+    assert snaps[good.company_id].graham_number is not None and snaps[good.company_id].analyst_target == Decimal("12")
+    assert snaps[dear.company_id].graham_number is not None and snaps[dear.company_id].analyst_target is None
+    assert {c: (s.action, s.price, s.estimated_value) for c, s in snaps.items()} == before  # the calls are untouched

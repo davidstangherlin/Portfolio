@@ -2419,13 +2419,32 @@ function monthlyCard(d, months) {
 
 function signalTable(items, cols) {
   return h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-    h("thead", {}, h("tr", {}, cols.map((col) => h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : ""].join(" ").trim() || null, text: col.label })))),
+    h("thead", {}, h("tr", {}, cols.map((col) => {
+      const th = h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : ""].join(" ").trim() || null, text: col.label });
+      return col.help ? withHelp(th, col.label) : th;  // hover text from web/knowledge.json labels
+    }))),
     h("tbody", {}, items.map((it) => clickableRow(it.asx_code, cols.map((col) => {
       const v = col.value(it);
       return h("td", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.cls ? col.cls(it) || "" : ""].join(" ").trim() || null }, v);
     }))))));
 }
 const companyCell = { label: "Company", value: (it) => [h("span", { class: "code", text: it.asx_code }), watchStar(it.watchlists), h("div", { class: "name", text: it.company_name || "" })] };
+/* What Sift's estimated value, the analysts' target and the Graham Number
+   stood at on the night of the call, each with its gap to that night's
+   price on hover. Blank before they were recorded. */
+function targetsThen(priceKey) {
+  const cell = (key, extra) => (it) => {
+    const v = it[key], price = it[priceKey];
+    if (v === null || v === undefined) return "";
+    const gap = price ? `${signedPct((v / price - 1) * 100, 0)} on the price then (${money(price)})` : "";
+    return h("span", { title: [gap, extra ? extra(it) : ""].filter(Boolean).join("; "), text: money(v) });
+  };
+  return [
+    { label: "Value then", num: true, opt: true, help: true, value: cell("value_then") },
+    { label: "Target then", num: true, opt: true, help: true, value: cell("target_then", (it) => (it.analysts_then ? `mean of ${plural(it.analysts_then, "analyst")}` : "")) },
+    { label: "Graham then", num: true, opt: true, help: true, value: cell("graham_then") },
+  ];
+}
 
 function actionableCard(d) {
   const a = d.actionable, p = d.proven, mos = d.rules.margin_of_safety;
@@ -2436,6 +2455,7 @@ function actionableCard(d) {
     { label: "Signal", value: (it) => badge(it.action) },
     { label: "Since", opt: true, value: (it) => (it.since ? longDate(it.since) : NA) },
     { label: "Price then", num: true, opt: true, value: (it) => money(it.price_then) },
+    ...targetsThen("price_then"),
     { label: "Price now", num: true, value: (it) => money(it.price_now) },
     { label: "Margin of safety", num: true, cls: (it) => signClass(it.margin_of_safety_now), value: (it) => pct(it.margin_of_safety_now, 0) }];
   const group = (title, items, empty, extraCols = []) => [h("h3", { class: "sub-head", text: `${title} (${items.length})` }),
@@ -2457,6 +2477,7 @@ function missedCard(d) {
       { label: "Signal", value: (it) => badge(it.action) },
       { label: "Date", value: (it) => longDate(it.snapshot_date) },
       { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
+      ...targetsThen("price"),
       { label: "Price now", num: true, opt: true, value: (it) => money(it.price_now) },
       later,
       { label: "Still undervalued", value: (it) => (it.price_now === null ? NA : it.still_undervalued ? "Yes" : "No") }]) : h("p", { class: "empty", text: empty }),
@@ -2465,6 +2486,7 @@ function missedCard(d) {
       { label: "Signal", value: (it) => badge(it.action) },
       { label: "Date", value: (it) => longDate(it.snapshot_date) },
       { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
+      ...targetsThen("price"),
       { label: "Return", num: true, cls: (it) => signClass(it.total_return), value: (it) => signedPct(it.total_return) },
       later]) : h("p", { class: "empty", text: `AVOID calls on shares you didn't hold, and SELL calls on shares you did, that trailed the average by more than ${fmt(d.rules.missed_excess, 0)} points. ${empty}` }));
   c.classList.add("wide");

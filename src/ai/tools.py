@@ -131,7 +131,9 @@ def explain_call(session, code: str) -> dict:
     history, last = [], None
     for n in person_nights(session, date.today() - timedelta(days=365)):
         if n["asx_code"] == c["code"] and n["action"] != last:
-            history.append({"date": n["snapshot_date"], "action": n["action"], "held": n["held"]})
+            history.append({"date": n["snapshot_date"], "action": n["action"], "held": n["held"], "price": n["price"],
+                            "estimated_value": n["estimated_value"], "analyst_target": n["analyst_target"],
+                            "graham_number": n["graham_number"]})  # what each stood at that night
             last = n["action"]
     record = {}
     v = report.verdict(session, None)

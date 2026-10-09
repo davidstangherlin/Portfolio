@@ -59,10 +59,12 @@ class RecordResult:
     personal: int = 0  # people's calls on their holdings recorded (position_snapshots)
 
 
-def snapshot_values(row: dict, rules_version: str = RULES_VERSION) -> dict:
+def snapshot_values(row: dict, rules_version: str = RULES_VERSION, analysts: tuple | None = None) -> dict:
     """One signal_snapshots row from an enriched screener row
-    (src/screening/enriched.py)."""
+    (src/screening/enriched.py), with the analysts' (mean target, count)
+    in force that night."""
     scores = row["axis_scores"]
+    target, count = analysts or (None, None)
     return {
         "company_id": row["company_id"],
         "snapshot_date": row["as_of_date"],
@@ -74,6 +76,9 @@ def snapshot_values(row: dict, rules_version: str = RULES_VERSION) -> dict:
         "margin_of_safety_percent": row["margin_of_safety_percent"],
         "estimated_value": row["dcf_intrinsic_value"],
         "valuation_method": row["valuation_method"],
+        "graham_number": row.get("graham_number"),
+        "analyst_target": target,
+        "analyst_count": count,
         "score_total": sum(scores.values()),
         "score_value": scores["Value"],
         "score_performance": scores["Performance"],
@@ -111,6 +116,8 @@ def record_signals(session, today: date, universe: Universe | None = None) -> Re
     reported) rather than recorded wrongly."""
     universe = universe or load_universe(session, today, neutral=True)
     latest_price = _latest_price_dates(session)
+    analysts = {c: (t, n) for c, t, n in session.execute(text(
+        "SELECT company_id, target_mean, analyst_count FROM company_insights WHERE target_mean IS NOT NULL"))}
     result = RecordResult()
     recorded: dict[str, dict] = {}
     for row in universe.rows:
@@ -119,7 +126,7 @@ def record_signals(session, today: date, universe: Universe | None = None) -> Re
         if latest_price.get(row["company_id"]) != row["as_of_date"]:
             result.stale.append(row["asx_code"])
             continue
-        stmt = (insert(SignalSnapshot).values(**snapshot_values(row))
+        stmt = (insert(SignalSnapshot).values(**snapshot_values(row, analysts=analysts.get(row["company_id"])))
                 .on_conflict_do_nothing(index_elements=["company_id", "snapshot_date"])
                 .returning(SignalSnapshot.company_id))
         if session.execute(stmt).first() is None:
@@ -161,7 +168,8 @@ def person_nights(session, since: date | None = None, owner_id=None) -> list[dic
         SELECT c.asx_code, c.company_name, s.company_id, s.snapshot_date, s.price,
                COALESCE(p.action, s.action) AS action, p.owner_id IS NOT NULL AS held,
                COALESCE(p.rules_version, s.rules_version) AS rules_version,
-               s.margin_of_safety_percent, s.valuation_status
+               s.margin_of_safety_percent, s.valuation_status,
+               s.estimated_value, s.graham_number, s.analyst_target, s.analyst_count
         FROM signal_snapshots s
         JOIN companies c ON c.company_id = s.company_id
         LEFT JOIN position_snapshots p

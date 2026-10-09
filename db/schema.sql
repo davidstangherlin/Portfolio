@@ -910,3 +910,23 @@ CREATE TABLE IF NOT EXISTS substantial_holdings (
     votes NUMERIC(20, 0)
 );
 CREATE INDEX IF NOT EXISTS idx_substantial_holdings_manager ON substantial_holdings (manager);
+
+-- 13. WHAT THE TARGETS WERE ON EACH NIGHT OF THE RECORD (docs/kb/features/track-record.md)
+-- The Graham Number and the analysts' consensus target (Yahoo's mean, with
+-- how many analysts) recorded with each night's call, beside the price and
+-- Sift's estimated value, so the track record can show what each stood at
+-- when the call was made. Filled in for earlier nights from what Sift held
+-- that night: the Graham Number from that night's valuation, and the
+-- analysts' target from the latest weekly fetch for the nights since it.
+-- The calls themselves are untouched (the record stays as it was made).
+ALTER TABLE signal_snapshots ADD COLUMN IF NOT EXISTS graham_number NUMERIC(12, 4);
+ALTER TABLE signal_snapshots ADD COLUMN IF NOT EXISTS analyst_target NUMERIC(14, 4);
+ALTER TABLE signal_snapshots ADD COLUMN IF NOT EXISTS analyst_count INT;
+UPDATE signal_snapshots s SET graham_number = v.graham_number
+FROM valuation_metrics v
+WHERE s.graham_number IS NULL AND v.graham_number IS NOT NULL
+  AND v.company_id = s.company_id AND v.as_of_date = s.snapshot_date;
+UPDATE signal_snapshots s SET analyst_target = i.target_mean, analyst_count = i.analyst_count
+FROM company_insights i
+WHERE s.analyst_target IS NULL AND i.target_mean IS NOT NULL
+  AND i.company_id = s.company_id AND s.snapshot_date >= CAST(i.fetched_at AS DATE);

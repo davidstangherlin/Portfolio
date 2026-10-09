@@ -102,6 +102,8 @@ _LATEST_OUTCOME = """
     SELECT DISTINCT ON (s.company_id, s.snapshot_date)
            c.asx_code, c.company_name, s.snapshot_date, COALESCE(p.action, s.action) AS action,
            p.owner_id IS NOT NULL AS held, s.price, COALESCE(p.rules_version, s.rules_version) AS rules_version,
+           s.estimated_value AS value_then, s.graham_number AS graham_then, s.analyst_target AS target_then,
+           s.analyst_count AS analysts_then,
            o.horizon_months, o.total_return, o.excess_return, o.end_price, o.end_date, o.delisted
     FROM signal_outcomes o
     JOIN signal_snapshots s USING (company_id, snapshot_date)
@@ -165,6 +167,14 @@ def missed_and_saved(session, version: str | None, current: dict[str, dict], thr
     return (finish(missed, lambda r: -r["excess_return"]), finish(saved, lambda r: r["excess_return"]))
 
 
+def _targets_then(night: dict | None) -> dict:
+    """What Sift's estimated value, the Graham Number and the analysts'
+    target stood at on the night of a call (None before they were recorded)."""
+    night = night or {}
+    return {"value_then": night.get("estimated_value"), "graham_then": night.get("graham_number"),
+            "target_then": night.get("analyst_target"), "analysts_then": night.get("analyst_count")}
+
+
 def proven_actions(v: dict) -> tuple[list[str], bool, int | None]:
     """Buy-side actions that have beaten the average with at least moderate
     confidence, judged at 3 months (or 1 month while 3 isn't available).
@@ -205,6 +215,7 @@ def actionable(session, current_rows: list[dict], proven: list[str], threshold: 
         start = entered(r["asx_code"], r["action"])
         item = {"asx_code": r["asx_code"], "company_name": r["company_name"], "action": r["action"],
                 "since": start["snapshot_date"] if start else None, "price_then": start["price"] if start else None,
+                **_targets_then(start),
                 "price_now": r["current_price"], "margin_of_safety_now": r["margin_of_safety_percent"],
                 "watchlists": watched.get(r["asx_code"], [])}
         (new if start is None or (latest - start["snapshot_date"]).days < NEW_SIGNAL_DAYS else still_open).append(item)
@@ -232,6 +243,7 @@ def actionable(session, current_rows: list[dict], proven: list[str], threshold: 
             why = f"now {now['action']}"
         moved.append({"asx_code": code, "company_name": now["company_name"], "action": last["action"],
                       "since": last["snapshot_date"], "price_then": last["price"], "price_now": now["current_price"],
+                      **_targets_then(last),
                       "margin_of_safety_now": mos, "action_now": now["action"], "why": why,
                       "watchlists": watched.get(code, [])})
 
