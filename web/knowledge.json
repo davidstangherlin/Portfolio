@@ -2064,7 +2064,7 @@
    ],
    "definition": "The search box in the menu bar finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists and portfolios, help articles, pages and settings.",
    "body": [
-    "Everything or this page: the pink ▾ beside the magnifying glass chooses. The dashboard and the results page search everything; every other page searches itself by default.",
+    "Everything or this page: the pink ▾ beside the magnifying glass chooses. The dashboard and the results page search everything; every other page searches itself by default. Admins have a third choice, Developer knowledge base, which searches only the developer articles; they're never mixed into Everything.",
     "This page: on a list (the screener, ETFs, LICs, Coattail, a watchlist or portfolio) the words go into that list's search box; on Help, into the help search; on any other page they're highlighted where they appear, and Enter again moves to the next. If they're not on the page, Sift shows results from everywhere instead.",
     "Everything: an exact ASX code opens that company or fund straight away; anything else opens the results page. Each word can be the start of a word (wes finds Wesfarmers) and plurals match (dividends finds dividend). Small typos are forgiven when the exact words find little (vangaurd finds Vanguard).",
     "Results: the best 100, exact codes and titles first, with the matched words highlighted. Tick boxes down the left narrow them by type, sector or category, recommendation, Mine (held, on a watchlist, your lists) and knowledge article topic, each with a count; ticking one box never hides the others in its group. On a phone, Filters opens the tick boxes.",
@@ -2189,7 +2189,7 @@
     "Generated reference pages are built from Sift itself each time they're opened, so they're always current: the data dictionary, every API route, every setting, dependencies and the test catalogue.",
     "The improvement register lists known issues, technical debt, ideas and risks, with priority and status. Release notes record each version of Sift.",
     "Each article shows its version, owner, published and last reviewed dates and when it's next due for review; overdue reviews show on the home page.",
-    "Articles are kept with the code in git (docs/kb), so they change with it. Only admins can open them, and only admins find them in search."
+    "Articles are kept with the code in git (docs/kb), so they change with it. Only admins can open them. To search them, choose Developer knowledge base in the search box's pink menu (the default on these pages); they're never mixed into Everything."
    ],
    "related": [
     "users-impersonation"

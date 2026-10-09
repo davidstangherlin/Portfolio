@@ -339,7 +339,9 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Search** (top right) finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists
   and portfolios, help articles, pages and settings. The pink **▾** beside the magnifying glass
   chooses **Everything** or **This page**: the dashboard searches everything, every other page
-  itself (its list's search box, or highlighting the words on the page). Results come with tick
+  itself (its list's search box, or highlighting the words on the page). Admins also get
+  **Developer knowledge base**, which searches only the developer articles; they're never in
+  Everything. Results come with tick
   boxes down the left (type, sector or category, recommendation, Mine, knowledge article topic).
   The index is rebuilt after each nightly run, your own lists when you save them, and help and
   pages when Sift starts; rebuild it now from **Admin → Search**, or with

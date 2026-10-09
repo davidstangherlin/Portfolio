@@ -1148,11 +1148,14 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
     @app.get("/api/search")
     def api_search(q: str = "", type: list[str] = Query(default=[]), sector: list[str] = Query(default=[]),  # noqa: A002
                    recommendation: list[str] = Query(default=[]), mine: list[str] = Query(default=[]),
-                   topic: list[str] = Query(default=[]), log: bool = False, query_id: int | None = None):
-        """`log=1` records the search (the page sends it once per new search, not per tick box)."""
+                   topic: list[str] = Query(default=[]), log: bool = False, query_id: int | None = None, scope: str = "all"):
+        """`log=1` records the search (the page sends it once per new search, not per tick box).
+        `scope=devkb` searches only the developer knowledge base (admins only, §36)."""
+        if scope not in search_query.SCOPES:
+            raise HTTPException(status_code=400, detail=f"scope must be one of {', '.join(search_query.SCOPES)}")
         selected = {"type": type, "sector": sector, "recommendation": recommendation, "mine": mine, "topic": topic}
         with get_session() as session:
-            result = search_query.search(session, q, selected, log=log, query_id=query_id)
+            result = search_query.search(session, q, selected, log=log, query_id=query_id, scope=scope)
             session.commit()
             return JSONResponse(_json_ready(result))
 

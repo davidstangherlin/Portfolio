@@ -71,6 +71,7 @@ def _sql(typo: bool, n: int) -> str:
                + ts_rank_cd(s.search_vector, q.query) * 4 + {near} + s.rank_boost AS score
         FROM search_index s, q
         WHERE (s.owner_id IS NULL OR s.owner_id = :owner) AND (s.audience = 'all' OR :admin)
+          AND (s.area = 'devkb') = :devkb
           AND {match}
         ORDER BY score DESC, s.title
         LIMIT {CANDIDATES}
@@ -107,8 +108,8 @@ def _values(row: dict) -> dict[str, list[str]]:
             "topic": [f["topic"]] if f.get("topic") else []}
 
 
-def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool) -> list[dict]:
-    params = {"plain": " ".join(ws), "exact": exact, "owner": owner_id, "admin": _is_admin(session, owner_id)}
+def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool, devkb: bool = False) -> list[dict]:
+    params = {"plain": " ".join(ws), "exact": exact, "owner": owner_id, "admin": _is_admin(session, owner_id), "devkb": devkb}
     for i, w in enumerate(ws):
         params[f"w{i}"], params[f"p{i}"] = w, f"{w}:*"
     rows = [dict(r) for r in session.execute(text(_sql(False, len(ws))), params).mappings()]
@@ -120,12 +121,15 @@ def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool) -> l
 
 _BY_ID = text("""
     SELECT doc_id, kind, code, title, subtitle, url, facets, left(coalesce(nullif(body, ''), subtitle, ''), 220) AS snippet, rank_boost AS score
-    FROM search_index WHERE doc_id = ANY(:ids) AND (audience = 'all' OR :admin)
+    FROM search_index WHERE doc_id = ANY(:ids) AND (audience = 'all' OR :admin) AND (area = 'devkb') = :devkb
 """)
 
 
+SCOPES = ("all", "devkb")  # everything a person may see, or (admins only) the developer knowledge base
+
+
 def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_id=None, log: bool = False,
-           query_id: int | None = None) -> dict:
+           query_id: int | None = None, scope: str = "all") -> dict:
     """Results for `q`, narrowed by the ticked boxes in `selected` ({group: [values]}),
     with every group's boxes and counts.
 
@@ -135,10 +139,15 @@ def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_
     meaning found), then what clicks and votes have taught for these words
     (src/search/learning.py). `log` records the search (once per search,
     not per tick box); the result carries its query_id for clicks. Personal
-rows and "Mine" are the current user's unless `owner_id` says otherwise."""
+rows and "Mine" are the current user's unless `owner_id` says otherwise.
+
+    `scope` "all" searches everything except the developer knowledge base;
+    "devkb" searches only it, and finds nothing for someone who isn't an
+    admin (§36)."""
     selected = {g: set(v) for g, v in (selected or {}).items() if g in GROUPS and v}
     owner_id = owner_id or current_user_id(session)
-    ws = words(q)
+    devkb = scope == "devkb"
+    ws = words(q) if not devkb or _is_admin(session, owner_id) else []
     typo = _typo_tolerant(session)
     embedder = embeddings.get_embedder()
     if not ws:
@@ -147,7 +156,7 @@ rows and "Mine" are the current user's unless `owner_id` says otherwise."""
     exact = re.sub(r"\s+", " ", (q or "").strip().lower()).replace("%", "").replace("_", "")
     found: dict[str, dict] = {}
     for i, variant in enumerate(learning.variants(session, ws)):
-        for r in _word_matches(session, variant, exact if i == 0 else " ".join(variant), owner_id, typo):
+        for r in _word_matches(session, variant, exact if i == 0 else " ".join(variant), owner_id, typo, devkb):
             r["score"] = float(r["score"]) * (1 if i == 0 else SYNONYM_SCORE)
             if r["doc_id"] not in found or r["score"] > found[r["doc_id"]]["score"]:
                 found[r["doc_id"]] = r
@@ -155,7 +164,7 @@ rows and "Mine" are the current user's unless `owner_id` says otherwise."""
         meaning = dict(embeddings.semantic_matches(session, embedder, q, owner_id))
         missing = [d for d in meaning if d not in found]
         if missing:
-            for r in session.execute(_BY_ID, {"ids": missing, "admin": _is_admin(session, owner_id)}).mappings():
+            for r in session.execute(_BY_ID, {"ids": missing, "admin": _is_admin(session, owner_id), "devkb": devkb}).mappings():
                 found[r["doc_id"]] = dict(r) | {"score": float(r["score"])}
         for d, sim in meaning.items():
             if d in found:

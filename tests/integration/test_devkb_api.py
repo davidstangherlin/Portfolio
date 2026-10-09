@@ -61,12 +61,22 @@ def test_generated_pages_describe_the_running_system(client, db_session):
     assert "fastapi" in deps and "PostgreSQL" in deps
 
 
-def test_search_shows_developer_articles_to_admins_only(db_session):
+def test_developer_articles_are_searched_only_in_their_own_scope_by_admins(db_session):
     accounts.owner(db_session)
     sam = accounts.create_user(db_session, SAM, "Sam")
-    indexer.reindex(db_session, ("devkb",), "manual")
+    indexer.reindex(db_session, ("devkb", "help"), "manual")
     db_session.commit()
-    found = search(db_session, "impersonation runbook")["results"]
-    assert any(r["url"] == "#/admin/kb/rb-impersonation" for r in found)
+    kb = lambda res: [r for r in res["results"] if r["url"].startswith("#/admin/kb")]  # noqa: E731
+    assert kb(search(db_session, "impersonation runbook")) == []  # never in Everything, even for an admin
+    found = kb(search(db_session, "impersonation runbook", scope="devkb"))
+    assert found and found[0]["url"] == "#/admin/kb/rb-impersonation"
+    assert all(r["url"].startswith("#/admin/kb") for r in search(db_session, "search", scope="devkb")["results"])
     with accounts.acting_as(sam.user_id):
-        assert not any(r["url"].startswith("#/admin/kb") for r in search(db_session, "impersonation runbook")["results"])
+        assert search(db_session, "impersonation runbook", scope="devkb")["results"] == []  # members: nothing
+
+
+def test_the_search_api_takes_the_scope(client):
+    r = client.get("/api/search", params={"q": "nightly run", "scope": "devkb"}, headers=as_(OWNER))
+    assert r.status_code == 200
+    assert client.get("/api/search", params={"q": "x", "scope": "web"}, headers=as_(OWNER)).status_code == 400
+    assert client.get("/api/search", params={"q": "nightly run", "scope": "devkb"}, headers=as_(SAM)).json()["results"] == []

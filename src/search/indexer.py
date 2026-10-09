@@ -229,21 +229,17 @@ def page_docs(ctx: _Context) -> list[dict]:
     return docs
 
 
-# Developer articles are long and match many words; they rank after the
-# shares, help and pages people usually want, unless their title matches.
-DEVKB_BOOST = -2.0
-
-
 def devkb_docs(ctx: _Context) -> list[dict]:
-    """The developer knowledge base (§36): admins only."""
+    """The developer knowledge base (§36): admins only, and searched only when
+    an admin picks it in the search scope menu, never in "Everything"."""
     from src.devkb import articles, generated, markdown
 
     docs = [_doc("devkb", "devkb", a.id, a.title, f"#/admin/kb/{a.id}",
                  subtitle=f"{articles.CATEGORIES[a.category]} · {a.summary}", body=markdown.plain(a.body)[:20000],
-                 facets={"topic": "Developer knowledge base"}, audience="admin", rank_boost=DEVKB_BOOST)
+                 facets={"topic": "Developer knowledge base"}, audience="admin")
             for a in articles.load() if a.status != "retired"]
     docs += [_doc("devkb", "devkb", key, title, f"#/admin/kb/{key}", subtitle=f"Generated reference · {summary}",
-                  facets={"topic": "Developer knowledge base"}, audience="admin", rank_boost=DEVKB_BOOST)
+                  facets={"topic": "Developer knowledge base"}, audience="admin")
              for key, (title, _, summary) in generated.GENERATED.items()]
     docs.append(_doc("devkb", "devkb", "home", "Developer knowledge base", "#/admin/kb",
                      subtitle="Admin · how Sift is designed and how it works: articles, runbooks, decision records, "

@@ -3,7 +3,7 @@ id: developer-kb
 title: The developer knowledge base
 category: features
 summary: How this knowledge base is built: articles in git, the checked header, the safe Markdown renderer, generated reference pages, the register, versions, review reminders and admin-only search.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -26,7 +26,7 @@ Keep Sift's design and operating knowledge where admins and helpers can find it,
 - **Register** (`src/devkb/register.py`): `docs/kb/improvements.json`, items IMP-001 to IMP-036 carrying AS_BUILT's known issue numbers, later ones new. Type, priority, status, impact, dates, linked articles and notes.
 - **Versions:** `src/version.py` holds Sift's version and release date; release notes are articles in `releases/` with a `release:` field.
 - **Reviews:** each article's `next_review`; the home page lists overdue ones and those due within 30 days (`DUE_SOON_DAYS`).
-- **Access:** the pages are under Admin (`#/admin/kb`, `#/admin/kb/<id>`, `#/admin/kb/register`) and the API under `/api/admin/kb`, which the middleware refuses to members. Search indexes every article in the `devkb` area with `audience` 'admin'; the query shows those rows only to admins.
+- **Access:** the pages are under Admin (`#/admin/kb`, `#/admin/kb/<id>`, `#/admin/kb/register`) and the API under `/api/admin/kb`, which the middleware refuses to members. Search indexes every article (and the home page) in the `devkb` area with `audience` 'admin'. They're never in Everything: an admin picks **Developer knowledge base (admins)** in the search box's pink ▾ menu (the default on these pages), which sends `scope=devkb`; that scope searches only these rows and returns nothing for a member. On the home page and the register, **This page** types into their own filter box.
 
 ## Code map
 
@@ -45,6 +45,7 @@ Keep Sift's design and operating knowledge where admins and helpers can find it,
 
 ## Diagnosing problems
 
+- An article isn't found in Everything: by design; choose Developer knowledge base in the ▾ menu.
 - The home page fails to load: an article has a bad header; the error names the file. `tests/unit/test_devkb.py` catches this before a push.
 - A new article doesn't appear in search: restart Sift (the knowledge base is reindexed on start) or rebuild the devkb area in Admin, Search.
 
@@ -56,4 +57,4 @@ Keep Sift's design and operating knowledge where admins and helpers can find it,
 ## Tests
 
 - `tests/unit/test_devkb.py`: every header, link, code path, register item and release note; the renderer's escaping and markup
-- `tests/integration/test_devkb_api.py`: the API is admin-only, articles and generated pages render, search shows articles to admins only
+- `tests/integration/test_devkb_api.py`: the API is admin-only, articles and generated pages render, articles are never in Everything and only admins find them in their own scope

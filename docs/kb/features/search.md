@@ -3,7 +3,7 @@ id: search
 title: Search across Sift
 category: features
 summary: The search index, its areas and registers, ranking, tick-box filters, learning from clicks and votes, synonyms, AI-ready embeddings, and who sees which rows.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -74,6 +74,10 @@ One search box (top right) for everything the user can see, with a scope switch 
 **Tests.** `tests/unit/test_search_coverage.py` (every table and menu page accounted for) and a scenario search in `tests/integration/test_search.py` were added with the registers.
 
 **Tests.** `tests/unit/test_search_query.py` (words, query shape) and `tests/integration/test_search.py` (ranking, word starts, typos, tick-box counts, a saved watchlist searchable at once through the API, admin status and rebuild, start-up). Browser-checked at 1400px and 390px: scope menu, results and tick boxes, this-page search on the screener, Help and a company page, the fall-back to everywhere, and the admin rebuild.
+
+### Scopes
+
+The pink ▾ beside the search box chooses where to search: **Everything** (every area a person may see, except the developer knowledge base), **This page** (the page's own filter or highlighting), and, for admins only, **Developer knowledge base** (`scope=devkb` on `/api/search`, only the `devkb` area). See [The developer knowledge base](kb:developer-kb).
 
 ## Code map
 

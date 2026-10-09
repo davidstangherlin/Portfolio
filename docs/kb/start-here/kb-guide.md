@@ -3,7 +3,7 @@ id: kb-guide
 title: How this knowledge base works
 category: start-here
 summary: What the developer knowledge base is for, how articles are written, versioned and reviewed, and how to add a new article, decision record or release note.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -19,7 +19,7 @@ This is Sift's developer knowledge base: how Sift is designed and how it works, 
 
 ## Where articles live
 
-Every article is a Markdown file in `docs/kb/`, in a folder for its category, named after its id (`docs/kb/features/search.md` has the id `search`). Articles are edited in git with the code they describe, so every change has history and review. Sift shows them under **Admin, Developer**, to admins only, and Sift's search finds them for admins only.
+Every article is a Markdown file in `docs/kb/`, in a folder for its category, named after its id (`docs/kb/features/search.md` has the id `search`). Articles are edited in git with the code they describe, so every change has history and review. Sift shows them under **Admin, Developer**, to admins only. To search them, an admin picks **Developer knowledge base** in the search box's pink ▾ menu (the default on these pages); they're never mixed into Everything.
 
 | Category | Folder | What goes there |
 |---|---|---|

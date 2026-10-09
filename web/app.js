@@ -1041,23 +1041,27 @@ function findCompany(q) {
 /* ---------- search scope (§32): everything, or this page ---------- */
 const PAGE_LABELS = { dashboard: "Dashboard", screener: "Screener", etfs: "ETFs", etf: "this ETF", lics: "LICs", lic: "this LIC",
   company: "this company", "track-record": "Track record", coattail: "Coattail", help: "Help", admin: "Admin",
-  watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results", profile: "Profile", preferences: "Preferences" };
+  watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results", profile: "Profile", preferences: "Preferences",
+  kb: "Developer knowledge base" };
 const searchScope = { page: "dashboard", mode: "all" };
-/* The dashboard and the results page search everything by default; every other page, itself. */
+/* The dashboard and the results page search everything by default; every other page, itself.
+   Admins also have the developer knowledge base, the default on its own pages (§36). */
+const canSearchKb = () => !!(me.user && me.user.admin);
 function setSearchPage(page) {
   searchScope.page = page;
   const pref = me.settings.search_scope;  // Preferences, User experience (§35)
-  searchScope.mode = pref === "all" || pref === "page" ? pref : page === "dashboard" || page === "search" ? "all" : "page";
+  if (page === "kb" && canSearchKb() && pref !== "all") searchScope.mode = "devkb";
+  else searchScope.mode = pref === "all" || pref === "page" ? pref : page === "dashboard" || page === "search" ? "all" : "page";
   paintSearchScope();
 }
 function paintSearchScope() {
   const input = document.getElementById("nav-search-input"), btn = document.getElementById("search-scope");
   if (!input || !btn) return;
-  const label = PAGE_LABELS[searchScope.page] || "this page";
-  const all = searchScope.mode === "all";
-  input.placeholder = matchMedia("(max-width: 480px)").matches ? "Search" : all ? "Search everything" : `Search ${label}`;
+  const all = searchScope.mode === "all", kb = searchScope.mode === "devkb";
+  const label = kb ? "the developer knowledge base" : PAGE_LABELS[searchScope.page] || "this page";
+  input.placeholder = matchMedia("(max-width: 480px)").matches ? "Search" : all ? "Search everything" : kb ? "Search developer articles" : `Search ${label}`;
   input.setAttribute("aria-label", all ? "Search everything in Sift" : `Search ${label}`);
-  btn.title = all ? "Searching everything. Click to search this page instead." : `Searching ${label}. Click to search everything.`;
+  btn.title = all ? "Searching everything. Click to choose where to search." : `Searching ${label}. Click to choose where to search.`;
   btn.setAttribute("aria-label", `Search scope: ${all ? "everything" : label}`);
   btn.classList.toggle("page", !all);
 }
@@ -1066,7 +1070,9 @@ function initSearchScope() {
   const pick = (mode) => { searchScope.mode = mode; paintSearchScope(); menu.hidden = true; btn.setAttribute("aria-expanded", "false"); document.getElementById("nav-search-input").focus(); };
   const draw = () => {
     const label = PAGE_LABELS[searchScope.page] || "this page";
-    menu.replaceChildren(...[["all", "Everything"], ["page", `This page: ${label}`]].map(([mode, title]) =>
+    const choices = [["all", "Everything"], ["page", `This page: ${label}`]];
+    if (canSearchKb()) choices.push(["devkb", "Developer knowledge base (admins)"]);
+    menu.replaceChildren(...choices.map(([mode, title]) =>
       h("button", { type: "button", role: "menuitemradio", "aria-checked": String(searchScope.mode === mode), onclick: () => pick(mode) },
         h("span", { class: "scope-tick", "aria-hidden": "true", text: searchScope.mode === mode ? "✓" : "" }),
         h("span", { class: "scope-title", text: title }))));
@@ -1149,6 +1155,10 @@ function initSearch() {
     e.preventDefault();
     const q = input.value.trim();
     if (searchScope.mode === "page") { thisPageSearch(q); return; }
+    if (searchScope.mode === "devkb") {
+      if (q) { input.value = ""; input.blur(); closeMenus(); location.hash = `#/search?q=${encodeURIComponent(q)}&scope=devkb`; }
+      return;
+    }
     const exactCode = (cache.companies || []).find((x) => x.code === q.toUpperCase());
     if (exactCode) { go(exactCode); return; }
     if (q) { input.value = ""; input.blur(); closeMenus(); location.hash = `#/search?q=${encodeURIComponent(q)}`; return; }
@@ -2003,23 +2013,29 @@ function snippetNodes(s) {
 async function renderSearch(query) {
   const params = new URLSearchParams(query);
   const q = params.get("q") || "";
+  const kb = params.get("scope") === "devkb";  // the developer knowledge base, admins only (§36)
+  const fresh = (text) => { const p = new URLSearchParams(); p.set("q", text); if (kb) p.set("scope", "devkb"); return p; };
   const go = (p) => { location.hash = `#/search?${p.toString()}`; };
-  const box = h("input", { type: "search", class: "search-big", value: q, placeholder: "Search shares, ETFs, LICs, fund managers, your lists, help and settings",
-    "aria-label": "Search everything in Sift" });
+  const box = h("input", { type: "search", class: "search-big", value: q,
+    placeholder: kb ? "Search the developer knowledge base" : "Search shares, ETFs, LICs, fund managers, your lists, help and settings",
+    "aria-label": kb ? "Search the developer knowledge base" : "Search everything in Sift" });
+  const scopeNote = kb ? h("p", { class: "hint scope-note" }, "Searching the developer knowledge base only. ",
+    h("a", { href: `#/search?q=${encodeURIComponent(q)}`, text: "Search everything instead" })) : null;
+  const headSub = kb ? "Developer knowledge base" : "Everything in Sift";
   const form = h("form", { class: "search-form", role: "search" }, box, h("button", { type: "submit", class: "btn primary", text: "Search" }));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const p = new URLSearchParams(); p.set("q", box.value.trim());
-    go(p);
+    go(fresh(box.value.trim()));
   });
   if (!q.trim()) {
-    app.replaceChildren(pageHead("Search", "Everything in Sift"), form,
-      h("p", { class: "hint", text: "Type an ASX code, a company, ETF, LIC or fund manager, one of your watchlists or portfolios, a term such as franking, or a setting such as discount rate." }));
+    app.replaceChildren(...[pageHead("Search", headSub), form, scopeNote,
+      h("p", { class: "hint", text: "Type an ASX code, a company, ETF, LIC or fund manager, one of your watchlists or portfolios, a term such as franking, or a setting such as discount rate." })].filter(Boolean));
     box.focus();
     return;
   }
-  app.replaceChildren(pageHead("Search", `Searching for "${q}"...`), form);
+  app.replaceChildren(...[pageHead("Search", `Searching for "${q}"...`), form, scopeNote].filter(Boolean));
   const api = new URLSearchParams(); api.set("q", q);
+  if (kb) api.set("scope", "devkb");
   for (const g of FACET_GROUPS) for (const v of params.getAll(g)) api.append(g, v);
   if (searchLog.q === q && searchLog.queryId) api.set("query_id", searchLog.queryId); else api.set("log", "1");
   const d = await getJSON(`/api/search?${api.toString()}`);
@@ -2034,7 +2050,7 @@ async function renderSearch(query) {
   };
   const facets = h("aside", { class: "facets", "aria-label": "Filter the results" },
     h("div", { class: "facets-head" }, h("span", { text: "Filter" }),
-      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear all", onclick: () => { const p = new URLSearchParams(); p.set("q", q); go(p); } }) : null),
+      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear all", onclick: () => go(fresh(q)) }) : null),
     d.facets.map((f) => {
       const boxes = f.boxes.map((b, i) => h("label", { class: "facet-box", hidden: i >= FACET_SHOWN && !b.ticked },
         h("input", { type: "checkbox", checked: b.ticked, onchange: (e) => toggle(f.group, b.value, e.target.checked) }),
@@ -2056,12 +2072,12 @@ async function renderSearch(query) {
       r.snippet && r.snippet.replace(/[\u0002\u0003]/g, "") !== r.subtitle ? h("div", { class: "result-snippet" }, snippetNodes(r.snippet)) : null),
     thumbs(d.norm, r))))
     : h("p", { class: "empty" }, ticked ? "Nothing matches with these filters. " : `Nothing in Sift matches "${q}". `,
-      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear the filters", onclick: () => { const p = new URLSearchParams(); p.set("q", q); go(p); } })
+      ticked ? h("button", { type: "button", class: "link-btn", text: "Clear the filters", onclick: () => go(fresh(q)) })
         : "Try fewer or shorter words, or an ASX code.");
   const sub = `${plural(d.total, "result")} for "${q}"${d.total > d.results.length ? `, showing the best ${d.results.length}` : ""}`;
   const flash = cache.flash ? h("p", { class: "hint search-flash", text: cache.flash }) : null;
   cache.flash = null;
-  app.replaceChildren(...[pageHead("Search", sub), form, flash,
+  app.replaceChildren(...[pageHead("Search", sub), form, scopeNote, flash,
     h("div", { class: "search-layout" }, d.facets.length ? [filtersBtn, facets] : null, h("section", { class: "search-results" }, results))].filter(Boolean));
   window.scrollTo(0, 0);
 }
@@ -3929,7 +3945,7 @@ function kbItem(a) {
 async function renderKb() {
   app.replaceChildren(pageHead("Developer knowledge base", null), adminTabs("kb"), h("p", { class: "loading", text: "Loading..." }));
   const d = await getJSON("/api/admin/kb");
-  const filter = h("input", { type: "search", class: "pref-search kb-filter", placeholder: "Filter articles", "aria-label": "Filter articles" });
+  const filter = h("input", { type: "search", class: "pref-search kb-filter page-search", placeholder: "Filter articles", "aria-label": "Filter articles" });
   const reviewList = (items, cls) => h("ul", { class: "kb-review-list" }, items.map((a) => h("li", {},
     h("a", { href: `#/admin/kb/${a.id}`, text: a.title }), h("span", { class: `pill ${cls}`, text: kbDate(a.next_review) }))));
   const r = d.reviews, reg = d.register;
@@ -4026,7 +4042,7 @@ async function renderKbRegister(query) {
       h("td", { text: d.statuses[i.status] }),
       h("td", { class: "opt", text: kbDate(i.updated) }))));
   }
-  const search = h("input", { type: "search", class: "pref-search", placeholder: "Search the register", "aria-label": "Search the register", value: state.q,
+  const search = h("input", { type: "search", class: "pref-search page-search", placeholder: "Search the register", "aria-label": "Search the register", value: state.q,
     oninput: (e) => { state.q = e.target.value; paint(); } });
   paint();
   app.replaceChildren(pageHead("Improvement register", "Known issues, technical debt, ideas and risks"), adminTabs("kb"),
@@ -4110,9 +4126,9 @@ const ROUTES = [
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
   [/^#\/admin\/search$/, "admin", () => renderAdminSearch()],
   [/^#\/admin\/users$/, "admin", () => renderAdminUsers()],
-  [/^#\/admin\/kb$/, "admin", () => renderKb()],
-  [/^#\/admin\/kb\/register(?:\?(.*))?$/, "admin", (m) => renderKbRegister(m[1])],
-  [/^#\/admin\/kb\/([a-z0-9-]+)(?:\?(.*))?$/, "admin", (m) => renderKbArticle(m[1], m[2])],
+  [/^#\/admin\/kb$/, "kb", () => renderKb()],
+  [/^#\/admin\/kb\/register(?:\?(.*))?$/, "kb", (m) => renderKbRegister(m[1])],
+  [/^#\/admin\/kb\/([a-z0-9-]+)(?:\?(.*))?$/, "kb", (m) => renderKbArticle(m[1], m[2])],
   [/^#\/profile$/, "profile", () => renderProfile()],
   [/^#\/preferences(?:\/([a-z]+))?$/, "preferences", (m) => renderPreferences(m[1])],
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
