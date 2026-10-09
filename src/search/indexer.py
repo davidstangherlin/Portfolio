@@ -86,20 +86,20 @@ _INSERT = text("""
 
 PAGES = [
     ("Dashboard", "#/", "Home: what needs attention, what changed, biggest movers, top opportunities, your ETFs and LICs, and the track record."),
-    ("Screener", "#/screener", "Every company Sift values, with its score, margin of safety, the four value tests and a suggested action."),
-    ("ETFs", "#/etfs", "Every ETF on the ASX with fee, size, yield and returns."),
-    ("LICs", "#/lics", "Listed investment companies and trusts, priced against their net tangible assets."),
+    ("ASX Stocks screener", "#/screener", "Every ASX company Sift values, with its score, margin of safety, the four value tests and a suggested action."),
+    ("ETFs", "#/etfs", "Under Screener: every ETF on the ASX with fee, size, yield and returns."),
+    ("LICs", "#/lics", "Under Screener: listed investment companies and trusts, priced against their net tangible assets."),
     ("Watchlists", "#/watchlists", "Your named lists of companies, ETFs and LICs to follow, with notes and triggers."),
     ("Portfolios", "#/portfolios", "Your portfolios, holdings, trades, CGT and the tax report."),
     ("Track record", "#/track-record", "Whether Sift's suggestions have worked: accuracy by action, what you missed, what now."),
     ("Coattail", "#/coattail", "Follow the smart money: which fund managers hold the screener's companies and what they're buying and selling."),
-    ("Help", "#/help", "The knowledge base: every term and screen explained."),
+    ("Help", "#/help", "The knowledge base: every term and screen explained. The ? beside your profile picture."),
     ("Model and rules", "#/admin", "Admin console: every setting and formula behind Sift's valuations, tests and actions."),
     ("What-if scenarios", "#/admin/scenarios", "Try changed settings against today's data without touching the live ones."),
     ("Profile", "#/profile", "Your account: display name, email and role."),
-    ("Preferences", "#/preferences", "Your settings: theme (light, dark or system), compact spacing, wrapping, help tips, "
+    ("Preferences", "#/preferences", "Your settings: theme (dark or light), compact spacing, wrapping, help tips, "
      "accessibility (reduce motion, chart patterns and data tables, keyboard shortcuts), start page, search scope and rows shown."),
-    ("Users", "#/admin/users", "Admin: add, disable and change the role of accounts, impersonate a member, and the impersonation log."),
+    ("Users", "#/admin/users", "Admin: add, disable and change the role of accounts, impersonate a member, the impersonation log, and sessions: last login, last seen and session length."),
 ]
 
 

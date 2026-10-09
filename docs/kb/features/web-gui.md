@@ -3,7 +3,7 @@ id: web-gui
 title: Sift web app: pages, dashboard and layout
 category: features
 summary: How the FastAPI server and the plain JavaScript pages fit together: routes, the dashboard and its arrangeable widgets, company pages, charts, phone layout and the house UI rules.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -63,6 +63,8 @@ The wheel describes; it does not decide. The suggested action still comes only f
 **Action colour (2026-10-09).** One rule for every button, at the user's request ("keep all action buttons consistent"): pink (`--action`, the `--twisty` token) means *do something*, blue (`--accent`) means *go somewhere* (links), red means delete (`.btn.danger`). Main buttons (`.btn.primary`: Search, Add, Create watchlist, Save) are solid pink; secondary buttons (`.btn`: Rebuild, + Add condition, Show all) have pink text; icon buttons (search, scope ▾, settings gear, ✕, dashboard ↑ ↓ and Hide, the ☆ watchlist star, thumbs, pins, twisties, Filter) are pink at rest with a soft pink hover (`--action-soft`); Show more and "+ New watchlist" are pink. The small help "i" icons stay grey until hovered so headings aren't crowded; chips and segmented controls are toggles, not actions, and keep their neutral style; count buttons keep their green and red. White on pink measures 4.6:1 (AA) in light mode; dark text on the lighter pink in dark mode. The rule is one block at the end of `web/style.css` ("Action colour"), and `CLAUDE.md` tells future changes to use the classes or tokens rather than raw colours.
 
 **Run it.** See README, Web GUI: `python gui.py`, or `python gui.py --lan` with `GUI_PASSWORD` and a one-off firewall rule for phone access.
+
+**Menu bar today (2026-10-09).** Dashboard | Screener ▾ (ASX Stocks, ETFs, LICs) | Watchlists ▾ | Portfolios ▾ | Track record | Coattail | Markets ↗ ▾, then the search box, the data chip, the avatar menu and a ? icon for Help (`#help-btn`, `.icon-btn.help-btn`, outlined while on Help). The share screener's page is titled ASX Stocks; its address stays `#/screener` so bookmarks and the `g s` shortcut still work. `markCurrent()` marks the open page inside its dropdown and underlines the heading it sits under (`NAV_GROUPS`: ETF and LIC detail pages count as ETFs and LICs). The original stage 1 design follows.
 
 **Menu bar and dashboard (stage 1, 2026-10-05).**
 - **Menu bar:** Dashboard | Screener | Watchlists ▾ | Portfolios ▾ | Track record | Markets ↗ ▾, then a company search, the data chip and the settings gear. The current page has a pink (`--twisty`) underline; a company page highlights nothing. Dropdowns open on click (so they work on touch), close on Escape, an outside click or navigation, and only one is open at a time. Below 1060px the menu folds behind a ☰ button into a vertical panel (current page marked with a pink left bar). Markets links open in a new tab with `rel="noopener noreferrer"`: ASX, the ASX exchange traded products directory, NYSE and Nasdaq. Watchlists and Portfolios list each watchlist and portfolio, with All and + New links ([§19.1](kb:portfolios-cgt), [§22](kb:watchlists)).

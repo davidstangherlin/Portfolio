@@ -924,6 +924,11 @@ mark.find-hit.current { background: var(--twisty); color: var(--on-twisty); }
 .avatar-btn { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; }
 .avatar-btn:hover, .avatar-btn[aria-expanded="true"] { border-color: var(--action); }
 .avatar-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+/* Help: a ? to the right of the avatar, outlined while on the Help pages. */
+.help-btn { border-radius: 50%; border-color: transparent; }
+.help-btn:hover { text-decoration: none; }
+.help-btn[aria-current="page"] { border-color: var(--action); background: var(--action-soft); }
+.dd-menu a[aria-current="page"] { font-weight: 600; background: var(--hover); }
 .avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--action); color: var(--on-action);
   font-size: 12px; font-weight: 700; letter-spacing: 0.02em; flex: none; }
 .avatar.lg { width: 44px; height: 44px; font-size: 16px; }

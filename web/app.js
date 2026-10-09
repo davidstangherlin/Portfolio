@@ -577,7 +577,7 @@ async function renderScreener() {
 
   const table = h("table", { class: "grid" }, h("thead", {}, headRow), tbody);
   app.replaceChildren(
-    pageHead("Screener", `${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
+    pageHead("ASX Stocks", `Screener: ${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
     chips,
     h("div", { class: "controls" }, tf.search, tf.toggle, sector, watchFilter, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
     tf.chips, tf.builder,
@@ -936,11 +936,11 @@ async function renderCompany(code) {
 function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
 }
-const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "Screener"], [/^#\/etfs/, "ETFs"], [/^#\/etf\//, "ETF"], [/^#\/lics/, "LICs"], [/^#\/lic\//, "LIC"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
+const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "ASX Stocks"], [/^#\/etfs/, "ETFs"], [/^#\/etf\//, "ETF"], [/^#\/lics/, "LICs"], [/^#\/lic\//, "LIC"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
   [/^#\/track-record/, "Track record"], [/^#\/coattail/, "Coattail"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
 function backLink(fallback = "#/screener") {
   const target = previousPage || fallback;
-  const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "Screener"])[1];
+  const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "ASX Stocks"])[1];
   return h("a", { class: "back", href: target, text: `← ${label}` });
 }
 /* A link such as #/screener?action=BUY,INVESTIGATE opens the screener with
@@ -986,13 +986,18 @@ function closeMenus() {
   nav.classList.remove("open");
   menuBtn.setAttribute("aria-expanded", "false");
 }
+/* Pages that sit under a menu heading: ASX Stocks, ETFs and LICs are under Screener. */
+const NAV_GROUPS = { screener: "screener", etfs: "screener", lics: "screener" };
 function markCurrent(page) {
   if (page === "etf") page = "etfs";
   if (page === "lic") page = "lics";
-  for (const a of nav.querySelectorAll(":scope > a")) {
+  const group = NAV_GROUPS[page] || page;
+  for (const a of nav.querySelectorAll(":scope > a, .dd-menu a[data-nav]")) {
     if (a.dataset.nav === page) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
-  for (const dd of nav.querySelectorAll(".dd")) dd.classList.toggle("current", dd.dataset.nav === page);
+  for (const dd of nav.querySelectorAll(".dd")) dd.classList.toggle("current", dd.dataset.nav === group);
+  const help = document.getElementById("help-btn");
+  if (page === "help") help.setAttribute("aria-current", "page"); else help.removeAttribute("aria-current");
 }
 
 /* Data-date chip: green when the latest valuations are current, amber (with
@@ -1039,7 +1044,7 @@ function findCompany(q) {
     list.find((c) => (c.name || "").toUpperCase().includes(up)) || null;
 }
 /* ---------- search scope (§32): everything, or this page ---------- */
-const PAGE_LABELS = { dashboard: "Dashboard", screener: "Screener", etfs: "ETFs", etf: "this ETF", lics: "LICs", lic: "this LIC",
+const PAGE_LABELS = { dashboard: "Dashboard", screener: "ASX Stocks", etfs: "ETFs", etf: "this ETF", lics: "LICs", lic: "this LIC",
   company: "this company", "track-record": "Track record", coattail: "Coattail", help: "Help", admin: "Admin",
   watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results", profile: "Profile", preferences: "Preferences",
   kb: "Developer knowledge base" };
@@ -3757,7 +3762,7 @@ async function endImpersonation() {
 })();
 
 /* Keyboard shortcuts: "/" to search, "g" then a letter to go somewhere, "?" for the list. */
-const GO_KEYS = [["d", "#/", "Dashboard"], ["s", "#/screener", "Screener"], ["e", "#/etfs", "ETFs"], ["l", "#/lics", "LICs"],
+const GO_KEYS = [["d", "#/", "Dashboard"], ["s", "#/screener", "ASX Stocks"], ["e", "#/etfs", "ETFs"], ["l", "#/lics", "LICs"],
   ["w", "#/watchlists", "Watchlists"], ["p", "#/portfolios", "Portfolios"], ["t", "#/track-record", "Track record"],
   ["c", "#/coattail", "Coattail"], ["h", "#/help", "Help"], ["f", "#/preferences", "Preferences"]];
 function modal(id, title, ...body) {
@@ -3868,7 +3873,7 @@ const PREFS = [
   ["accessibility", "show_hover_buttons", "Show all buttons without hovering", "Buttons that normally appear when you point at something are always shown."],
   ["accessibility", "keyboard_shortcuts", "Enable keyboard shortcuts", "\"/\" to search, \"g\" then a letter to go somewhere, \"?\" for the list.", true],
   ["experience", "start_page", "Start page", "The page Sift opens on.", null,
-    [["dashboard", "Dashboard"], ["screener", "Screener"], ["etfs", "ETFs"], ["lics", "LICs"], ["watchlists", "Watchlists"],
+    [["dashboard", "Dashboard"], ["screener", "ASX Stocks"], ["etfs", "ETFs"], ["lics", "LICs"], ["watchlists", "Watchlists"],
      ["portfolios", "Portfolios"], ["track-record", "Track record"], ["coattail", "Coattail"]]],
   ["experience", "search_scope", "Search box searches", "What the search box at the top looks through until you change it with ▾.", null,
     [["auto", "Everything on the dashboard, the page itself elsewhere"], ["all", "Everything, on every page"], ["page", "The page you're on"]]],

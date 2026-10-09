@@ -50,14 +50,14 @@ def test_clicks_and_thumbs_move_a_result_up(indexed):
 
 
 def test_synonyms_widen_a_search(indexed):
-    assert search(indexed, "rocks")["total"] == 0
+    assert search(indexed, "pebbles")["total"] == 0
     client = TestClient(gui.create_app())
-    added = client.post("/api/admin/search/synonyms", json={"terms": "Rocks, basic materials"}, headers=WRITE).json()
-    assert added["added"]["terms"] == ["rocks", "basic materials"]
-    assert {x["code"] for x in search(indexed, "rocks")["results"] if x["code"]} == {"GOOD", "DEAR"}
+    added = client.post("/api/admin/search/synonyms", json={"terms": "Pebbles, basic materials"}, headers=WRITE).json()
+    assert added["added"]["terms"] == ["pebbles", "basic materials"]
+    assert {x["code"] for x in search(indexed, "pebbles")["results"] if x["code"]} == {"GOOD", "DEAR"}
     assert client.post("/api/admin/search/synonyms", json={"terms": "solo"}, headers=WRITE).status_code == 400
     client.delete(f"/api/admin/search/synonyms/{added['added']['synonym_id']}", headers=WRITE)
-    assert search(indexed, "rocks")["total"] == 0
+    assert search(indexed, "pebbles")["total"] == 0
 
 
 def test_insights_list_top_and_failed_searches(indexed):

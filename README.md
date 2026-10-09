@@ -280,7 +280,7 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Find a company or term:** type a code or part of a name in the search box and pick from the
   list, or press Enter, to jump straight to that company's page. Type a term instead (franking,
   SMSF, margin of safety) and it opens that Help entry, or the Help search results.
-- **Help:** a searchable page of every term, rule and how-to in Sift: 78 entries in ten topics,
+- **Help** (the ? to the right of your profile picture): a searchable page of every term, rule and how-to in Sift: 78 entries in ten topics,
   from margin of safety and the four value tests to portfolios, watchlists and the track record.
   Each entry has a one-line definition, the full explanation with the live thresholds, related
   terms and links to the right page (for example, the screener filtered to BUY).
@@ -472,7 +472,7 @@ code change (edit `src/settings.py`, run `pytest`, commit). See docs/AS_BUILT.md
 Every ETF listed on the ASX is collected alongside the shares and shown under its own
 **ETFs** heading, apart from shares (stages 1 and 2 of 4). See docs/AS_BUILT.md §25 and §26.
 
-- **ETFs menu:** the ETF screener (fee, fund size, 1 to 10-year returns, yield, spread; filter
+- **Screener menu, ETFs:** the ETF screener (fee, fund size, 1 to 10-year returns, yield, spread; filter
   by category, issuer, watchlist or held) and a page per ETF: performance against its
   category average and a reference fund you choose, growth of $10,000, unit price with
   distributions marked, distributions per financial year, fund facts.

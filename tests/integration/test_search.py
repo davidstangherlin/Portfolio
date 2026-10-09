@@ -39,7 +39,7 @@ def test_an_exact_code_ranks_first_and_help_and_settings_are_found(indexed):
 
 def test_word_starts_and_typos(indexed):
     assert any(x["title"] == "Margin of safety" for x in search(indexed, "marg")["results"])
-    assert search(indexed, "screenr")["results"][0]["title"] == "Screener"  # near miss on a page title
+    assert search(indexed, "screenr")["results"][0]["title"] == "ASX Stocks screener"  # near miss on a page title
 
 
 def test_tick_boxes_count_and_narrow(indexed):
