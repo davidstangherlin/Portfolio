@@ -597,7 +597,7 @@ CREATE TABLE IF NOT EXISTS signal_snapshots (
     price NUMERIC(12, 4) NOT NULL,               -- close on snapshot_date: the starting point for outcomes
     action VARCHAR(12) NOT NULL,
     action_reason TEXT,
-    held BOOLEAN NOT NULL DEFAULT FALSE,         -- held actions (SELL/REVIEW/ACCUMULATE/HOLD) differ from the rest
+    held BOOLEAN NOT NULL DEFAULT FALSE,         -- only rows from before Phase 2 (§34): each person's held calls are in position_snapshots
     valuation_status VARCHAR(12) NOT NULL,       -- Undervalued / Fair value / Overvalued / No estimate
     margin_of_safety_percent NUMERIC(6, 2),
     estimated_value NUMERIC(12, 4),
@@ -753,3 +753,35 @@ DO $$ BEGIN
         ALTER TABLE ui_preferences ADD CONSTRAINT ui_preferences_owner_pkey PRIMARY KEY (owner_id, pref_key);
     END IF;
 END $$;
+
+-- 8. EACH PERSON'S NIGHTLY CALLS (multi-user Phase 2, docs/AS_BUILT.md §34)
+-- signal_snapshots is Sift's shared record: each company's call for someone
+-- who doesn't hold it (BUY / INVESTIGATE / WATCH / AVOID / IGNORE). For each
+-- share a person holds, the nightly run also records the call on their
+-- holding (HOLD / SELL / ACCUMULATE / REVIEW) here, hung off that night's
+-- shared row, so it goes when the shared row is pruned. Outcomes are the
+-- shared ones: what a share did after a night doesn't depend on who held it.
+CREATE TABLE IF NOT EXISTS position_snapshots (
+    owner_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    company_id UUID NOT NULL,
+    snapshot_date DATE NOT NULL,
+    units NUMERIC(18, 4),                        -- NULL for rows moved from before Phase 2
+    action VARCHAR(12) NOT NULL,
+    action_reason TEXT,
+    rules_version VARCHAR(10) NOT NULL,
+    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_id, company_id, snapshot_date),
+    FOREIGN KEY (company_id, snapshot_date) REFERENCES signal_snapshots(company_id, snapshot_date) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_position_snapshots_night ON position_snapshots (company_id, snapshot_date);
+
+-- Before Phase 2 the shared record was made with the first admin's holdings,
+-- so its held rows (held = TRUE) are that person's calls: copy them to their
+-- record. The shared rows stay, still marked held, and shared results leave
+-- them out; from Phase 2 every shared row is recorded as not held.
+INSERT INTO position_snapshots (owner_id, company_id, snapshot_date, action, action_reason, rules_version, recorded_at)
+SELECT u.user_id, s.company_id, s.snapshot_date, s.action, s.action_reason, s.rules_version, s.recorded_at
+FROM signal_snapshots s
+CROSS JOIN (SELECT user_id FROM users WHERE role = 'admin' ORDER BY created_at, email LIMIT 1) u
+WHERE s.held
+ON CONFLICT DO NOTHING;

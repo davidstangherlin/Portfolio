@@ -7,7 +7,9 @@ Run nightly after signals are recorded (src/tracking/score_signals.py):
    universe average (benchmark) and the excess return. Scorecard signals
    are each company's first signal of each month (the monthly cohort, which
    feeds the scorecard) and any night its action changed (tracked
-   separately, for "what happened after it changed").
+   separately, for "what happened after it changed"), plus the nights
+   people's calls on their own holdings need (§34). Outcomes belong to the
+   company and night, not to a person, so one row serves everyone.
 2. refresh_monthly(): rebuild track_record_monthly for every month that
    still has detail rows. Months whose detail has been deleted keep their
    summary rows untouched, forever.
@@ -70,10 +72,26 @@ _SCORECARD_DUE = text("""
         SELECT company_id, snapshot_date, is_cohort,
                COALESCE(prev_action <> action AND prev_held = held, FALSE) AS is_change
         FROM flagged
+    ), personal AS (
+        -- People's calls on their holdings (§34): the first of each month, and
+        -- a night the call changed while they held the share the night before.
+        SELECT p.company_id, p.snapshot_date, p.action,
+               ROW_NUMBER() OVER (PARTITION BY p.owner_id, p.company_id, date_trunc('month', p.snapshot_date)
+                                  ORDER BY p.snapshot_date) = 1 AS first_in_month,
+               LAG(p.action) OVER pw AS prev_action, LAG(p.snapshot_date) OVER pw AS prev_date
+        FROM position_snapshots p
+        WINDOW pw AS (PARTITION BY p.owner_id, p.company_id ORDER BY p.snapshot_date)
+    ), personal_due AS (
+        SELECT DISTINCT p.company_id, p.snapshot_date FROM personal p
+        WHERE p.first_in_month
+           OR (p.prev_action <> p.action AND p.prev_date = (
+                   SELECT MAX(s.snapshot_date) FROM signal_snapshots s
+                   WHERE s.company_id = p.company_id AND s.snapshot_date < p.snapshot_date))
     )
     SELECT c.company_id, c.snapshot_date, c.is_cohort, c.is_change, h.m AS horizon
     FROM scorecard c CROSS JOIN (VALUES (1), (3), (6), (12)) AS h(m)
-    WHERE (c.is_cohort OR c.is_change)
+    WHERE (c.is_cohort OR c.is_change
+           OR EXISTS (SELECT 1 FROM personal_due d WHERE d.company_id = c.company_id AND d.snapshot_date = c.snapshot_date))
       AND (c.snapshot_date + make_interval(months => h.m))::date <= :market_date
       AND NOT EXISTS (SELECT 1 FROM signal_outcomes o WHERE o.company_id = c.company_id
                       AND o.snapshot_date = c.snapshot_date AND o.horizon_months = h.m)
@@ -158,7 +176,7 @@ def refresh_monthly(session) -> int:
         SELECT date_trunc('month', o.snapshot_date)::date AS month, s.action, o.horizon_months, s.rules_version,
                o.total_return, o.excess_return
         FROM signal_outcomes o JOIN signal_snapshots s USING (company_id, snapshot_date)
-        WHERE o.is_cohort AND o.excess_return IS NOT NULL
+        WHERE o.is_cohort AND NOT s.held AND o.excess_return IS NOT NULL
     """)).mappings().all()
     groups: dict[tuple, list] = defaultdict(list)
     for r in rows:

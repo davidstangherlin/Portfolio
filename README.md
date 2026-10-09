@@ -319,7 +319,10 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   and it moves out of the way with its sales still in the CGT report. With more than one
   portfolio, the dashboard lists each one.
 - **Track record:** is Sift right? Every night Sift records each company's suggested action,
-  valuation and score, never editing them afterwards. Each company's first signal of each
+  valuation and score, never editing them afterwards. The shared record is Sift's call for
+  someone who doesn't hold the share, the same for everyone; each person's calls on the shares
+  they hold (HOLD, SELL, ACCUMULATE, REVIEW) are recorded for them alone, so "What changed",
+  "What did I miss?" and the calls that saved money are your own. Each company's first signal of each
   month is then scored 1, 3, 6 and 12 months later: its total return including dividends,
   against the average of every company screened that night. The page answers three questions:
   - **Is Sift accurate?** One sentence per action and period, for example "BUY calls beat the

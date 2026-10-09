@@ -27,7 +27,7 @@ Sift today runs on one PC for one person. The aim is a hosted service: a small t
 | Phase | What it delivers | Status |
 |---|---|---|
 | 1. Owners in the data | `users` table; an owner on every personal table; all personal reads and writes scoped to the current user; admin-only console; tests proving two people can't see each other's data. Sift looks and works exactly as before. | **Done** (2026-10-09) |
-| 2. Per-person results | Each person's "held" flags and actions in the nightly snapshots and track record (today the nightly run acts as the owner); per-person dashboard history. | Not started |
+| 2. Per-person results | The nightly record split into Sift's shared calls (for someone not holding the share) and each person's calls on their own holdings; per-person "What changed", missed and saved-money lists, and "What should I look at now?". | **Done** (2026-10-09) |
 | 3. Sign in | Supabase Auth: sign-in page, the login service's token checked on every request (replaces the single `GUI_PASSWORD`), invitations for testers, the owner's account linked to a real email. | Not started; needs a Supabase account |
 | 4. Hosting | Database moved to Supabase (from the backup), app on Fly.io, nightly run as a scheduled job there, secrets in the host's store, backups. | Not started; needs Fly.io and Supabase accounts |
 | 5. Tester readiness | Privacy note and terms, "not financial advice" wording on sign-up, usage limits, error monitoring, a feedback link, an admin page to invite and disable testers. | Not started |

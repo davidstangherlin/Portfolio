@@ -79,13 +79,15 @@ class Universe:
     as_of: date | None                     # newest valuation date across the universe
 
 
-def load_universe(session, today: date) -> Universe:
-    """Every screened company at the default thresholds. On top of the
+def load_universe(session, today: date, neutral: bool = False) -> Universe:
+    """Every screened company at the default thresholds, with actions for
+    the current user's holdings, or, `neutral`, for someone holding nothing
+    (Sift's shared calls: the nightly record and the search index, §34). On top of the
     screen_asx.py row each carries: company_id, roic, graham_number,
     dcf_intrinsic_value (the estimated value), as_of_date (that company's
     valuation date), axis_scores (dict by spoke) and valuation_status."""
     args = screener_defaults([])
-    rows, positions = load_annotated_rows(session, args, today)
+    rows, positions = load_annotated_rows(session, args, today, {} if neutral else None)
     extras, reports, as_of = latest_extras(session)
     out = []
     for r in rows:

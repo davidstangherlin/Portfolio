@@ -64,6 +64,7 @@ EXCLUDED = {
     "search_feedback": "thumbs up and down on results, used to tune ranking",
     "search_synonyms": "synonyms that widen searches, managed in Admin",
     "signal_snapshots": "nightly history behind the track record; the track record page is indexed",
+    "position_snapshots": "each person's nightly calls on their holdings, behind their track record (§34)",
     "signal_outcomes": "scored history behind the track record",
     "track_record_monthly": "monthly track record figures",
 }
@@ -110,7 +111,7 @@ class _Context:
     def rows(self):
         if self._rows is None:
             from src.screening.enriched import load_universe
-            self._rows = load_universe(self.session, self.today).rows
+            self._rows = load_universe(self.session, self.today, neutral=True).rows  # shared rows: nobody's holdings
         return self._rows
 
 

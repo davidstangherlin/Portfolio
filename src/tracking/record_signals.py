@@ -24,8 +24,9 @@ def main() -> int:
         result = record_signals(session, date.today())
         session.commit()
     dates = ", ".join(d.isoformat() for d in sorted(result.dates)) or "no dates"
-    logger.info("Recorded %d signals for %s (rules %s); %d already recorded and left unchanged",
-                result.recorded, dates, RULES_VERSION, result.already_recorded)
+    logger.info("Recorded %d signals for %s (rules %s); %d already recorded and left unchanged; "
+                "%d calls on people's holdings", result.recorded, dates, RULES_VERSION, result.already_recorded,
+                result.personal)
     if result.stale:
         logger.warning("Not recorded, valuation older than the latest price (%d): %s",
                        len(result.stale), ", ".join(sorted(result.stale)))

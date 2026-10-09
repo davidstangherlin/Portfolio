@@ -17,7 +17,7 @@ from decimal import Decimal
 from sqlalchemy import text
 
 from src.accounts import current_user_id
-from src.tracking.signals import HORIZONS_MONTHS, RULES_VERSION
+from src.tracking.signals import HORIZONS_MONTHS, RULES_VERSION, person_nights
 
 TOO_EARLY_BELOW = 30        # fewer signals than this: "too early"
 SOLID_ABOVE = 100           # more than this: "solid"; in between: "moderate"
@@ -94,14 +94,22 @@ def monthly(session, version: str | None) -> list[dict]:
     """), {"version": version}).mappings()]
 
 
+# Each scored night at its longest horizon, as the current user saw it
+# (§34): their own call on nights they held the share, Sift's shared call
+# otherwise. Nights scored only for someone else's holding are left out,
+# and so are shared rows from before Phase 2 that were someone's held calls.
 _LATEST_OUTCOME = """
     SELECT DISTINCT ON (s.company_id, s.snapshot_date)
-           c.asx_code, c.company_name, s.snapshot_date, s.action, s.held, s.price, s.rules_version,
+           c.asx_code, c.company_name, s.snapshot_date, COALESCE(p.action, s.action) AS action,
+           p.owner_id IS NOT NULL AS held, s.price, COALESCE(p.rules_version, s.rules_version) AS rules_version,
            o.horizon_months, o.total_return, o.excess_return, o.end_price, o.end_date, o.delisted
     FROM signal_outcomes o
     JOIN signal_snapshots s USING (company_id, snapshot_date)
     JOIN companies c ON c.company_id = s.company_id
-    WHERE (CAST(:version AS TEXT) IS NULL OR s.rules_version = :version)
+    LEFT JOIN position_snapshots p
+           ON p.company_id = s.company_id AND p.snapshot_date = s.snapshot_date AND p.owner_id = :owner
+    WHERE (CAST(:version AS TEXT) IS NULL OR COALESCE(p.rules_version, s.rules_version) = :version)
+      AND (p.owner_id IS NOT NULL OR (NOT s.held AND (o.is_cohort OR o.is_change)))
     ORDER BY s.company_id, s.snapshot_date, o.horizon_months DESC
 """
 
@@ -141,7 +149,8 @@ def missed_and_saved(session, version: str | None, current: dict[str, dict], thr
     days, that beat the average by more than 10 points at their latest
     measured horizon. Saved: AVOID (not held) and SELL (held) calls that
     trailed the average by more than 10 points. First call per company."""
-    rows = [dict(r) for r in session.execute(text(_LATEST_OUTCOME), {"version": version}).mappings()]
+    rows = [dict(r) for r in session.execute(
+        text(_LATEST_OUTCOME), {"version": version, "owner": current_user_id(session)}).mappings()]
     purchases = _bought_soon_after(session)
     missed = [r for r in rows
               if r["action"] in ("BUY", "INVESTIGATE") and not r["held"] and r["excess_return"] is not None
@@ -176,11 +185,7 @@ def actionable(session, current_rows: list[dict], proven: list[str], threshold: 
     latest = session.execute(text("SELECT MAX(snapshot_date) FROM signal_snapshots")).scalar_one()
     if latest is None:
         return {"as_of": None, "new": [], "open": [], "moved_on": []}
-    history = session.execute(text("""
-        SELECT c.asx_code, s.snapshot_date, s.action, s.price, s.held
-        FROM signal_snapshots s JOIN companies c ON c.company_id = s.company_id
-        WHERE s.snapshot_date >= :since ORDER BY c.asx_code, s.snapshot_date
-    """), {"since": latest - timedelta(days=400)}).mappings().all()
+    history = person_nights(session, latest - timedelta(days=400))  # the current user's view (§34)
     by_code: dict[str, list] = {}
     for h in history:
         by_code.setdefault(h["asx_code"], []).append(h)

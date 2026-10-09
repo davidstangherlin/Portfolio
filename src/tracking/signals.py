@@ -7,6 +7,12 @@ valuation status, estimate, scores and value tests are written to
 never edited: a second run for the same date leaves the first in place
 (ON CONFLICT DO NOTHING), so the record is what Sift actually said at the
 time, not what today's rules would have said.
+
+Shared and personal (§34): `signal_snapshots` holds Sift's call for
+someone who doesn't hold the share, the same for everyone. For each share
+a person holds, their call on that holding is recorded in
+`position_snapshots`. A person's view of a night is the shared row with
+their own call laid over it (`person_nights`).
 """
 
 from __future__ import annotations
@@ -14,12 +20,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
+from src import accounts
 from src.ingestion.dividend_history import add_months
-from src.models import Company, DailyPrice, SignalSnapshot
-from src.screening.actions import red_flags
+from src.models import DailyPrice, SignalSnapshot
+from src.portfolio.holdings import position_summaries
+from src.screening.actions import red_flags, suggest_action
 from src.screening.enriched import Universe, load_universe
 
 # The date the screening rules (thresholds, actions, scores, valuation
@@ -48,6 +56,7 @@ class RecordResult:
     already_recorded: int = 0
     stale: list[str] = field(default_factory=list)  # valuation older than the latest price: not recorded
     dates: set[date] = field(default_factory=set)
+    personal: int = 0  # people's calls on their holdings recorded (position_snapshots)
 
 
 def snapshot_values(row: dict, rules_version: str = RULES_VERSION) -> dict:
@@ -86,14 +95,24 @@ def _latest_price_dates(session) -> dict:
     ).all())
 
 
+_PERSONAL_INSERT = text("""
+    INSERT INTO position_snapshots (owner_id, company_id, snapshot_date, units, action, action_reason, rules_version)
+    VALUES (:owner, :company_id, :night, :units, :action, :reason, :version)
+    ON CONFLICT DO NOTHING
+""")
+
+
 def record_signals(session, today: date, universe: Universe | None = None) -> RecordResult:
     """Write tonight's snapshot for every screened company whose valuation
-    is up to date with its latest price. A company whose valuation failed
-    tonight would otherwise pair yesterday's estimate with today's price,
-    so it is skipped (and reported) rather than recorded wrongly."""
-    universe = universe or load_universe(session, today)
+    is up to date with its latest price, as Sift's shared call (for someone
+    not holding it), then each active person's call on each share they
+    hold. A company whose valuation failed tonight would otherwise pair
+    yesterday's estimate with today's price, so it is skipped (and
+    reported) rather than recorded wrongly."""
+    universe = universe or load_universe(session, today, neutral=True)
     latest_price = _latest_price_dates(session)
     result = RecordResult()
+    recorded: dict[str, dict] = {}
     for row in universe.rows:
         if row["company_id"] is None or row["as_of_date"] is None:
             continue
@@ -108,7 +127,49 @@ def record_signals(session, today: date, universe: Universe | None = None) -> Re
         else:
             result.recorded += 1
         result.dates.add(row["as_of_date"])
+        recorded[row["asx_code"]] = row
+    result.personal = record_positions(session, today, recorded)
     return result
+
+
+def record_positions(session, today: date, recorded: dict[str, dict]) -> int:
+    """Each active person's call on each share they hold, for the nights
+    just recorded (`recorded`: shared rows by code). Returns rows written."""
+    written = 0
+    for user in accounts.all_users(session, active_only=True):
+        with accounts.acting_as(user.user_id):
+            positions = position_summaries(session, today)
+        for code, position in positions.items():
+            row = recorded.get(code)
+            if row is None or position.units <= 0:
+                continue
+            action, reason = suggest_action(row, position, today)
+            written += session.execute(_PERSONAL_INSERT, {
+                "owner": user.user_id, "company_id": row["company_id"], "night": row["as_of_date"],
+                "units": position.units, "action": action, "reason": reason, "version": RULES_VERSION,
+            }).rowcount or 0
+    return written
+
+
+def person_nights(session, since: date | None = None, owner_id=None) -> list[dict]:
+    """The record as one person sees it: every shared row from `since`,
+    with their own call laid over it on nights they held the share
+    (`held` true). Shared rows from before Phase 2 that were someone's held
+    calls are left out unless they're this person's."""
+    owner_id = owner_id or accounts.current_user_id(session)
+    return [dict(r) for r in session.execute(text("""
+        SELECT c.asx_code, c.company_name, s.company_id, s.snapshot_date, s.price,
+               COALESCE(p.action, s.action) AS action, p.owner_id IS NOT NULL AS held,
+               COALESCE(p.rules_version, s.rules_version) AS rules_version,
+               s.margin_of_safety_percent, s.valuation_status
+        FROM signal_snapshots s
+        JOIN companies c ON c.company_id = s.company_id
+        LEFT JOIN position_snapshots p
+               ON p.company_id = s.company_id AND p.snapshot_date = s.snapshot_date AND p.owner_id = :owner
+        WHERE (CAST(:since AS DATE) IS NULL OR s.snapshot_date >= :since)
+          AND (p.owner_id IS NOT NULL OR NOT s.held)
+        ORDER BY c.asx_code, s.snapshot_date
+    """), {"owner": owner_id, "since": since}).mappings()]
 
 
 def tracking_status(session) -> dict:
@@ -135,8 +196,9 @@ def tracking_status(session) -> dict:
 
 def signal_changes(session) -> dict:
     """Companies whose suggested action moved between the latest two
-    snapshot dates, better first. Moves between actions of equal rank, and
-    moves caused by buying or selling the shares, are left out."""
+    snapshot dates, for the current user (their own call on shares they
+    held), better first. Moves between actions of equal rank, and moves
+    caused by buying or selling the shares, are left out."""
     dates = session.execute(
         select(SignalSnapshot.snapshot_date).distinct()
         .order_by(SignalSnapshot.snapshot_date.desc()).limit(2)
@@ -144,25 +206,21 @@ def signal_changes(session) -> dict:
     if len(dates) < 2:
         return {"from_date": None, "to_date": dates[0] if dates else None, "changes": []}
     to_date, from_date = dates
-    now, before = SignalSnapshot, SignalSnapshot.__table__.alias("before")
-    rows = session.execute(
-        select(Company.asx_code, Company.company_name, now.action, before.c.action.label("previous"),
-               now.held, before.c.held.label("was_held"), now.margin_of_safety_percent, now.valuation_status)
-        .join(now, now.company_id == Company.company_id)
-        .join(before, (before.c.company_id == now.company_id) & (before.c.snapshot_date == from_date))
-        .where(now.snapshot_date == to_date, now.action != before.c.action)
-    ).mappings().all()
+    nights: dict[str, dict] = {}
+    for r in person_nights(session, from_date):
+        nights.setdefault(r["asx_code"], {})[r["snapshot_date"]] = r
     changes = []
-    for r in rows:
-        if r["held"] != r["was_held"]:
+    for code, by_date in nights.items():
+        now, before = by_date.get(to_date), by_date.get(from_date)
+        if now is None or before is None or now["action"] == before["action"] or now["held"] != before["held"]:
             continue
-        rank, previous_rank = ACTION_RANK.get(r["action"], 4), ACTION_RANK.get(r["previous"], 4)
+        rank, previous_rank = ACTION_RANK.get(now["action"], 4), ACTION_RANK.get(before["action"], 4)
         if rank == previous_rank:
             continue
         changes.append({
-            "asx_code": r["asx_code"], "company_name": r["company_name"], "action": r["action"],
-            "previous": r["previous"], "held": r["held"], "direction": "up" if rank < previous_rank else "down",
-            "margin_of_safety_percent": r["margin_of_safety_percent"], "valuation_status": r["valuation_status"],
+            "asx_code": code, "company_name": now["company_name"], "action": now["action"],
+            "previous": before["action"], "held": now["held"], "direction": "up" if rank < previous_rank else "down",
+            "margin_of_safety_percent": now["margin_of_safety_percent"], "valuation_status": now["valuation_status"],
         })
     changes.sort(key=lambda c: (c["direction"] != "up", ACTION_RANK.get(c["action"], 4), c["asx_code"]))
     return {"from_date": from_date, "to_date": to_date, "changes": changes}
