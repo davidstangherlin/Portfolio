@@ -2118,14 +2118,18 @@ function searchInsightsCard() {
     getJSON(`/api/admin/search/insights?days=${days.value}`).then((d) => {
       const t = d.totals;
       body.replaceChildren(
-        h("p", {}, `${plural(t.searches, "search", "searches")}, ${plural(t.nothing, "found nothing", "found nothing")}, ${plural(t.clicks, "result opened", "results opened")}.`),
+        h("p", {}, `${plural(t.searches, "search", "searches")}, ${plural(t.nothing, "found nothing", "found nothing")}, ${plural(t.clicks, "result opened", "results opened")}${t.impersonated ? `, ${plural(t.impersonated, "made while impersonating", "made while impersonating")}` : ""}.`),
         ...list("Top searches", d.top, [["Search", (r) => searchLink(r.norm)], ["Times", (r) => fmt(r.searches, 0), true],
           ["Results", (r) => fmt(r.results, 0), true], ["Opened a result", (r) => `${fmt(r.clicked / r.searches * 100, 0)}%`, true]], "No searches yet."),
         ...list("Searches that found nothing", d.nothing, [["Search", (r) => searchLink(r.norm)], ["Times", (r) => fmt(r.searches, 0), true],
           ["Last", (r) => longDate(r.last.slice(0, 10))]], "None: every search found something."),
         h("p", { class: "hint", text: "Fix these with a synonym below, or by adding the missing thing to Sift." }),
         ...list("Results marked not what was wanted", d.disliked, [["Search", (r) => searchLink(r.norm)], ["Result", (r) => r.title || r.doc_id],
-          ["Net votes", (r) => fmt(r.net, 0), true]], "None."));
+          ["Net votes", (r) => fmt(r.net, 0), true]], "None."),
+        ...list("By person", d.people, [["Person", (r) => r.person], ["Searches", (r) => fmt(r.searches, 0), true],
+          ["Found nothing", (r) => `${fmt(r.nothing / r.searches * 100, 0)}%`, true],
+          ["Opened a result", (r) => `${fmt(r.clicked / r.searches * 100, 0)}%`, true], ["Last", (r) => when(r.last)]], "No searches yet."),
+        h("p", { class: "hint", text: "Searches an admin made while impersonating are left out of the person's figures." }));
     }).catch((err) => body.replaceChildren(h("p", { class: "error", text: err.message })));
   }
   load();
@@ -3837,7 +3841,8 @@ async function renderProfile() {
     h("div", { class: "form-actions" }, h("button", { type: "submit", class: "btn primary", text: "Save" })), msg);
   const facts = h("dl", { class: "facts" },
     h("dt", { text: "Role" }), h("dd", { text: u.admin ? "Admin: manages Sift's settings and accounts" : "Member" }),
-    u.impersonated_by ? [h("dt", { text: "Impersonated by" }), h("dd", { text: u.impersonated_by.display_name })] : null);
+    u.impersonated_by ? [h("dt", { text: "Impersonated by" }), h("dd", { text: u.impersonated_by.display_name })] : null,
+    u.previous_session ? [h("dt", { text: "Previous visit" }), h("dd", { text: `${when(u.previous_session.started_at)}${u.previous_session.client ? `, ${u.previous_session.client}` : ""}` })] : null);
   const links = h("ul", { class: "related-links" },
     h("li", {}, h("a", { href: "#/preferences", text: "Preferences" })),
     h("li", {}, h("a", { href: "#/profile", text: "Keyboard shortcuts", onclick: (e) => { e.preventDefault(); openShortcuts(); } })),
@@ -4081,6 +4086,13 @@ async function renderKbRegister(query) {
 }
 
 const when = (iso) => new Date(iso).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+/* A session's length in words: "Under a minute", "25 min", "1 hr 40 min". */
+function minutesText(m) {
+  m = Math.max(0, Math.round(Number(m) || 0));
+  if (m < 1) return "Under a minute";
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} hr${m % 60 ? ` ${m % 60} min` : ""}`;
+}
 async function renderAdminUsers() {
   app.replaceChildren(pageHead("Model and rules", "Users"), adminTabs("users"), h("p", { class: "loading", text: "Loading..." }));
   const d = await getJSON("/api/admin/users");
@@ -4090,10 +4102,14 @@ async function renderAdminUsers() {
     const self = u.user_id === d.me, active = u.status === "active";
     return h("tr", {},
       h("td", {}, h("div", { class: "strong", text: u.display_name }), h("div", { class: "sub-text", text: u.email }),
-        h("div", { class: "sub-text phone-only", text: `${u.role === "admin" ? "Admin" : "Member"}, ${active ? "active" : "disabled"}` })),
+        h("div", { class: "sub-text phone-only", text: `${u.role === "admin" ? "Admin" : "Member"}, ${active ? "active" : "disabled"}` }),
+        h("div", { class: "sub-text phone-only", text: `Last login ${u.last_login_at ? when(u.last_login_at) : "never"}` })),
       h("td", { class: "opt", text: u.role === "admin" ? "Admin" : "Member" }),
       h("td", { class: "opt" }, h("span", { class: `pill ${active ? "under" : "none"}`, text: active ? "Active" : "Disabled" })),
-      h("td", { class: "opt", text: u.last_seen_at ? longDate(u.last_seen_at.slice(0, 10)) : "Never" }),
+      h("td", { class: "opt", text: u.last_login_at ? when(u.last_login_at) : "Never" }),
+      h("td", { class: "opt", text: u.last_seen_at ? when(u.last_seen_at) : "Never" }),
+      h("td", { class: "num opt", text: fmt(u.sessions || 0, 0) }),
+      h("td", { class: "num opt", text: u.sessions ? minutesText(u.avg_minutes) : "" }),
       h("td", { class: "num opt", text: `${u.portfolios} / ${u.watchlists}` }),
       h("td", { class: "user-actions" },
         u.role === "member" && active ? h("button", { type: "button", class: "btn small", text: "Impersonate",
@@ -4117,17 +4133,29 @@ async function renderAdminUsers() {
       h("td", { text: when(x.started_at) }),
       h("td", { text: x.ended_at ? `${when(x.ended_at)} (${x.ended_how})` : "Still on" }))))))
     : h("p", { class: "sub-text", text: "Nobody has been impersonated yet." });
+  const sessions = d.sessions.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, ["Person", "Started", "Length", "Browser"].map((x, i) => h("th", { scope: "col", class: [null, null, "num opt", "opt"][i], text: x })))),
+    h("tbody", {}, d.sessions.map((x) => {
+      const length = x.active ? `${minutesText(x.minutes)}, still on` : minutesText(x.minutes);
+      return h("tr", {}, h("td", { text: x.display_name }),
+      h("td", {}, when(x.started_at), h("div", { class: "sub-text phone-only", text: length }), x.client ? h("div", { class: "sub-text phone-only", text: x.client }) : null),
+      h("td", { class: "num opt", text: length }),
+      h("td", { class: "opt", text: x.client || "" }));
+    }))))
+    : h("p", { class: "sub-text", text: "No sessions yet." });
   app.replaceChildren(pageHead("Model and rules", "Users"), adminTabs("users"),
     h("div", { class: "cards" },
       h("div", { class: "card wide" }, h("h2", { text: "Accounts" }), msg,
         h("div", { class: "table-wrap" }, h("table", { class: "grid users-table" },
-          h("thead", {}, h("tr", {}, ["Person", "Role", "Status", "Last seen", "Portfolios / watchlists", ""].map((x, i) =>
-            h("th", { scope: "col", class: [null, "opt", "opt", "opt", "num opt", null][i], text: x })))),
+          h("thead", {}, h("tr", {}, ["Person", "Role", "Status", "Last login", "Last seen", `Sessions (${d.activity_days} days)`, "Average session", "Portfolios / watchlists", ""].map((x, i) =>
+            h("th", { scope: "col", class: [null, "opt", "opt", "opt", "opt", "num opt", "num opt", "num opt", null][i], text: x })))),
           h("tbody", {}, rows)))),
       h("div", { class: "card wide" }, h("h2", { text: "Add an account" }),
         h("p", { class: "sub-text", text: "For testers. Until sign-in arrives, an account can be used only through Impersonate." }), add),
       h("div", { class: "card wide" }, h("h2", { text: "Impersonation log" }),
-        h("p", { class: "sub-text", text: `Every session: who, as whom, and how it ended. A session ends by itself after ${d.expires_hours} hours.` }), log)));
+        h("p", { class: "sub-text", text: `Every session: who, as whom, and how it ended. A session ends by itself after ${d.expires_hours} hours.` }), log),
+      h("div", { class: "card wide" }, h("h2", { text: "Sessions" }),
+        h("p", { class: "sub-text", text: `When each person used Sift, newest first. A session starts with their first request and ends after ${d.idle_minutes} minutes without one; its length runs from the first request to the last. Until sign-in arrives a session is a spell of use, not a log-on. Kept for a year.` }), sessions)));
   window.scrollTo(0, 0);
 }
 

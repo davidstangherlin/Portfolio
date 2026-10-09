@@ -387,6 +387,9 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Users and impersonation (admins):** Admin, Users adds, disables and changes the role of
   accounts. Impersonate lets an admin see and use Sift exactly as a member does, with a banner
   and End button on every page; sessions end by themselves after 8 hours and are all logged.
+  Users also shows each person's last login, last seen, sessions and average session length
+  over 30 days, and a log of recent sessions (a session ends after 30 minutes idle). Profile
+  shows your previous visit. Admin, Search insights breaks searching down by person.
 - **Field explanations:** hover any column heading, or any label on the company page, to see
   what it measures, how it is calculated and the pass threshold. Underlined headings have one.
   On a phone, tap the small "i" next to the heading instead. These come from the same

@@ -826,3 +826,28 @@ ALTER TABLE top_holders ADD COLUMN IF NOT EXISTS holder_id UUID REFERENCES holde
 ALTER TABLE fund_holdings ADD COLUMN IF NOT EXISTS held_company_id UUID REFERENCES companies(company_id) ON DELETE SET NULL;  -- the Sift company this holding is, when matched
 CREATE INDEX IF NOT EXISTS idx_top_holders_holder ON top_holders (holder_id);
 CREATE INDEX IF NOT EXISTS idx_fund_holdings_held ON fund_holdings (held_company_id);
+
+-- 11. SESSIONS (docs/kb/features/accounts-and-sessions.md)
+-- When each person used Sift: a session starts with their first request
+-- and runs while they keep using it; a gap of 30 minutes or more starts a
+-- new one (src/accounts.py, SESSION_IDLE_MINUTES). Until sign-in arrives
+-- (Phase 3) a session is a spell of use, not a log-on. `client` is the
+-- browser and device in a few words, never the raw user agent or an IP
+-- address. Kept for a year; users.last_login_at outlives the log.
+CREATE TABLE IF NOT EXISTS user_sessions (
+    session_id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    client VARCHAR(60)                           -- 'Chrome on Windows', 'Safari on iPhone'
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_started ON user_sessions (started_at DESC);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;  -- start of their latest session
+
+-- Search log, for tuning: which search box scope was used, and the admin
+-- behind a search made while impersonating (so it can be told apart from
+-- the person's own searches).
+ALTER TABLE search_queries ADD COLUMN IF NOT EXISTS scope VARCHAR(10) NOT NULL DEFAULT 'all';
+ALTER TABLE search_queries ADD COLUMN IF NOT EXISTS impersonated_by UUID REFERENCES users(user_id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_search_queries_owner ON search_queries (owner_id, searched_at DESC);

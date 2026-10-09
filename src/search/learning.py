@@ -9,7 +9,9 @@
 - Synonyms (`search_synonyms`) widen a search: searching one term also
   finds the others in its group: `variants()`.
 
-Owners: rows carry the searcher's owner_id (src/accounts.py, §33). Boosts pool
+Owners: rows carry the searcher's owner_id (src/accounts.py, §33), the
+search box scope, and the impersonating admin if there was one, so Admin,
+Search insights can show each person's searching (`insights()["people"]`). Boosts pool
 everyone's clicks and votes on shared results, which is what makes them
 useful; a user's own votes show on their results."""
 
@@ -31,10 +33,14 @@ def owner_key(owner_id) -> str:
     return str(owner_id) if owner_id else ""
 
 
-def log_query(session, query: str, norm: str, results: int, owner_id=None) -> int:
+def log_query(session, query: str, norm: str, results: int, owner_id=None, scope: str = "all",
+              impersonated_by=None) -> int:
+    """One search: who for, the search box scope, and the admin behind it if
+    they were impersonating (left out of each person's own figures)."""
     return session.execute(text("""
-        INSERT INTO search_queries (owner_id, query, norm, results) VALUES (:o, :q, :n, :r) RETURNING query_id
-    """), {"o": owner_id, "q": query[:300], "n": norm[:300], "r": results}).scalar()
+        INSERT INTO search_queries (owner_id, query, norm, results, scope, impersonated_by)
+        VALUES (:o, :q, :n, :r, :s, :i) RETURNING query_id
+    """), {"o": owner_id, "q": query[:300], "n": norm[:300], "r": results, "s": scope, "i": impersonated_by}).scalar()
 
 
 def record_click(session, query_id: int, doc_id: str, position: int | None, owner_id=None) -> None:
@@ -152,7 +158,21 @@ def insights(session, days: int = 30) -> dict:
                  WHERE q.searched_at > now() - make_interval(days => :d)) AS clicks
         FROM search_queries WHERE searched_at > now() - make_interval(days => :d)
     """), window).mappings().first()
-    return {"days": days, "totals": dict(totals), "top": top, "nothing": nothing, "disliked": disliked}
+    people = [dict(r) for r in session.execute(text("""
+        SELECT coalesce(u.display_name, 'No one (from before accounts)') AS person, u.email, count(*) AS searches,
+               count(*) FILTER (WHERE q.results = 0) AS nothing,
+               count(*) FILTER (WHERE EXISTS (SELECT 1 FROM search_clicks c WHERE c.query_id = q.query_id)) AS clicked,
+               max(q.searched_at) AS last
+        FROM search_queries q LEFT JOIN users u ON u.user_id = q.owner_id
+        WHERE q.searched_at > now() - make_interval(days => :d) AND q.impersonated_by IS NULL
+        GROUP BY u.display_name, u.email ORDER BY searches DESC, person LIMIT 50
+    """), window).mappings()]
+    impersonated = session.execute(text("""
+        SELECT count(*) FROM search_queries
+        WHERE impersonated_by IS NOT NULL AND searched_at > now() - make_interval(days => :d)
+    """), window).scalar()
+    return {"days": days, "totals": dict(totals) | {"impersonated": impersonated}, "top": top, "nothing": nothing,
+            "disliked": disliked, "people": people}
 
 
 def prune(session) -> int:

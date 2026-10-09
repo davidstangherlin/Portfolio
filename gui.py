@@ -688,7 +688,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             user = resolve_user(request, session)
             acting = user
             if user is not None and user.is_active:
-                accounts.touch(session, user.user_id)
+                accounts.touch(session, user.user_id, accounts.client_label(request.headers.get("user-agent")))
                 acting = accounts.impersonating(session, user) or user
             session.commit()
             return user, acting
@@ -736,6 +736,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             "impersonated_by": user.info() if user.user_id != acting.user_id else None,
             "settings": preferences.user_settings(session),
             "settings_chosen": sorted(preferences.saved_settings(session)),  # the rest are defaults
+            "previous_session": None if user.user_id != acting.user_id else accounts.previous_session(session, user.user_id),
         }
 
     @app.get("/api/me")
@@ -846,6 +847,9 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
         with get_session() as session:
             return JSONResponse(_json_ready({"users": accounts.user_list(session), "me": str(request.state.user.user_id),
                                              "log": accounts.impersonation_log(session),
+                                             "sessions": accounts.session_log(session),
+                                             "activity_days": accounts.ACTIVITY_DAYS,
+                                             "idle_minutes": accounts.SESSION_IDLE_MINUTES,
                                              "expires_hours": accounts.IMPERSONATION_HOURS}))
 
     @app.post("/api/admin/users")
@@ -1165,7 +1169,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
 
     # ---------- search (§32) ----------
     @app.get("/api/search")
-    def api_search(q: str = "", type: list[str] = Query(default=[]), sector: list[str] = Query(default=[]),  # noqa: A002
+    def api_search(request: Request, q: str = "", type: list[str] = Query(default=[]), sector: list[str] = Query(default=[]),  # noqa: A002
                    recommendation: list[str] = Query(default=[]), mine: list[str] = Query(default=[]),
                    topic: list[str] = Query(default=[]), log: bool = False, query_id: int | None = None, scope: str = "all"):
         """`log=1` records the search (the page sends it once per new search, not per tick box).
@@ -1174,7 +1178,9 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"scope must be one of {', '.join(search_query.SCOPES)}")
         selected = {"type": type, "sector": sector, "recommendation": recommendation, "mine": mine, "topic": topic}
         with get_session() as session:
-            result = search_query.search(session, q, selected, log=log, query_id=query_id, scope=scope)
+            user, acting = request.state.user, request.state.acting
+            result = search_query.search(session, q, selected, log=log, query_id=query_id, scope=scope,
+                                         impersonated_by=user.user_id if user.user_id != acting.user_id else None)
             session.commit()
             return JSONResponse(_json_ready(result))
 

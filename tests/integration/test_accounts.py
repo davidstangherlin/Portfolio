@@ -125,3 +125,64 @@ def test_without_logins_everything_is_the_owners_as_before(two_users):
     assert (me["email"], me["admin"]) == (OWNER, True)
     session, owner, _ = two_users
     assert [w.name for w in lists.list_watchlists(session)] == ["Ideas"]
+
+
+def _age(session, email, minutes):
+    """Move someone's last request (and their latest session's) back in time."""
+    session.execute(text("""
+        UPDATE users SET last_seen_at = last_seen_at - make_interval(mins => :m) WHERE email = :e;
+        UPDATE user_sessions s SET started_at = s.started_at - make_interval(mins => :m),
+                                   last_seen_at = s.last_seen_at - make_interval(mins => :m)
+        FROM users u WHERE u.user_id = s.user_id AND u.email = :e"""), {"m": minutes, "e": email})
+    session.commit()
+
+
+def test_sessions_start_after_an_idle_gap_and_are_kept_per_person(two_users):
+    session, owner, sam = two_users
+    client = TestClient(gui.create_app(resolve_user=gui.test_header_user))
+    phone = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"}
+    client.get("/api/me", headers=headers(SAM) | phone)
+    client.get("/api/me", headers=headers(SAM) | phone)  # the same minute: nothing more to note
+    _age(session, SAM, 20)
+    client.get("/api/me", headers=headers(SAM))  # 20 minutes later: the same session, now 20 minutes long
+    _age(session, SAM, 45)
+    me = client.get("/api/me", headers=headers(SAM)).json()  # 45 minutes idle: a new session
+    assert me["previous_session"]["client"] == "Safari on iPhone"
+
+    users = {u["email"]: u for u in client.get("/api/admin/users", headers=headers(OWNER)).json()["users"]}
+    assert users[SAM]["sessions"] == 2 and users[SAM]["last_login_at"] is not None
+    assert users[OWNER]["sessions"] == 1  # the admin's own request just now
+    log = client.get("/api/admin/users", headers=headers(OWNER)).json()["sessions"]
+    sams = [x for x in log if x["email"] == SAM]
+    assert [x["minutes"] for x in sams] == [0, 20] and [x["active"] for x in sams] == [True, False]
+    assert client.get("/api/admin/users", headers=headers(SAM)).status_code == 403  # the log is for admins
+
+
+def test_an_admin_impersonating_is_their_own_session_and_flagged_on_searches(two_users):
+    session, owner, sam = two_users
+    client = TestClient(gui.create_app(resolve_user=gui.test_header_user))
+    client.get("/api/search?q=gold&log=1", headers=headers(SAM))
+    assert client.post("/api/admin/impersonate", json={"user_id": str(sam.user_id)}, headers=headers(OWNER, True)).status_code == 200
+    me = client.get("/api/me", headers=headers(OWNER)).json()
+    assert me["impersonated_by"]["email"] == OWNER and me["previous_session"] is None
+    client.get("/api/search?q=gold&log=1", headers=headers(OWNER))
+    rows = session.execute(text("""
+        SELECT u.email, q.impersonated_by, q.scope FROM search_queries q JOIN users u ON u.user_id = q.owner_id
+        ORDER BY q.query_id""")).all()
+    assert [(r.email, r.impersonated_by, r.scope) for r in rows] == [(SAM, None, "all"), (SAM, owner.user_id, "all")]
+    started = session.execute(text("SELECT u.email FROM user_sessions s JOIN users u USING (user_id) ORDER BY u.email")).scalars().all()
+    assert started == [OWNER, SAM]  # the admin's session is the admin's, not Sam's
+
+    client.delete("/api/impersonation", headers=headers(OWNER, True))
+    insights = client.get("/api/admin/search/insights", headers=headers(OWNER)).json()
+    assert insights["totals"]["searches"] == 2 and insights["totals"]["impersonated"] == 1
+    assert [(p["person"], p["searches"]) for p in insights["people"]] == [("Sam", 1)]
+
+
+def test_client_label_is_a_few_words_never_the_raw_agent():
+    label = accounts.client_label
+    assert label("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0 Safari/537.36 Edg/128.0") == "Edge on Windows"
+    assert label("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0 Safari/537.36") == "Chrome on Windows"
+    assert label("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/128.0 Mobile Safari/537.36") == "Chrome on Android"
+    assert label("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15") == "Safari on Mac"
+    assert label("testclient") == "Other" and label(None) is None

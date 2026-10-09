@@ -129,7 +129,7 @@ SCOPES = ("all", "devkb")  # everything a person may see, or (admins only) the d
 
 
 def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_id=None, log: bool = False,
-           query_id: int | None = None, scope: str = "all") -> dict:
+           query_id: int | None = None, scope: str = "all", impersonated_by=None) -> dict:
     """Results for `q`, narrowed by the ticked boxes in `selected` ({group: [values]}),
     with every group's boxes and counts.
 
@@ -143,7 +143,8 @@ rows and "Mine" are the current user's unless `owner_id` says otherwise.
 
     `scope` "all" searches everything except the developer knowledge base;
     "devkb" searches only it, and finds nothing for someone who isn't an
-    admin (§36)."""
+    admin (§36). `impersonated_by` is the admin behind a search made while
+    impersonating, kept on the log so tuning can tell it apart."""
     selected = {g: set(v) for g, v in (selected or {}).items() if g in GROUPS and v}
     owner_id = owner_id or current_user_id(session)
     devkb = scope == "devkb"
@@ -196,7 +197,7 @@ rows and "Mine" are the current user's unless `owner_id` says otherwise.
     shown = [r for r in rows if passes(r)]
     votes = learning.my_votes(session, norm, owner_id)
     if log:
-        query_id = learning.log_query(session, q, norm, len(rows), owner_id)
+        query_id = learning.log_query(session, q, norm, len(rows), owner_id, scope, impersonated_by)
     results = [{"doc_id": r["doc_id"], "kind": r["kind"], "type": KIND_LABELS.get(r["kind"], r["kind"]), "code": r["code"],
                 "title": r["title"], "subtitle": r["subtitle"], "url": r["url"], "snippet": r["snippet"],
                 "mine": r["_values"]["mine"], "recommendation": (r["facets"] or {}).get("recommendation"),

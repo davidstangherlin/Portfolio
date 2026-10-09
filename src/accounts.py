@@ -129,12 +129,68 @@ def create_user(session, email: str, display_name: str, role: str = "member") ->
         {"e": email, "n": name, "r": role}).first())
 
 
-def touch(session, user_id) -> None:
-    """Note when someone last used Sift (at most once a minute)."""
-    session.execute(text("""
+SESSION_IDLE_MINUTES = 30  # a gap this long ends a session; the next request starts another
+SESSION_DAYS = 365         # how long the session log is kept
+
+
+def client_label(user_agent: str | None) -> str | None:
+    """The browser and device in a few words ("Chrome on Windows"), never the
+    raw user agent: enough to tell a phone from a PC, nothing to fingerprint."""
+    ua = user_agent or ""
+    if not ua:
+        return None
+    browser = next((name for key, name in (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"),
+                                           ("FxiOS", "Firefox"), ("CriOS", "Chrome"), ("Chrome/", "Chrome"),
+                                           ("Safari/", "Safari")) if key in ua), None)
+    device = next((name for key, name in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                                          ("Windows", "Windows"), ("Mac OS X", "Mac"), ("Linux", "Linux")) if key in ua), None)
+    if browser and device:
+        return f"{browser} on {device}"
+    return browser or device or "Other"
+
+
+def touch(session, user_id, client: str | None = None) -> None:
+    """Note that someone is using Sift: their last-seen time (at most once a
+    minute) and their session, starting a new one after SESSION_IDLE_MINUTES
+    without a request. Concurrent requests queue on the user's row, so only
+    one of them goes on to update the session."""
+    seen = session.execute(text("""
         UPDATE users SET last_seen_at = CURRENT_TIMESTAMP
-        WHERE user_id = :u AND (last_seen_at IS NULL OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')"""),
-        {"u": user_id})
+        WHERE user_id = :u AND (last_seen_at IS NULL OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')
+        RETURNING user_id"""), {"u": user_id}).first()
+    if seen is None:
+        return
+    carried_on = session.execute(text("""
+        UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP
+        WHERE session_id = (SELECT session_id FROM user_sessions WHERE user_id = :u ORDER BY started_at DESC LIMIT 1)
+          AND last_seen_at > CURRENT_TIMESTAMP - make_interval(mins => :idle)"""),
+        {"u": user_id, "idle": SESSION_IDLE_MINUTES}).rowcount
+    if carried_on:
+        return
+    session.execute(text("INSERT INTO user_sessions (user_id, client) VALUES (:u, :c)"),
+                    {"u": user_id, "c": (client or None) and client[:60]})
+    session.execute(text("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = :u"), {"u": user_id})
+    session.execute(text("DELETE FROM user_sessions WHERE user_id = :u AND last_seen_at < CURRENT_TIMESTAMP - make_interval(days => :d)"),
+                    {"u": user_id, "d": SESSION_DAYS})
+
+
+def previous_session(session, user_id) -> dict | None:
+    """The session before the current one: "last time you were here"."""
+    row = session.execute(text("""
+        SELECT started_at, last_seen_at, client FROM user_sessions WHERE user_id = :u
+        ORDER BY started_at DESC OFFSET 1 LIMIT 1"""), {"u": user_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def session_log(session, limit: int = 50) -> list[dict]:
+    """Recent sessions, newest first, for the admin Users tab. Minutes are
+    whole minutes from first to last request (a quick look is 0)."""
+    return [dict(r) for r in session.execute(text("""
+        SELECT s.session_id, u.display_name, u.email, s.started_at, s.last_seen_at, s.client,
+               floor(extract(epoch FROM s.last_seen_at - s.started_at) / 60)::int AS minutes,
+               s.last_seen_at > CURRENT_TIMESTAMP - make_interval(mins => :idle) AS active
+        FROM user_sessions s JOIN users u USING (user_id)
+        ORDER BY s.started_at DESC LIMIT :n"""), {"n": limit, "idle": SESSION_IDLE_MINUTES}).mappings()]
 
 
 def update_user(session, user: User, by: User, display_name=None, role=None, status=None) -> User:
@@ -170,14 +226,25 @@ def update_user(session, user: User, by: User, display_name=None, role=None, sta
     return get_user(session, user.user_id)
 
 
+ACTIVITY_DAYS = 30  # the window for sessions and average length in the Users tab
+
+
 def user_list(session) -> list[dict]:
-    """Every account with what it owns, for the admin Users tab."""
+    """Every account with what it owns and how much it's used Sift lately
+    (sessions and average minutes over ACTIVITY_DAYS), for the admin Users tab."""
     return [dict(r) for r in session.execute(text("""
-        SELECT u.user_id, u.email, u.display_name, u.role, u.status, u.created_at, u.last_seen_at,
+        SELECT u.user_id, u.email, u.display_name, u.role, u.status, u.created_at, u.last_seen_at, u.last_login_at,
                (SELECT count(*) FROM portfolios p WHERE p.owner_id = u.user_id) AS portfolios,
-               (SELECT count(*) FROM watchlists w WHERE w.owner_id = u.user_id) AS watchlists
-        FROM users u ORDER BY u.role, u.created_at, u.email
-    """)).mappings()]
+               (SELECT count(*) FROM watchlists w WHERE w.owner_id = u.user_id) AS watchlists,
+               s.sessions, s.avg_minutes
+        FROM users u
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS sessions,
+                   round(avg(extract(epoch FROM last_seen_at - started_at) / 60))::int AS avg_minutes
+            FROM user_sessions WHERE user_id = u.user_id AND started_at > CURRENT_TIMESTAMP - make_interval(days => :d)
+        ) s ON TRUE
+        ORDER BY u.role, u.created_at, u.email
+    """), {"d": ACTIVITY_DAYS}).mappings()]
 
 
 # ---------- impersonation (§35) ----------

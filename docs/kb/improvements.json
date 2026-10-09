@@ -845,6 +845,20 @@
     "ai-and-graph"
    ],
    "notes": "Sift follows ASX companies only; unmatched lines stay in fund_holdings."
+  },
+  {
+   "id": "IMP-059",
+   "title": "Sign-in and sign-out events",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Until Phase 3 a session is a spell of use, not a log-on; there are no failed sign-ins or sign-outs to audit.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "accounts-owners"
+   ],
+   "notes": "With Supabase Auth: start a session on sign-in, end it on sign-out, log failed attempts, and decide with the privacy note whether to keep an IP address."
   }
  ]
 }

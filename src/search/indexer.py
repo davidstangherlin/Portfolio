@@ -58,6 +58,7 @@ EXCLUDED = {
     "ui_preferences": "page layout settings",
     "users": "accounts: who someone is, not something to find (§33)",
     "impersonations": "the impersonation audit log, shown in Admin, Users (§35)",
+    "user_sessions": "the session log (when each person used Sift), shown in Admin, Users",
     "managers": "fund managers as records for AI and the graph; the same managers are indexed in the coattail area",
     "holders": "funds and institutions as records for AI and the graph; reached through Coattail and company pages",
     "search_index": "the index itself",

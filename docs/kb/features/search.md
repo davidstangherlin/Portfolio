@@ -3,7 +3,7 @@ id: search
 title: Search across Sift
 category: features
 summary: The search index, its areas and registers, ranking, tick-box filters, learning from clicks and votes, synonyms, AI-ready embeddings, and who sees which rows.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -43,13 +43,13 @@ One search box (top right) for everything the user can see, with a scope switch 
 
 **Learning from use** (`src/search/learning.py`, added 2026-10-09 at the user's request; they asked whether to add thumbs up/down and whether search improves over time).
 
-- *Logged searches.* `search_queries` (query, `norm` = its matched words, result count, owner). The results page asks the API to log (`log=1`) once per new search and reuses the `query_id` while only tick boxes change, so ticking boxes doesn't inflate counts.
+- *Logged searches.* `search_queries` (query, `norm` = its matched words, result count, owner, the search box `scope`, and `impersonated_by`: the admin behind a search made while impersonating, so it isn't mistaken for the person's own). The results page asks the API to log (`log=1`) once per new search and reuses the `query_id` while only tick boxes change, so ticking boxes doesn't inflate counts.
 - *Clicks.* Opening a result posts to `/api/search/click` (`fetch` with `keepalive`, so it survives the page change); `search_clicks` holds query, result and position.
 - *Thumbs.* Pink thumbs up and down on every result (`thumbs()`), posting to `/api/search/feedback`; `search_feedback` keeps one vote per owner, search words and result (clicking again withdraws it). The user's own vote shows as a filled pink thumb.
 - *Boosts.* For the same `norm`, each result gains `0.6 × ln(1 + clicks) + 1.5 × net votes` from the last 180 days, capped at ±3 (an exact code scores 10, an exact title 6), so a liked result climbs for that search without overriding exact matches. Clicks and votes are pooled across users on shared results.
 - *Synonyms.* `search_synonyms` (groups of two or more terms, lower case). `variants()` swaps each term found in the query (single words or phrases) for the others in its group, up to 6 versions; a synonym match scores 90% of a typed-word match. Applied at query time, so no rebuild is needed.
 - *Retention.* The log is pruned to a year at the nightly rebuild.
-- *Admin, Search tab* (`#/admin/search`): the Search index card (moved from the settings page), Meaning-based search (AI) status, Synonyms (add as a comma-separated list, remove with ✕), and Search insights for the last 7, 30, 90 or 365 days: totals, top searches with the share that opened a result, searches that found nothing (the list to fix with synonyms) and results with net negative votes.
+- *Admin, Search tab* (`#/admin/search`): the Search index card (moved from the settings page), Meaning-based search (AI) status, Synonyms (add as a comma-separated list, remove with ✕), and Search insights for the last 7, 30, 90 or 365 days: totals, top searches with the share that opened a result, searches that found nothing (the list to fix with synonyms), results with net negative votes, and By person: each person's searches, the share that found nothing and the share that opened a result (impersonated searches left out, counted in the totals line).
 
 **AI-ready** (`src/search/embeddings.py`; the user chose ready-but-off, with a model running inside Sift when switched on).
 

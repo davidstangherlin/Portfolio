@@ -2,8 +2,8 @@
 id: accounts-owners
 title: Accounts and owners (multi-user Phase 1)
 category: features
-summary: The users table, owner_id on every table of personal data, how the current person is known for each request, and the rules for adding personal data safely.
-version: 1.0
+summary: The users table, owner_id on every table of personal data, how the current person is known for each request, sessions (last login, session length), and the rules for adding personal data safely.
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -12,7 +12,7 @@ next_review: 2027-01-09
 source: AS_BUILT §33
 related: [profile-preferences-impersonation, personal-nightly-results, adr-007-owner-scoping, adr-008-supabase-flyio]
 code: [src/accounts.py, gui.py, db/schema.sql]
-tables: [users]
+tables: [users, user_sessions]
 ---
 
 ## Purpose
@@ -35,9 +35,13 @@ The first step towards a hosted Sift for a test group and later the public (plan
 
 **Requests.** `create_app(password, resolve_user)`. `resolve_user(request, session)` says who an `/api/` request is from: until Phase 3 that's `owner_user` (the owner, behind `GUI_PASSWORD` when set); tests use `test_header_user` (the `X-Test-User` header, never used by `python gui.py`). The middleware answers 401 with no user, 403 for a disabled account, and 403 "Only an admin can do that." for a member on `/api/admin/`; otherwise it runs the request as that user and notes `last_seen_at` (at most once a minute). Static files and the page itself aren't personal and need no user. `/api/me` and the `user` in `/api/status` say who Sift is acting for; the page hides the gear menu's Admin links for members.
 
+**Sessions** (added 2026-10-09 at the user's request: log-on times, last login and session length). Each `/api/` request calls `touch(session, user_id, client)`, which works at most once a minute per person: it updates `users.last_seen_at`, then carries on that person's latest `user_sessions` row if it was last seen less than `SESSION_IDLE_MINUTES` (30) ago, or starts a new one and sets `users.last_login_at`. Concurrent requests queue on the user's row, so only one starts a session. A session's length is `last_seen_at - started_at`, accurate to the minute; a quick look counts as under a minute. The session belongs to whoever is signed in, so an admin impersonating someone is logged as the admin (the impersonation itself is in `impersonations`). `client` is the browser and device in a few words from `client_label()` ("Chrome on Windows", "Safari on iPhone"); the raw user agent and IP address are deliberately not kept. Sessions older than `SESSION_DAYS` (365) are deleted when that person next starts one; `last_login_at` outlives the log. Until sign-in (Phase 3) a session is a spell of use, not a log-on; Phase 3 adds sign-in and sign-out events (IMP-059).
+
+Where it shows: Admin, Users has Last login, Last seen, Sessions and Average session (last `ACTIVITY_DAYS`, 30) per person, and a Sessions card listing recent sessions with their length and browser (`session_log()`); Profile shows the person's previous visit (`previous_session()`, `/api/me`), hidden while impersonating.
+
 **Phase 2** ([§34](kb:personal-nightly-results)) made the nightly record per person; until then the nightly run acted as the owner.
 
-**Tests.** `tests/integration/test_accounts.py`: the owner is the default and unique; the data layer scopes lists, parcels, positions, layout and names to the current user; through the API another person's lists and portfolios are empty and their IDs 404 on read and delete, screener watchlist flags are per person, and the same name is fine for two people; personal search results are each person's own, and a save rebuilds only the saver's rows; the admin console refuses members, an unknown user gets 401, a disabled one 403; with no resolver everything is the owner's as before. `tests/conftest.py` truncates `users` and re-creates the owner before each test.
+**Tests.** `tests/integration/test_accounts.py`: the owner is the default and unique; the data layer scopes lists, parcels, positions, layout and names to the current user; through the API another person's lists and portfolios are empty and their IDs 404 on read and delete, screener watchlist flags are per person, and the same name is fine for two people; personal search results are each person's own, and a save rebuilds only the saver's rows; the admin console refuses members, an unknown user gets 401, a disabled one 403; with no resolver everything is the owner's as before; a session starts after an idle gap and carries on within it, per person; an impersonating admin's session is their own and their searches are flagged; client labels. `tests/conftest.py` truncates `users` and re-creates the owner before each test.
 
 ## Code map
 
@@ -47,13 +51,15 @@ The first step towards a hosted Sift for a test group and later the public (plan
 
 ## Data
 
-- `users`: email, display name, role (admin or member), status, the login service's id (Phase 3)
+- `users`: email, display name, role (admin or member), status, the login service's id (Phase 3), last seen and last login
+- `user_sessions`: one row per spell of use: who, started, last seen, browser and device
 
 Columns and types: [Data dictionary](kb:ref-data-dictionary).
 
 ## Diagnosing problems
 
 - Someone sees another person's data: a read isn't scoped; every personal read must filter by current_user_id(session). Add a two-user test.
+- Last login or sessions look stale: sessions only start on `/api/` requests and update at most once a minute; a session ends after 30 idle minutes. Check `user_sessions` for the person.
 - A page returns 'Sign in to use Sift' (401) or 'This account is disabled' (403): the request user couldn't be resolved or is disabled.
 
 ## Known limits
