@@ -785,3 +785,18 @@ FROM signal_snapshots s
 CROSS JOIN (SELECT user_id FROM users WHERE role = 'admin' ORDER BY created_at, email LIMIT 1) u
 WHERE s.held
 ON CONFLICT DO NOTHING;
+
+-- 9. IMPERSONATION (docs/AS_BUILT.md §35)
+-- An admin acting as another person, to see Sift exactly as they do. Each
+-- row is one session, kept as the audit log: who, as whom, from when to
+-- when, and how it ended. An admin has at most one open session.
+CREATE TABLE IF NOT EXISTS impersonations (
+    impersonation_id BIGSERIAL PRIMARY KEY,
+    admin_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    target_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP WITH TIME ZONE,
+    ended_how VARCHAR(20)                        -- ended, expired, replaced, unavailable
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_impersonations_open ON impersonations (admin_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_impersonations_started ON impersonations (started_at DESC);

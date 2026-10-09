@@ -57,6 +57,7 @@ EXCLUDED = {
     "analyst_ratings": "monthly rating counts: numbers, reached through the company",
     "ui_preferences": "page layout settings",
     "users": "accounts: who someone is, not something to find (§33)",
+    "impersonations": "the impersonation audit log, shown in Admin, Users (§35)",
     "search_index": "the index itself",
     "search_index_runs": "the index's rebuild log",
     "search_queries": "the search log, used to tune ranking (Admin, Search insights)",
@@ -91,6 +92,10 @@ PAGES = [
     ("Help", "#/help", "The knowledge base: every term and screen explained."),
     ("Model and rules", "#/admin", "Admin console: every setting and formula behind Sift's valuations, tests and actions."),
     ("What-if scenarios", "#/admin/scenarios", "Try changed settings against today's data without touching the live ones."),
+    ("Profile", "#/profile", "Your account: display name, email and role."),
+    ("Preferences", "#/preferences", "Your settings: theme (light, dark or system), compact spacing, wrapping, help tips, "
+     "accessibility (reduce motion, chart patterns and data tables, keyboard shortcuts), start page, search scope and rows shown."),
+    ("Users", "#/admin/users", "Admin: add, disable and change the role of accounts, impersonate a member, and the impersonation log."),
 ]
 
 

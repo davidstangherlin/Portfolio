@@ -60,3 +60,64 @@ def set_preference(session, key: str, value) -> None:
 def clear_preference(session, key: str) -> bool:
     return session.execute(text("DELETE FROM ui_preferences WHERE owner_id = :o AND pref_key = :k"),
                            {"o": current_user_id(session), "k": key}).rowcount > 0
+
+
+# ---------- personal settings (Preferences, §35) ----------
+
+USER_SETTINGS = "settings"
+START_PAGES = {"dashboard": "Dashboard", "screener": "Screener", "etfs": "ETFs", "lics": "LICs",
+               "watchlists": "Watchlists", "portfolios": "Portfolios", "track-record": "Track record",
+               "coattail": "Coattail"}
+# Each setting: its default and the values it can take (a bool, or one of a set).
+SETTINGS_SPEC = {
+    "theme": ("system", ("system", "light", "dark")),
+    "compact": (False, bool),              # tighter spacing in cards and tables
+    "wrap_text": (False, bool),            # long names wrap in tables instead of being cut off
+    "help_tips": (True, bool),             # the "i" help buttons beside terms
+    "reduce_motion": (False, bool),
+    "chart_patterns": (False, bool),       # dashes and hatching as well as colour in charts
+    "chart_tables": (False, bool),         # open each chart's data table
+    "show_hover_buttons": (False, bool),   # buttons that normally appear on hover are always shown
+    "keyboard_shortcuts": (True, bool),
+    "start_page": ("dashboard", tuple(START_PAGES)),
+    "search_scope": ("auto", ("auto", "all", "page")),  # auto: the dashboard searches everything, other pages themselves
+    "rows_shown": (100, (50, 100, 250)),   # rows shown before "Show more" in long tables
+}
+SETTINGS_DEFAULTS = {k: default for k, (default, _) in SETTINGS_SPEC.items()}
+
+
+def clean_settings(body) -> dict:
+    """The settings to store (only ones that differ from the defaults), or
+    PreferenceError. Unknown keys are refused so a typo isn't silently kept."""
+    if not isinstance(body, dict):
+        raise PreferenceError("settings are a set of names and values")
+    unknown = sorted(set(body) - set(SETTINGS_SPEC))
+    if unknown:
+        raise PreferenceError(f"unknown setting: {', '.join(unknown)}")
+    out = {}
+    for key, value in body.items():
+        default, allowed = SETTINGS_SPEC[key]
+        ok = isinstance(value, bool) if allowed is bool else (value in allowed and type(value) is type(default))
+        if not ok:
+            choices = "true or false" if allowed is bool else ", ".join(map(str, allowed))
+            raise PreferenceError(f"{key} must be {choices}")
+        if value != default:
+            out[key] = value
+    return out
+
+
+def user_settings(session) -> dict:
+    """The current user's settings, defaults filled in."""
+    saved = get_preference(session, USER_SETTINGS) or {}
+    return SETTINGS_DEFAULTS | {k: v for k, v in saved.items() if k in SETTINGS_SPEC}
+
+
+def save_settings(session, changes) -> dict:
+    """Merge `changes` into the current user's settings; returns them all."""
+    merged = {k: v for k, v in user_settings(session).items()} | (changes if isinstance(changes, dict) else {})
+    stored = clean_settings(merged)
+    if stored:
+        set_preference(session, USER_SETTINGS, stored)
+    else:
+        clear_preference(session, USER_SETTINGS)
+    return SETTINGS_DEFAULTS | stored

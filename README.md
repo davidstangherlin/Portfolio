@@ -370,8 +370,15 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Summary strip:** the top of each company page shows share price, estimated value, margin of
   safety and **implied upside** ((value - price) / price, which is not the same as margin of
   safety), followed by the valuation model and its exact assumptions.
-- **Light or dark:** the gear icon (top right) offers Light, Dark or System (follows Windows or
-  your phone). Your choice is remembered in that browser.
+- **You (avatar, top right):** Profile (your display name), Preferences and Keyboard shortcuts;
+  admins also get Impersonate user, Users, Model and rules and What-if scenarios. Preferences
+  are saved to your account so they follow you to any browser: theme (Light, Dark or System),
+  compact spacing, wrapping long names, help tips, reduce motion, patterns and data tables for
+  charts, always-visible buttons, keyboard shortcuts, start page, search scope and rows shown.
+  Shortcuts: `/` search, `?` the list, `g` then a letter to go somewhere (`g s` Screener).
+- **Users and impersonation (admins):** Admin, Users adds, disables and changes the role of
+  accounts. Impersonate lets an admin see and use Sift exactly as a member does, with a banner
+  and End button on every page; sessions end by themselves after 8 hours and are all logged.
 - **Field explanations:** hover any column heading, or any label on the company page, to see
   what it measures, how it is calculated and the pass threshold. Underlined headings have one.
   On a phone, tap the small "i" next to the heading instead. These come from the same
@@ -413,7 +420,7 @@ node build_rules_doc.js
 
 ### Admin console: model, workings and what-if scenarios
 
-Open the gear (top right) and choose **Model and rules** or **What-if scenarios**. Same
+Open your avatar menu (top right) and choose **Model and rules** or **What-if scenarios**. Same
 password as the rest of Sift.
 
 - **Model and rules** lists the nightly steps and all 29 settings Sift uses (valuation

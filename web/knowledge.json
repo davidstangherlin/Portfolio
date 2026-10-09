@@ -78,7 +78,7 @@
     "Track record: whether Sift's suggestions have actually worked.",
     "Coattail: follow the smart money. The fund managers holding the screener's companies, as cards you can open, and which companies they're adding to and cutting, with ASX director trades and substantial holders to come.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
-    "Model and rules (settings gear, Admin): every setting and formula, and what-if scenarios.",
+    "Model and rules (avatar menu, admins): every setting and formula, what-if scenarios and Users.",
     "Search: the box at the top right finds anything in Sift, everywhere or just on the page you're on (the pink ▾ chooses). Results can be narrowed with tick boxes down the left."
    ],
    "related": [
@@ -1771,7 +1771,7 @@
    ],
    "definition": "Every setting behind Sift's results, the formula each feeds, and a lab for trying other values.",
    "body": [
-    "Open it from the settings gear, under Admin. Settings and formulas lists every adjustable setting with its live value, allowed range, formula and where it's used, grouped as valuation models, the four value tests, markers and actions, and the score wheel.",
+    "Open it from your avatar menu (top right), under Model and rules. Settings and formulas lists every adjustable setting with its live value, allowed range, formula and where it's used, grouped as valuation models, the four value tests, markers and actions, and the score wheel.",
     "What-if scenarios lets you change any of them and see what would happen on today's data. Nothing live changes: the nightly job, the screener, your actions and the track record keep using the live settings.",
     "Every company page has Show workings: each step behind its figures, with its own numbers."
    ],
@@ -2081,6 +2081,88 @@
     {
      "text": "Open search",
      "href": "#/search"
+    }
+   ]
+  },
+  {
+   "id": "profile-preferences",
+   "title": "Your profile and preferences",
+   "category": "guides",
+   "aliases": [
+    "profile",
+    "preferences",
+    "avatar",
+    "settings",
+    "theme",
+    "dark mode",
+    "light mode",
+    "compact",
+    "wrap",
+    "help tips",
+    "reduce motion",
+    "patterns",
+    "data table",
+    "start page",
+    "rows shown",
+    "keyboard shortcuts",
+    "accessibility"
+   ],
+   "definition": "The round avatar at the top right opens your Profile, Preferences and Keyboard shortcuts. Preferences are saved to your account, so they follow you to any browser.",
+   "body": [
+    "Profile: your display name (how Sift greets you and how admins see you) and email. The email changes with sign-in, coming in a later release.",
+    "Display: compact spacing fits more on the screen; wrapping shows long names in full; help tips are the small \"i\" beside terms.",
+    "Theme: light, dark, or system (follows your device).",
+    "Accessibility: reduce motion turns animations off; patterns as well as colours dash the lines and hatch the bars in charts so they can be told apart without colour; data tables opens the table under every chart; show all buttons shows the buttons that otherwise appear on hover; keyboard shortcuts can be turned off.",
+    "User experience: the page Sift opens on, what the search box searches until you change it with the pink ▾, and how many rows long tables show before \"Show more\".",
+    "Keyboard shortcuts: \"/\" to search, \"?\" for the list, and \"g\" then a letter to go somewhere: d Dashboard, s Screener, e ETFs, l LICs, w Watchlists, p Portfolios, t Track record, c Coattail, h Help, f Preferences.",
+    "Reset all to defaults (top of Preferences) puts every preference back."
+   ],
+   "related": [
+    "getting-around",
+    "sift-search"
+   ],
+   "links": [
+    {
+     "text": "Open Preferences",
+     "href": "#/preferences"
+    },
+    {
+     "text": "Open Profile",
+     "href": "#/profile"
+    }
+   ]
+  },
+  {
+   "id": "users-impersonation",
+   "title": "Users and impersonation (admins)",
+   "category": "admin",
+   "aliases": [
+    "users",
+    "accounts",
+    "impersonate",
+    "impersonation",
+    "act as",
+    "view as",
+    "add account",
+    "disable account",
+    "admin role",
+    "member"
+   ],
+   "definition": "Admins manage accounts in Admin, Users, and can impersonate a member: see and use Sift exactly as that person does, to help them or check what they see.",
+   "body": [
+    "Accounts: each person has their own portfolios, watchlists, scenarios, layout and preferences. Market data, valuations and help are shared.",
+    "Add an account with an email, display name and role. Members use Sift; admins also manage its settings and accounts. Until sign-in arrives, a new account can be used only through Impersonate.",
+    "Make admin, Make member, Disable and Enable change an account. Nobody can remove their own admin role or disable themselves, and Sift always keeps at least one active admin.",
+    "Impersonate (from the avatar menu or a row in Users): everything you see and change is as that person. A banner shows on every page with End impersonation. The admin console is closed meanwhile, as it is for them. Admins can't be impersonated, nor can disabled accounts.",
+    "Safeguards: a session ends by itself after 8 hours, and ends if the person is disabled or made an admin. Every session is kept in the impersonation log: who, as whom, when, and how it ended."
+   ],
+   "related": [
+    "profile-preferences"
+   ],
+   "links": [
+    {
+     "text": "Open Users",
+     "href": "#/admin/users"
     }
    ]
   }

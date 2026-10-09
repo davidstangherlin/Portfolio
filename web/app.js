@@ -11,7 +11,12 @@ const ACTION_STATUS = {
   BUY: "good", ACCUMULATE: "good", INVESTIGATE: "warning", WATCH: "neutral", HOLD: "neutral",
   REVIEW: "serious", SELL: "critical", AVOID: "critical", IGNORE: "neutral",
 };
-const PAGE_SIZE = 100;
+let PAGE_SIZE = 100;  // rows before "Show more": the rows_shown preference (§35)
+/* Who Sift is acting for and their Preferences (§35), filled from /api/me as the page starts. */
+const SETTING_DEFAULTS = { theme: "system", compact: false, wrap_text: false, help_tips: true, reduce_motion: false,
+  chart_patterns: false, chart_tables: false, show_hover_buttons: false, keyboard_shortcuts: true,
+  start_page: "dashboard", search_scope: "auto", rows_shown: 100 };
+const me = { user: null, by: null, settings: { ...SETTING_DEFAULTS } };
 
 const state = {
   q: "", sector: "", actions: new Set(), passing: false, held: false, watchlist: "",
@@ -261,7 +266,7 @@ const dividendText = (dv) => `${money(dv.amount, 3)} per ${dv.per || "share"}${d
 const markerKind = (mk) => mk.kind || "Dividend";
 
 function tableView(headers, rows) {
-  return h("details", { class: "table-view" }, h("summary", { text: "Show data table" }),
+  return h("details", { class: "table-view", open: me.settings.chart_tables }, h("summary", { text: "Show data table" }),
     h("div", { class: "table-wrap" }, h("table", { class: "grid" },
       h("thead", {}, h("tr", {}, headers.map((x, i) => h("th", { class: i ? "num" : null, text: x })))),
       h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: i ? "num" : null, text: v }))))))));
@@ -292,10 +297,11 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
       text: base.length > 60 ? monthYear(base[idx][0]) : dayMonth(base[idx][0]) }));
   }
   const lookups = series.map((sr) => new Map(sr.points.map((p) => [p[0], p[1]])));
-  series.forEach((sr) => {
+  series.forEach((sr, k) => {
     if (!sr.points.length) return;
     const d = sr.points.map((p, i) => `${i ? "L" : "M"}${X(toDate(p[0]).getTime()).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
-    svg.append(s("path", { d, fill: "none", stroke: `var(${sr.color})`, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    svg.append(s("path", { d, fill: "none", stroke: `var(${sr.color})`, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
+      class: `series series-${k}` }));  // series-1 and on are dashed with the chart_patterns preference
     const last = sr.points[sr.points.length - 1];
     svg.append(s("circle", { cx: X(toDate(last[0]).getTime()), cy: Y(last[1]), r: 4, fill: `var(${sr.color})`, stroke: "var(--surface)", "stroke-width": 2 }));
   });
@@ -345,6 +351,7 @@ function barPath(x, w, yBase, yVal, r = 4) {
   }
   return `M${x},${yBase}V${yVal - r}Q${x},${yVal} ${x + r},${yVal}H${x + w - r}Q${x + w},${yVal} ${x + w},${yVal - r}V${yBase}Z`;
 }
+let hatchCount = 0;
 function columnChart({ categories, series, yFmt, height = 220, label, width = 640 }) {
   const W = width, H = height, m = { l: 56, r: 10, t: 10, b: 26 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
@@ -361,6 +368,15 @@ function columnChart({ categories, series, yFmt, height = 220, label, width = 64
     svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 ? "base-line" : "grid-line" }));
     svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: yFmt(t) }));
   }
+  // Preferences, "Patterns as well as colours": the second series and on are hatched (§35).
+  const fills = series.map((sr, si) => {
+    if (!me.settings.chart_patterns || si === 0) return `var(${sr.color})`;
+    const id = `hatch-${++hatchCount}`;
+    svg.append(s("defs", {}, s("pattern", { id, width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: `rotate(${si === 1 ? 45 : 135})` },
+      s("rect", { width: 6, height: 6, fill: `var(${sr.color})`, "fill-opacity": 0.3 }),
+      s("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: `var(${sr.color})`, "stroke-width": 3 }))));
+    return `url(#${id})`;
+  });
   categories.forEach((cat, ci) => {
     const gx = m.l + band * ci + (band - groupW) / 2;
     svg.append(s("text", { x: m.l + band * ci + band / 2, y: H - 8, "text-anchor": "middle", text: cat }));
@@ -368,7 +384,7 @@ function columnChart({ categories, series, yFmt, height = 220, label, width = 64
       const v = sr.values[ci];
       if (v === null || v === undefined) return;
       const x = gx + si * (barW + gap);
-      const bar = s("path", { d: barPath(x, barW, Y(0), Y(v)), fill: `var(${sr.color})` });
+      const bar = s("path", { d: barPath(x, barW, Y(0), Y(v)), fill: fills[si] });
       const hitArea = s("rect", { x: x - gap, y: m.t, width: barW + gap * 2, height: ph, fill: "transparent" });
       const over = (e) => { bar.setAttribute("fill-opacity", 0.75); showTip(e, [h("div", { class: "t-head", text: cat }), tipRow(yFmt(v), sr.name, sr.color)]); };
       hitArea.addEventListener("pointermove", over);
@@ -959,9 +975,9 @@ function closeDropdowns(except = null) {
     dd.querySelector(".dd-menu").hidden = true;
   }
 }
-function closeSettings() {
-  document.getElementById("settings").hidden = true;
-  document.getElementById("settings-btn").setAttribute("aria-expanded", "false");
+function closeSettings() {  // the avatar menu (§35)
+  document.getElementById("user-menu").hidden = true;
+  document.getElementById("user-btn").setAttribute("aria-expanded", "false");
 }
 /* Everything that pops up from the menu bar, e.g. after moving to another page. */
 function closeMenus() {
@@ -1010,9 +1026,6 @@ async function loadStatus() {
   try {
     cache.status = await getJSON("/api/status");
     paintChip(cache.status);
-    // The admin console is for admins (§33); everyone else doesn't see the links.
-    const admin = !cache.status.user || cache.status.user.admin;
-    document.querySelectorAll(".settings-admin").forEach((el) => { el.hidden = !admin; });
   } catch (e) { /* chip stays hidden */ }
 }
 
@@ -1028,12 +1041,13 @@ function findCompany(q) {
 /* ---------- search scope (§32): everything, or this page ---------- */
 const PAGE_LABELS = { dashboard: "Dashboard", screener: "Screener", etfs: "ETFs", etf: "this ETF", lics: "LICs", lic: "this LIC",
   company: "this company", "track-record": "Track record", coattail: "Coattail", help: "Help", admin: "Admin",
-  watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results" };
+  watchlists: "Watchlists", portfolios: "Portfolios", search: "Search results", profile: "Profile", preferences: "Preferences" };
 const searchScope = { page: "dashboard", mode: "all" };
 /* The dashboard and the results page search everything by default; every other page, itself. */
 function setSearchPage(page) {
   searchScope.page = page;
-  searchScope.mode = page === "dashboard" || page === "search" ? "all" : "page";
+  const pref = me.settings.search_scope;  // Preferences, User experience (§35)
+  searchScope.mode = pref === "all" || pref === "page" ? pref : page === "dashboard" || page === "search" ? "all" : "page";
   paintSearchScope();
 }
 function paintSearchScope() {
@@ -1188,7 +1202,7 @@ function initNav() {
   nav.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", () => closeMenus());
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
-  document.getElementById("settings-btn").addEventListener("click", () => closeDropdowns());
+  document.getElementById("user-btn").addEventListener("click", () => closeDropdowns());
   const chip = document.getElementById("data-chip");
   bindHelp(chip, () => [h("div", { class: "t-title", text: "Data" }), ...statusLines(cache.status || {}).map((l) => h("div", { text: l }))]);
   initSearch();
@@ -3356,7 +3370,7 @@ function stepValue(v, unit) {
 
 function adminTabs(current) {
   return h("div", { class: "tabs", role: "navigation", "aria-label": "Admin" },
-    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"], ["search", "#/admin/search", "Search"]].map(([id, href, label]) =>
+    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"], ["search", "#/admin/search", "Search"], ["users", "#/admin/users", "Users"]].map(([id, href, label]) =>
       h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
 }
 
@@ -3623,29 +3637,331 @@ function workingsBody(d, choose) {
   return [head, ...sections];
 }
 
-/* ---------- settings: theme ---------- */
-const THEME_KEY = "sift-theme";
-function currentThemeChoice() {
-  try { return localStorage.getItem(THEME_KEY) || "system"; } catch (e) { return "system"; }
-}
+/* ---------- you: avatar menu, preferences, shortcuts, impersonation (§35) ---------- */
+const THEME_KEY = "sift-theme";  // kept in the browser too, so the page opens in the right theme before Sift answers
 function applyTheme(choice) {
   if (choice === "light" || choice === "dark") document.documentElement.setAttribute("data-theme", choice);
   else document.documentElement.removeAttribute("data-theme");
-  try { choice === "system" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch (e) { /* not saved; still applied */ }
-  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", b.dataset.themeChoice === choice);
+  try { choice === "system" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch (e) { /* not kept; still applied */ }
   slots.forEach((sl) => { delete sl.el.dataset.w; }); // charts pick up the new colours on redraw
   drawSlots();
 }
-(function initSettings() {
-  const btn = document.getElementById("settings-btn"), panel = document.getElementById("settings");
-  const setOpen = (open) => { panel.hidden = !open; btn.setAttribute("aria-expanded", open); };
-  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(panel.hidden); });
-  panel.addEventListener("click", (e) => e.stopPropagation());
+/* Settings show as classes on the page (style.css "Preferences"), so every page follows them without being redrawn. */
+const SETTING_CLASSES = { compact: "pref-compact", wrap_text: "pref-wrap", reduce_motion: "pref-reduce-motion",
+  chart_patterns: "pref-patterns", show_hover_buttons: "pref-hover-buttons" };
+function applySettings(settings) {
+  const before = me.settings;
+  me.settings = { ...SETTING_DEFAULTS, ...settings };
+  const root = document.documentElement;
+  for (const [key, cls] of Object.entries(SETTING_CLASSES)) root.classList.toggle(cls, !!me.settings[key]);
+  root.classList.toggle("pref-no-tips", !me.settings.help_tips);
+  PAGE_SIZE = me.settings.rows_shown;
+  if (before.theme !== me.settings.theme || !root.dataset.themeApplied) { root.dataset.themeApplied = "1"; applyTheme(me.settings.theme); }
+  if (before.chart_patterns !== me.settings.chart_patterns) { slots.forEach((sl) => { delete sl.el.dataset.w; }); drawSlots(); }
+  setSearchPage(searchScope.page);
+}
+async function saveSettings(changes) {
+  const before = me.settings;
+  applySettings({ ...before, ...changes });  // at once; put back if Sift refuses
+  try { applySettings((await send("PUT", "/api/me/settings", changes)).settings); }
+  catch (err) { applySettings(before); throw err; }
+}
+const initials = (name) => (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+function paintMe() {
+  const u = me.user;
+  if (!u) return;
+  for (const id of ["user-avatar", "user-avatar-lg"]) document.getElementById(id).textContent = initials(u.display_name);
+  document.getElementById("user-name").textContent = u.display_name;
+  document.getElementById("user-role").textContent = u.admin ? "Admin" : "Member";
+  document.getElementById("user-btn").setAttribute("aria-label", `${u.display_name}: profile and preferences`);
+  // Admin links show only to an admin who isn't impersonating anyone (Sift closes the console meanwhile).
+  document.querySelector(".user-admin").hidden = !u.admin;
+  const banner = document.getElementById("imp-banner");
+  banner.hidden = !me.by;
+  document.documentElement.classList.toggle("impersonating", !!me.by);
+  if (me.by) {
+    banner.replaceChildren(h("span", {}, "You're impersonating ", h("strong", { text: u.display_name }), ` (${u.email}). Everything you see and change is as them.`),
+      h("button", { type: "button", class: "btn small", text: "End impersonation", onclick: endImpersonation }));
+  }
+}
+const meReady = getJSON("/api/me").then((m) => {
+  me.user = m; me.by = m.impersonated_by;
+  applySettings(m.settings);
+  paintMe();
+  // Before Preferences the theme lived only in this browser: carry it over once.
+  let local = null;
+  try { local = localStorage.getItem(THEME_KEY); } catch (e) { /* no storage */ }
+  if (!me.by && m.settings.theme === "system" && (local === "light" || local === "dark")) saveSettings({ theme: local }).catch(() => {});
+}).catch(() => { /* Sift still works with the defaults */ });
+async function endImpersonation() {
+  try { await send("DELETE", "/api/impersonation"); } finally { location.hash = "#/"; location.reload(); }
+}
+
+(function initUserMenu() {
+  const btn = document.getElementById("user-btn"), menu = document.getElementById("user-menu");
+  const items = () => [...menu.querySelectorAll("[role=menuitem]")].filter((x) => x.offsetParent !== null);
+  const setOpen = (open, focusFirst = false) => {
+    menu.hidden = !open; btn.setAttribute("aria-expanded", open);
+    if (open && focusFirst) items()[0]?.focus();
+  };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(menu.hidden, e.detail === 0); });
+  menu.addEventListener("click", (e) => { e.stopPropagation(); if (e.target.closest("[role=menuitem]")) setOpen(false); });
+  menu.addEventListener("keydown", (e) => {
+    const list = items(), i = list.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      list[(i + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length]?.focus();
+    }
+  });
   document.addEventListener("click", () => setOpen(false));
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
-  for (const b of document.querySelectorAll("[data-theme-choice]")) b.addEventListener("click", () => applyTheme(b.dataset.themeChoice));
-  applyTheme(currentThemeChoice());
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { setOpen(false); btn.focus(); } });
+  document.getElementById("shortcuts-open").addEventListener("click", openShortcuts);
+  document.getElementById("impersonate-open").addEventListener("click", openImpersonate);
+  try { const t = localStorage.getItem(THEME_KEY); if (t) applyTheme(t); } catch (e) { /* follow the system */ }
 })();
+
+/* Keyboard shortcuts: "/" to search, "g" then a letter to go somewhere, "?" for the list. */
+const GO_KEYS = [["d", "#/", "Dashboard"], ["s", "#/screener", "Screener"], ["e", "#/etfs", "ETFs"], ["l", "#/lics", "LICs"],
+  ["w", "#/watchlists", "Watchlists"], ["p", "#/portfolios", "Portfolios"], ["t", "#/track-record", "Track record"],
+  ["c", "#/coattail", "Coattail"], ["h", "#/help", "Help"], ["f", "#/preferences", "Preferences"]];
+function modal(id, title, ...body) {
+  const dlg = document.getElementById(id);
+  dlg.replaceChildren(h("div", { class: "modal-head" }, h("h2", { id: `${id.split("-")[0]}-title`, text: title }),
+    h("button", { type: "button", class: "icon-x", "aria-label": "Close", text: "✕", onclick: () => dlg.close() })), ...body.flat().filter(Boolean));
+  if (!dlg.open) dlg.showModal();
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); };  // a click on the backdrop closes it
+  return dlg;
+}
+function openShortcuts() {
+  const kbd = (...keys) => h("span", { class: "keys" }, keys.map((k) => h("kbd", { text: k })));
+  modal("shortcuts-dialog", "Keyboard shortcuts",
+    me.settings.keyboard_shortcuts ? null : h("p", { class: "form-msg bad", text: "Shortcuts are off. Turn them on in Preferences, Accessibility." }),
+    h("table", { class: "grid shortcuts" }, h("tbody", {},
+      h("tr", {}, h("td", {}, kbd("/")), h("td", { text: "Search" })),
+      h("tr", {}, h("td", {}, kbd("?")), h("td", { text: "Show these shortcuts" })),
+      h("tr", {}, h("td", {}, kbd("Esc")), h("td", { text: "Close a menu or this window" })),
+      GO_KEYS.map(([k, , label]) => h("tr", {}, h("td", {}, kbd("g", k)), h("td", { text: `Go to ${label}` }))))));
+}
+(function initShortcuts() {
+  let goPending = 0;
+  document.addEventListener("keydown", (e) => {
+    if (!me.settings.keyboard_shortcuts || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable], dialog")) return;
+    if (goPending && Date.now() - goPending < 1500) {
+      goPending = 0;
+      const go = GO_KEYS.find(([k]) => k === e.key.toLowerCase());
+      if (go) { e.preventDefault(); location.hash = go[1]; }
+      return;
+    }
+    if (e.key === "/") { e.preventDefault(); document.getElementById("nav-search-input").focus(); }
+    else if (e.key === "?") { e.preventDefault(); openShortcuts(); }
+    else if (e.key === "g") goPending = Date.now();
+  });
+})();
+
+async function openImpersonate() {
+  const msg = h("p", { class: "form-msg", role: "status" });
+  const pick = h("select", { id: "imp-user", "aria-label": "Person to impersonate" }, h("option", { value: "", text: "Loading..." }));
+  const start = h("button", { type: "submit", class: "btn primary", text: "Start impersonating", disabled: true });
+  const form = h("form", { class: "imp-form", onsubmit: async (e) => {
+    e.preventDefault();
+    if (!pick.value) return;
+    start.disabled = true;
+    try { await send("POST", "/api/admin/impersonate", { user_id: pick.value }); location.hash = "#/"; location.reload(); }
+    catch (err) { showMessage(msg, err.message, false); start.disabled = false; }
+  } }, h("label", { class: "field" }, h("span", { class: "field-label", text: "Act as" }), pick), start, msg);
+  modal("impersonate-dialog", "Impersonate user",
+    h("p", { class: "sub-text", text: "See and use Sift exactly as this person does, to help them or check what they see. Anything you change is saved as them. A banner shows until you end it; it ends by itself after 8 hours, and every session is logged in Admin, Users." }),
+    form);
+  try {
+    const d = await getJSON("/api/admin/users");
+    const members = d.users.filter((u) => u.role === "member" && u.status === "active");
+    pick.replaceChildren(members.length ? h("option", { value: "", text: "Choose a person" }) : h("option", { value: "", text: "No members yet: add one in Admin, Users" }),
+      ...members.map((u) => h("option", { value: u.user_id, text: `${u.display_name} (${u.email})` })));
+    pick.onchange = () => { start.disabled = !pick.value; };
+  } catch (err) { showMessage(msg, err.message, false); }
+}
+
+/* ---------- Profile and Preferences pages ---------- */
+async function renderProfile() {
+  app.replaceChildren(pageHead("Profile", null), h("p", { class: "loading", text: "Loading..." }));
+  await meReady;
+  const u = await getJSON("/api/me");
+  const msg = h("p", { class: "form-msg", role: "status" });
+  const name = h("input", { id: "profile-name", value: u.display_name, maxlength: 80, autocomplete: "name" });
+  const form = h("form", { class: "form-grid", onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      const out = await send("PATCH", "/api/me", { display_name: name.value });
+      me.user = { ...me.user, display_name: out.display_name }; paintMe();
+      name.value = out.display_name;
+      showMessage(msg, "Saved", true);
+    } catch (err) { showMessage(msg, err.message, false); }
+  } },
+    h("label", { class: "field" }, h("span", { class: "field-label", text: "Display name" }), name,
+      h("span", { class: "field-hint", text: "How Sift greets you and how admins see you." })),
+    h("label", { class: "field" }, h("span", { class: "field-label", text: "Email" }), h("input", { value: u.email, readonly: true, "aria-readonly": "true" }),
+      h("span", { class: "field-hint", text: "Changes with sign-in, coming in a later release." })),
+    h("div", { class: "form-actions" }, h("button", { type: "submit", class: "btn primary", text: "Save" })), msg);
+  const facts = h("dl", { class: "facts" },
+    h("dt", { text: "Role" }), h("dd", { text: u.admin ? "Admin: manages Sift's settings and accounts" : "Member" }),
+    u.impersonated_by ? [h("dt", { text: "Impersonated by" }), h("dd", { text: u.impersonated_by.display_name })] : null);
+  const links = h("ul", { class: "related-links" },
+    h("li", {}, h("a", { href: "#/preferences", text: "Preferences" })),
+    h("li", {}, h("a", { href: "#/profile", text: "Keyboard shortcuts", onclick: (e) => { e.preventDefault(); openShortcuts(); } })),
+    u.admin ? h("li", {}, h("a", { href: "#/admin/users", text: "Users" })) : null);
+  app.replaceChildren(pageHead("Profile", u.display_name),
+    h("div", { class: "cards" },
+      h("div", { class: "card profile-card" },
+        h("div", { class: "profile-top" }, h("span", { class: "avatar xl", "aria-hidden": "true", text: initials(u.display_name) }),
+          h("div", {}, h("div", { class: "user-name", text: u.display_name }), h("div", { class: "user-role", text: u.admin ? "Admin" : "Member" }))),
+        form),
+      h("div", { class: "card" }, h("h2", { text: "Account" }), facts, h("h3", { class: "related-head", text: "Related links" }), links)));
+  window.scrollTo(0, 0);
+}
+
+/* Each preference: section, key, title, help, and its control (a switch unless `choices`). */
+const PREFS = [
+  ["display", "compact", "Use compact spacing", "Tighter cards and table rows, so more fits on the screen."],
+  ["display", "wrap_text", "Wrap long text in tables", "Long company and fund names wrap onto a second line instead of being cut off."],
+  ["display", "help_tips", "Show help tips", "The small \"i\" beside terms that explains them."],
+  ["accessibility", "reduce_motion", "Reduce motion", "Turns off animations and smooth scrolling."],
+  ["accessibility", "chart_patterns", "Patterns as well as colours in charts", "Dashed lines and hatched bars, so series can be told apart without colour."],
+  ["accessibility", "chart_tables", "Show charts' data tables", "Opens the data table under every chart."],
+  ["accessibility", "show_hover_buttons", "Show all buttons without hovering", "Buttons that normally appear when you point at something are always shown."],
+  ["accessibility", "keyboard_shortcuts", "Enable keyboard shortcuts", "\"/\" to search, \"g\" then a letter to go somewhere, \"?\" for the list.", true],
+  ["experience", "start_page", "Start page", "The page Sift opens on.", null,
+    [["dashboard", "Dashboard"], ["screener", "Screener"], ["etfs", "ETFs"], ["lics", "LICs"], ["watchlists", "Watchlists"],
+     ["portfolios", "Portfolios"], ["track-record", "Track record"], ["coattail", "Coattail"]]],
+  ["experience", "search_scope", "Search box searches", "What the search box at the top looks through until you change it with ▾.", null,
+    [["auto", "Everything on the dashboard, the page itself elsewhere"], ["all", "Everything, on every page"], ["page", "The page you're on"]]],
+  ["experience", "rows_shown", "Rows shown in long tables", "How many rows the screener, ETF and LIC lists show before \"Show more\".", null,
+    [[50, "50"], [100, "100"], [250, "250"]]],
+];
+const PREF_SECTIONS = [["display", "Display", "M3 5h18v12H3zM8 21h8M12 17v4"], ["theme", "Theme", "M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2-1.5h2a4 4 0 0 0 4-4c0-4.5-4-8-9-8zM7.5 11.5h0M10 7.5h0M15 7.5h0"],
+  ["accessibility", "Accessibility", "M12 3.5a1.5 1.5 0 1 0 0 .01M5 8.5l7 1.5 7-1.5M12 10v5M9 21l3-6 3 6"], ["experience", "User experience", "M4 4l7 17 2.5-7.5L21 11z"]];
+const THEMES = [["system", "System", "Follows your device"], ["light", "Light", ""], ["dark", "Dark", ""]];
+
+function prefSwitch(key, label) {
+  const on = !!me.settings[key];
+  const sw = h("button", { type: "button", role: "switch", class: "switch", "aria-checked": String(on), "aria-label": label });
+  sw.addEventListener("click", async () => {
+    const value = sw.getAttribute("aria-checked") !== "true";
+    sw.setAttribute("aria-checked", String(value));
+    try { await saveSettings({ [key]: value }); } catch (err) { sw.setAttribute("aria-checked", String(!value)); alert(err.message); }
+  });
+  return sw;
+}
+function prefChoice(key, label, choices) {
+  const sel = h("select", { "aria-label": label, onchange: async (e) => {
+    const raw = e.target.value, value = typeof choices[0][0] === "number" ? Number(raw) : raw;
+    try { await saveSettings({ [key]: value }); } catch (err) { alert(err.message); }
+  } }, choices.map(([v, text]) => h("option", { value: v, text, selected: me.settings[key] === v })));
+  return sel;
+}
+function prefCard([, key, title, help, , choices]) {
+  return h("div", { class: `card pref-card${choices ? " pref-choice" : ""}`, "data-pref": key },
+    h("div", { class: "pref-text" }, h("div", { class: "pref-title", text: title }), h("div", { class: "pref-help", text: help })),
+    choices ? prefChoice(key, title, choices) : prefSwitch(key, title));
+}
+function themeCards() {
+  return h("div", { class: "theme-cards", role: "radiogroup", "aria-label": "Theme" }, THEMES.map(([value, label, note]) => {
+    const card = h("button", { type: "button", role: "radio", class: `theme-card theme-${value}`, "aria-checked": String(me.settings.theme === value),
+      onclick: async () => {
+        for (const c of card.parentNode.children) c.setAttribute("aria-checked", String(c === card));
+        try { await saveSettings({ theme: value }); } catch (err) { alert(err.message); }
+      } },
+      h("span", { class: "theme-preview", "aria-hidden": "true" }, h("span", { class: "tp-bar" }), h("span", { class: "tp-side" }),
+        h("span", { class: "tp-main" }, h("span", { class: "tp-card" }), h("span", { class: "tp-card" }))),
+      h("span", { class: "theme-name", text: label }), note ? h("span", { class: "theme-note", text: note }) : null);
+    return card;
+  }));
+}
+async function renderPreferences(section) {
+  await meReady;
+  const current = PREF_SECTIONS.some(([id]) => id === section) ? section : "display";
+  const pane = h("div", { class: "pref-pane" });
+  const search = h("input", { type: "search", class: "pref-search", placeholder: "Search preferences", "aria-label": "Search preferences" });
+  const nav = h("nav", { class: "pref-nav", "aria-label": "Preference sections" },
+    search,
+    PREF_SECTIONS.map(([id, label, d]) => h("a", { href: `#/preferences/${id}`, class: "pref-link", "aria-current": id === current ? "page" : null },
+      s("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, s("path", { d })),
+      label)));
+  const paint = () => {
+    const q = search.value.trim().toLowerCase();
+    if (q) {
+      const hits = PREFS.filter((p) => `${p[2]} ${p[3]}`.toLowerCase().includes(q));
+      const theme = "theme light dark system colour color".includes(q);
+      pane.replaceChildren(...[h("h2", { text: `Matching "${search.value.trim()}"` }),
+        theme ? themeCards() : null,
+        hits.length ? h("div", { class: "pref-grid" }, hits.map(prefCard)) : theme ? null : h("p", { class: "sub-text", text: "No preference matches." })].filter(Boolean));
+      return;
+    }
+    const label = PREF_SECTIONS.find(([id]) => id === current)[1];
+    pane.replaceChildren(h("h2", { text: label }),
+      current === "theme" ? themeCards() : h("div", { class: "pref-grid" }, PREFS.filter((p) => p[0] === current).map(prefCard)));
+  };
+  search.addEventListener("input", paint);
+  paint();
+  const reset = h("button", { type: "button", class: "btn", text: "Reset all to defaults", onclick: async () => {
+    if (!confirm("Put every preference back to Sift's default?")) return;
+    try { applySettings((await send("DELETE", "/api/me/settings")).settings); paint(); } catch (err) { alert(err.message); }
+  } });
+  app.replaceChildren(pageHead("Preferences", "Saved to your account, so they follow you to any browser", reset),
+    h("div", { class: "pref-layout" }, nav, pane));
+}
+
+/* ---------- Admin: Users (§35) ---------- */
+const when = (iso) => new Date(iso).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+async function renderAdminUsers() {
+  app.replaceChildren(pageHead("Model and rules", "Users"), adminTabs("users"), h("p", { class: "loading", text: "Loading..." }));
+  const d = await getJSON("/api/admin/users");
+  const msg = h("p", { class: "form-msg", role: "status" });
+  const act = async (fn) => { try { await fn(); renderAdminUsers(); } catch (err) { showMessage(msg, err.message, false); } };
+  const rows = d.users.map((u) => {
+    const self = u.user_id === d.me, active = u.status === "active";
+    return h("tr", {},
+      h("td", {}, h("div", { class: "strong", text: u.display_name }), h("div", { class: "sub-text", text: u.email }),
+        h("div", { class: "sub-text phone-only", text: `${u.role === "admin" ? "Admin" : "Member"}, ${active ? "active" : "disabled"}` })),
+      h("td", { class: "opt", text: u.role === "admin" ? "Admin" : "Member" }),
+      h("td", { class: "opt" }, h("span", { class: `pill ${active ? "under" : "none"}`, text: active ? "Active" : "Disabled" })),
+      h("td", { class: "opt", text: u.last_seen_at ? longDate(u.last_seen_at.slice(0, 10)) : "Never" }),
+      h("td", { class: "num opt", text: `${u.portfolios} / ${u.watchlists}` }),
+      h("td", { class: "user-actions" },
+        u.role === "member" && active ? h("button", { type: "button", class: "btn small", text: "Impersonate",
+          onclick: () => act(async () => { await send("POST", "/api/admin/impersonate", { user_id: u.user_id }); location.hash = "#/"; location.reload(); }) }) : null,
+        self ? null : h("button", { type: "button", class: "btn small", text: u.role === "admin" ? "Make member" : "Make admin",
+          onclick: () => act(() => send("PATCH", `/api/admin/users/${u.user_id}`, { role: u.role === "admin" ? "member" : "admin" })) }),
+        self ? h("span", { class: "sub-text", text: "You" }) : h("button", { type: "button", class: `btn small${active ? " danger" : ""}`, text: active ? "Disable" : "Enable",
+          onclick: () => act(() => send("PATCH", `/api/admin/users/${u.user_id}`, { status: active ? "disabled" : "active" })) })));
+  });
+  const email = h("input", { type: "email", required: true, placeholder: "name@example.com", autocomplete: "off" });
+  const name = h("input", { maxlength: 80, placeholder: "Sam Citizen" });
+  const role = h("select", {}, h("option", { value: "member", text: "Member" }), h("option", { value: "admin", text: "Admin" }));
+  const add = h("form", { class: "form-grid", onsubmit: (e) => { e.preventDefault(); act(() => send("POST", "/api/admin/users", { email: email.value, display_name: name.value, role: role.value })); } },
+    h("label", { class: "field" }, h("span", { class: "field-label", text: "Email" }), email),
+    h("label", { class: "field" }, h("span", { class: "field-label", text: "Display name" }), name),
+    h("label", { class: "field" }, h("span", { class: "field-label", text: "Role" }), role),
+    h("div", { class: "form-actions" }, h("button", { type: "submit", class: "btn primary", text: "Add account" })));
+  const log = d.log.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid" },
+    h("thead", {}, h("tr", {}, ["Admin", "Impersonated", "Started", "Ended"].map((x) => h("th", { scope: "col", text: x })))),
+    h("tbody", {}, d.log.map((x) => h("tr", {}, h("td", { text: x.admin }), h("td", { text: x.target }),
+      h("td", { text: when(x.started_at) }),
+      h("td", { text: x.ended_at ? `${when(x.ended_at)} (${x.ended_how})` : "Still on" }))))))
+    : h("p", { class: "sub-text", text: "Nobody has been impersonated yet." });
+  app.replaceChildren(pageHead("Model and rules", "Users"), adminTabs("users"),
+    h("div", { class: "cards" },
+      h("div", { class: "card wide" }, h("h2", { text: "Accounts" }), msg,
+        h("div", { class: "table-wrap" }, h("table", { class: "grid users-table" },
+          h("thead", {}, h("tr", {}, ["Person", "Role", "Status", "Last seen", "Portfolios / watchlists", ""].map((x, i) =>
+            h("th", { scope: "col", class: [null, "opt", "opt", "opt", "num opt", null][i], text: x })))),
+          h("tbody", {}, rows)))),
+      h("div", { class: "card wide" }, h("h2", { text: "Add an account" }),
+        h("p", { class: "sub-text", text: "For testers. Until sign-in arrives, an account can be used only through Impersonate." }), add),
+      h("div", { class: "card wide" }, h("h2", { text: "Impersonation log" }),
+        h("p", { class: "sub-text", text: `Every session: who, as whom, and how it ended. A session ends by itself after ${d.expires_hours} hours.` }), log)));
+  window.scrollTo(0, 0);
+}
 
 /* ---------- routing ---------- */
 const ROUTES = [
@@ -3662,6 +3978,9 @@ const ROUTES = [
   [/^#\/admin$/, "admin", () => renderAdmin()],
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
   [/^#\/admin\/search$/, "admin", () => renderAdminSearch()],
+  [/^#\/admin\/users$/, "admin", () => renderAdminUsers()],
+  [/^#\/profile$/, "profile", () => renderProfile()],
+  [/^#\/preferences(?:\/([a-z]+))?$/, "preferences", (m) => renderPreferences(m[1])],
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
   [/^#\/admin\/scenario\/([0-9a-f-]{36})$/, "admin", (m) => renderScenario(m[1])],
   [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
@@ -3693,4 +4012,9 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 initNav();
-knowledgeReady.then(route);
+/* First load: open on the start page chosen in Preferences, unless a page was asked for. */
+Promise.all([knowledgeReady, meReady]).then(() => {
+  const start = me.settings.start_page;
+  if ((!location.hash || location.hash === "#" || location.hash === "#/") && start && start !== "dashboard") location.replace(`#/${start}`);
+  else route();
+});

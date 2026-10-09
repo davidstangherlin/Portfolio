@@ -31,4 +31,6 @@ Sift is heading to a hosted, multi-user service (test group first, public later)
 - **Looking something up by ID** from a request: use the scoped getter (`get_portfolio`, `get_watchlist`, `get_scenario`) so someone else's row is a 404, never `session.get` alone.
 - **Shared data** (market, valuations, help) has no owner. Personal search rows carry `owner_id`.
 - **Admin-only** routes live under `/api/admin/`; the middleware refuses members there.
+- **New preference:** add it to `SETTINGS_SPEC` (`src/preferences.py`) and `SETTING_DEFAULTS` and `PREFS` (`web/app.js`), and apply it in `applySettings()`, usually as a class on `<html>` (AS_BUILT §35).
+- **Impersonation:** routes read `request.state.user` (who is signed in) and `request.state.acting` (whom Sift acts for); personal data always follows the acting user.
 - **Tests:** add a two-user case to `tests/integration/test_accounts.py` for anything personal (`gui.create_app(resolve_user=gui.test_header_user)` and the `X-Test-User` header).

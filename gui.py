@@ -678,13 +678,17 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
     user (src/accounts.py); /api/admin/ needs an admin."""
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
 
-    def request_user(request: Request) -> accounts.User | None:
+    def request_user(request: Request) -> tuple[accounts.User | None, accounts.User | None]:
+        """(who is signed in, whom Sift acts for): the same person unless
+        they're an admin impersonating someone (§35)."""
         with get_session() as session:
             user = resolve_user(request, session)
+            acting = user
             if user is not None and user.is_active:
                 accounts.touch(session, user.user_id)
+                acting = accounts.impersonating(session, user) or user
             session.commit()
-            return user
+            return user, acting
 
     @app.middleware("http")
     async def require_password(request: Request, call_next):
@@ -693,17 +697,19 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ASX Value Screener"'})
         if request.method in WRITE_METHODS and not _same_site_write(request):
             return JSONResponse({"detail": "Changes are only accepted from Sift's own pages."}, status_code=403)
-        user = None
+        acting = None
         try:
             if request.url.path.startswith("/api/"):
-                user = await run_in_threadpool(request_user, request)
+                user, acting = await run_in_threadpool(request_user, request)
                 if user is None:
                     return JSONResponse({"detail": "Sign in to use Sift."}, status_code=401, headers={"Cache-Control": "no-store"})
                 if not user.is_active:
                     return JSONResponse({"detail": "This account is disabled."}, status_code=403, headers={"Cache-Control": "no-store"})
-                if request.url.path.startswith("/api/admin/") and not user.is_admin:
+                # While impersonating, the admin console is closed, as it is to the person being impersonated.
+                if request.url.path.startswith("/api/admin/") and not acting.is_admin:
                     return JSONResponse({"detail": "Only an admin can do that."}, status_code=403, headers={"Cache-Control": "no-store"})
-            with accounts.acting_as(user.user_id if user else None):
+                request.state.user, request.state.acting = user, acting
+            with accounts.acting_as(acting.user_id if acting else None):
                 response = await call_next(request)
         except Exception as exc:  # noqa: BLE001 - an unexpected error becomes a readable message on the page
             logger.exception("Error serving %s", request.url.path)
@@ -713,17 +719,79 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
         return response
 
     @app.get("/api/status")
-    def api_status():
+    def api_status(request: Request):
         with get_session() as session:
             payload = status_payload(session, date.today(), datetime.now())
             payload["user"] = accounts.current_user(session).info()
+            payload["impersonating"] = request.state.user.user_id != request.state.acting.user_id
             return JSONResponse(_json_ready(payload))
 
+    def me_payload(request: Request, session) -> dict:
+        user, acting = request.state.user, request.state.acting
+        return acting.info() | {
+            "impersonated_by": user.info() if user.user_id != acting.user_id else None,
+            "settings": preferences.user_settings(session),
+        }
+
     @app.get("/api/me")
-    def api_me():
-        """Who Sift is acting for (§33)."""
+    def api_me(request: Request):
+        """Who Sift is acting for (§33), who is impersonating them if anyone (§35), and their settings."""
         with get_session() as session:
-            return JSONResponse(accounts.current_user(session).info())
+            return JSONResponse(_json_ready(me_payload(request, session)))
+
+    @app.patch("/api/me")
+    def api_update_me(request: Request, body: dict = Body(...)):
+        """Profile: the display name (the email changes with sign-in, Phase 3)."""
+        def action(session):
+            accounts.update_user(session, request.state.acting, request.state.acting,
+                                 display_name=body.get("display_name"))
+            return me_payload(request, session) | {"display_name": accounts.current_user(session).display_name}
+        return change(action)
+
+    @app.put("/api/me/settings")
+    def api_my_settings(body: dict = Body(...)):
+        """Preferences: change any of the settings; the rest stay as they are."""
+        return change(lambda session: {"settings": preferences.save_settings(session, body)})
+
+    @app.delete("/api/me/settings")
+    def api_reset_my_settings():
+        return change(lambda session: {"settings": preferences.save_settings(session, preferences.SETTINGS_DEFAULTS)})
+
+    # ---------- users and impersonation (§35) ----------
+    def user_or_404(session, user_id: str) -> accounts.User:
+        found = accounts.get_user(session, user_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such account")
+        return found
+
+    @app.get("/api/admin/users")
+    def api_users(request: Request):
+        with get_session() as session:
+            return JSONResponse(_json_ready({"users": accounts.user_list(session), "me": str(request.state.user.user_id),
+                                             "log": accounts.impersonation_log(session),
+                                             "expires_hours": accounts.IMPERSONATION_HOURS}))
+
+    @app.post("/api/admin/users")
+    def api_create_user(body: dict = Body(...)):
+        return change(lambda session: accounts.create_user(
+            session, body.get("email"), body.get("display_name"), body.get("role") or "member").info())
+
+    @app.patch("/api/admin/users/{user_id}")
+    def api_update_user(user_id: str, request: Request, body: dict = Body(...)):
+        return change(lambda session: accounts.update_user(
+            session, user_or_404(session, user_id), request.state.user, display_name=body.get("display_name"),
+            role=body.get("role"), status=body.get("status")).info())
+
+    @app.post("/api/admin/impersonate")
+    def api_impersonate(request: Request, body: dict = Body(...)):
+        """Act as someone else until ended (or after IMPERSONATION_HOURS); logged."""
+        return change(lambda session: {"impersonating": accounts.start_impersonation(
+            session, request.state.user, accounts.get_user(session, body.get("user_id"))).info()})
+
+    @app.delete("/api/impersonation")
+    def api_end_impersonation(request: Request):
+        """End impersonating: open to the impersonating admin whomever they're acting as."""
+        return change(lambda session: {"ended": accounts.end_impersonation(session, request.state.user.user_id)})
 
     @app.get("/api/dashboard")
     def api_dashboard():
@@ -816,7 +884,8 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
                 result = action(session)
                 reindex_personal(session)
                 session.commit()
-            except (HoldingsError, WatchlistError, ScenarioError, SettingsError, preferences.PreferenceError) as exc:
+            except (HoldingsError, WatchlistError, ScenarioError, SettingsError, preferences.PreferenceError,
+                    accounts.AccountError) as exc:
                 session.rollback()
                 raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
         return JSONResponse(_json_ready(result))
