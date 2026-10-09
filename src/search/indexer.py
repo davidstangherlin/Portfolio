@@ -1,9 +1,9 @@
 """Builds the search index (docs/AS_BUILT.md §32): one row in `search_index`
 per searchable thing, in five areas that are rebuilt as a unit:
 
-- market:   shares, ETFs and LICs (names, sectors, categories, descriptions)
+- market:   shares, ETFs and LICs (names, sectors, categories, descriptions, what funds hold)
 - coattail: fund managers and the companies they hold (§31)
-- personal: watchlists (with their notes) and portfolios (with their holdings)
+- personal: watchlists (with their notes), portfolios (with their holdings) and what-if scenarios
 - help:     knowledge base articles (web/knowledge.json)
 - pages:    Sift's pages, and each model setting in the admin console
 
@@ -30,6 +30,35 @@ logger = logging.getLogger(__name__)
 
 AREAS = ("market", "coattail", "personal", "help", "pages")
 KNOWLEDGE = Path(__file__).resolve().parents[2] / "web" / "knowledge.json"
+
+# Every table in db/schema.sql is either searched (here, with the area that
+# reads it) or deliberately not (EXCLUDED, with why).
+# tests/unit/test_search_coverage.py fails when a table is in neither, so a
+# new table can't be forgotten: index it (add it to a builder below, or a new
+# area with its own builder) or say why not.
+SOURCES = {
+    "companies": "market", "etf_monthly": "market", "fund_profiles": "market", "fund_holdings": "market",
+    "top_holders": "coattail",
+    "watchlists": "personal", "watchlist_items": "personal", "portfolios": "personal", "holdings": "personal",
+    "scenarios": "personal",
+}
+EXCLUDED = {
+    "daily_prices": "prices: numbers, shown on the company and fund pages that are indexed",
+    "financial_reports": "statement figures: numbers, reached through the company",
+    "valuation_metrics": "valuation figures: numbers; the latest feed each share's recommendation facet",
+    "dividend_payments": "dividend history: numbers, reached through the company",
+    "asx_report_loads": "a log of report files loaded",
+    "asx_index_returns": "index benchmark returns: no page of their own; shown on fund pages",
+    "etf_performance": "fund returns: numbers, reached through the fund",
+    "company_insights": "analyst counts and targets: numbers, reached through the company",
+    "analyst_ratings": "monthly rating counts: numbers, reached through the company",
+    "ui_preferences": "page layout settings",
+    "search_index": "the index itself",
+    "search_index_runs": "the index's rebuild log",
+    "signal_snapshots": "nightly history behind the track record; the track record page is indexed",
+    "signal_outcomes": "scored history behind the track record",
+    "track_record_monthly": "monthly track record figures",
+}
 
 _INSERT = text("""
     INSERT INTO search_index (doc_id, area, kind, owner_id, code, title, subtitle, body, url, facets, rank_boost, search_vector)
@@ -92,12 +121,16 @@ def market_docs(ctx: _Context) -> list[dict]:
                          rank_boost=0.2))
     profiles = dict(session.execute(text("""
         SELECT c.asx_code, p.description FROM fund_profiles p JOIN companies c USING (company_id) WHERE p.description IS NOT NULL""")).all())
+    holds: dict[str, list[str]] = {}  # what each fund holds: "apple" finds the ETFs holding Apple
+    for code, name in session.execute(text("""
+            SELECT c.asx_code, f.name FROM fund_holdings f JOIN companies c USING (company_id) WHERE f.name IS NOT NULL""")):
+        holds.setdefault(code, []).append(name)
     for kind in ("ETF", "LIC"):
         for r in etf_rows(session, ctx.today, {}, kind):
             code = r["asx_code"]
             docs.append(_doc("market", kind.lower(), code, r["company_name"] or code, f"#/{kind.lower()}/{code}", code=code,
                              subtitle=" · ".join(x for x in (kind, r.get("category"), r.get("issuer")) if x),
-                             body=" ".join(x for x in (r.get("benchmark"), profiles.get(code)) if x) or None,
+                             body=" ".join(x for x in (r.get("benchmark"), profiles.get(code), " ".join(holds.get(code, []))) if x) or None,
                              facets={"category": r.get("category"), "codes": [code]}))
     return docs
 
@@ -149,6 +182,8 @@ def personal_docs(ctx: _Context) -> list[dict]:
         docs.append(_doc("personal", "portfolio", str(p.portfolio_id), p.name, f"#/portfolio/{p.portfolio_id}",
                          subtitle=f"Portfolio · {cgt.TAX_TYPE_LABELS[p.tax_type]}{archived}",
                          body=" ".join(f"{c} {names.get(c) or ''}" for c in codes) or None, facets={"codes": codes}))
+    for sid, name, notes in session.execute(text("SELECT scenario_id, name, notes FROM scenarios")):
+        docs.append(_doc("personal", "scenario", str(sid), name, f"#/admin/scenario/{sid}", subtitle="What-if scenario", body=notes))
     return docs
 
 

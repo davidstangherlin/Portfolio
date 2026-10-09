@@ -25,7 +25,7 @@ TYPO_MIN_LETTERS = 5
 TYPO_SIMILARITY = 0.42  # pg_trgm word_similarity; swapped letters (vangaurd) score about 0.44
 SHOWN = 100
 KIND_LABELS = {"share": "Shares", "etf": "ETFs", "lic": "LICs", "manager": "Fund managers", "watchlist": "Watchlists",
-               "portfolio": "Portfolios", "help": "Help articles", "page": "Pages", "setting": "Settings"}
+               "portfolio": "Portfolios", "scenario": "What-if scenarios", "help": "Help articles", "page": "Pages", "setting": "Settings"}
 GROUPS = ("type", "sector", "recommendation", "mine", "topic")  # the tick-box groups, top to bottom
 HL_START, HL_END = "\u0002", "\u0003"  # snippet highlight markers; the page turns them into <mark>
 

@@ -1046,11 +1046,10 @@ function initSearchScope() {
   const pick = (mode) => { searchScope.mode = mode; paintSearchScope(); menu.hidden = true; btn.setAttribute("aria-expanded", "false"); document.getElementById("nav-search-input").focus(); };
   const draw = () => {
     const label = PAGE_LABELS[searchScope.page] || "this page";
-    menu.replaceChildren(...[["all", "Everything", "Shares, ETFs, LICs, fund managers, your lists, help and settings"],
-      ["page", `This page: ${label}`, "Filter or find on the page you're on"]].map(([mode, title, sub]) =>
+    menu.replaceChildren(...[["all", "Everything"], ["page", `This page: ${label}`]].map(([mode, title]) =>
       h("button", { type: "button", role: "menuitemradio", "aria-checked": String(searchScope.mode === mode), onclick: () => pick(mode) },
         h("span", { class: "scope-tick", "aria-hidden": "true", text: searchScope.mode === mode ? "✓" : "" }),
-        h("span", {}, h("span", { class: "scope-title", text: title }), h("span", { class: "scope-sub", text: sub })))));
+        h("span", { class: "scope-title", text: title }))));
   };
   btn.addEventListener("click", (e) => {
     e.stopPropagation();

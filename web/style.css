@@ -812,14 +812,13 @@ html.dl-drag-on, html.dl-drag-on body { overflow-anchor: none; }  /* the drag ke
   border: 0; border-radius: 4px; background: none; color: var(--twisty); cursor: pointer; flex: none; }
 .scope-btn:hover, .scope-btn[aria-expanded="true"] { background: var(--hover); }
 .scope-btn:focus-visible { outline: 2px solid var(--twisty); outline-offset: 1px; }
-.scope-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 280px; padding: 4px; display: grid;
+.scope-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 220px; padding: 4px; display: grid;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
 .scope-menu button { display: flex; gap: 8px; align-items: flex-start; text-align: left; border: 0; background: none; color: var(--ink);
   padding: 8px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
 .scope-menu button:hover, .scope-menu button:focus-visible { background: var(--hover); outline: none; }
 .scope-tick { width: 14px; flex: none; color: var(--twisty); font-weight: 700; }
 .scope-title { display: block; font-weight: 650; font-size: 13px; }
-.scope-sub { display: block; font-size: 12px; color: var(--muted); }
 mark.find-hit { background: color-mix(in srgb, var(--twisty) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 mark.find-hit.current { background: var(--twisty); color: var(--on-twisty); }
 .search-form { display: flex; gap: 8px; margin: 0 0 14px; max-width: 760px; }

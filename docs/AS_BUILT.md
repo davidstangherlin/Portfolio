@@ -1010,6 +1010,7 @@ If handing this document plus the source to another model for review, the highes
 | 2026-10-08 | User asked to sort Who's investing by companies held, adding, cutting and funds under management, and for smaller title text on the cards. Added a Sort by control; funds under management isn't in Sift's data, so the fourth sort is value held in screener companies, now shown on each card. Title bar text is 17px (was 26px) in a 46px band, and the manager name 17px. 640 tests pass. Checked in headless Chromium at 1400px and 390px. §31 |
 | 2026-10-08 | User asked to rename Sift's action to Recommendation everywhere, and for the same name search and condition filter on Who's investing as the other lists. Coattail's action columns (both summary tables and the holder page) now read Recommendation, with the Action hover. The page-wide search became the holder cards' table filter (search plus condition builder over holder, companies held, adding, cutting, value held and holds). 640 tests pass. Checked in headless Chromium at 1400px and 390px. §31 |
 | 2026-10-09 | User asked for a more powerful search across everything they can access, with ServiceNow ESC-style tick-box filters down the left, and asked how often to reindex and how to trigger it. Agreed: all four areas; Type, Sector or category, Recommendation, Mine and knowledge-article filters; a pink ▾ scope switch (Everything or This page; the dashboard defaults to Everything, other pages to This page); owner-aware from the start. Built `search_index` (PostgreSQL full text, `pg_trgm` for typos), the indexer, `/api/search`, the results page, this-page search and the Admin rebuild; nightly rebuild step, personal data on save, help and pages at start-up. Found in testing: stemmed prefixes made franking find Franklin (now exact stems or unstemmed prefixes), and typo matching added noise (now only when the words find little). 649 tests pass (9 new). Checked in headless Chromium at 1400px and 390px. §32 |
+| 2026-10-09 | User compared the search with ServiceNow's layout and kept Sift's, asking only to remove the grey descriptions in the scope menu; asked whether search scales, to make sure search grows with new tables and data, and to update AS_BUILT. Removed the descriptions; added the `SOURCES`/`EXCLUDED` table registers and `tests/unit/test_search_coverage.py` (every table and menu page accounted for); classifying the tables added what-if scenarios and fund holdings to the index; added `CLAUDE.md` with the rule for future changes; documented scale. 652 tests pass (3 new). §32 |
 
 ---
 
@@ -1692,9 +1693,9 @@ One search box (top right) for everything the user can see, with a scope switch 
 
 | Area | Rows | From |
 |---|---|---|
-| market | shares, ETFs, LICs | `load_universe` (name, sector, Sift's action), `companies` (industry, description), `etf_rows` (category, issuer, benchmark), `fund_profiles` (description) |
+| market | shares, ETFs, LICs | `load_universe` (name, sector, Sift's action), `companies` (industry, description), `etf_rows` (category, issuer, benchmark), `fund_profiles` (description), `fund_holdings` (what each fund holds: "apple" finds the ETFs holding Apple) |
 | coattail | fund managers | `coattail.holdings` (§31): holder names and the codes and names of the companies held |
-| personal | watchlists, portfolios | entries with their notes; open holdings |
+| personal | watchlists, portfolios, what-if scenarios | entries with their notes; open holdings; scenario names and notes |
 | help | knowledge articles | `web/knowledge.json`: title, definition, aliases, labels, body; topic = category |
 | pages | pages and settings | a list of Sift's pages, and every `src.settings.SETTINGS` entry |
 
@@ -1704,8 +1705,21 @@ One search box (top right) for everything the user can see, with a scope switch 
 
 **Tick boxes.** Type, Sector or category, Recommendation, Mine (Held and On a watchlist from open holdings and watchlist items at query time; My lists for watchlists and portfolios themselves) and Knowledge articles (help topic). Counts are disjunctive: each group's counts allow for the boxes ticked in the other groups but not its own. Groups show 8 boxes, then Show more. Ticked boxes live in the URL (`#/search?q=…&type=ETFs`), so Back works.
 
-**Scope.** A pink ▾ beside the magnifying glass opens Everything / This page: {page}. The dashboard and the results page default to Everything, every other page to This page, reset on each page change. Everything: an exact ASX code opens that page directly, anything else `#/search`. This page: a page with a search box (`.tf-search`: the screener, ETF and LIC lists, Coattail's holder cards, watchlist and portfolio tables; `.page-search`: Help) gets the words in it; any other page highlights the words (`mark.find-hit`) and Enter again moves to the next; words not on the page open the results from everywhere, with a line saying so.
+**Scope.** A pink ▾ beside the magnifying glass opens Everything / This page: {page} (names only; the user asked for the grey descriptions under each to go). The dashboard and the results page default to Everything, every other page to This page, reset on each page change. Everything: an exact ASX code opens that page directly, anything else `#/search`. This page: a page with a search box (`.tf-search`: the screener, ETF and LIC lists, Coattail's holder cards, watchlist and portfolio tables; `.page-search`: Help) gets the words in it; any other page highlights the words (`mark.find-hit`) and Enter again moves to the next; words not on the page open the results from everywhere, with a line saying so.
 
 **Owners.** `owner_id` is NULL for everything now (one user); the query already returns only rows with no owner or the asker's. Personal rows take their owner in multi-user Phase 1.
+
+**Keeping up as Sift grows.** Two registers in `src/search/indexer.py`: `SOURCES` (each table that's searched, and the area that reads it) and `EXCLUDED` (each table that isn't, with why: price, statement and performance figures are numbers reached through the company or fund page; logs, layout settings and the index itself have nothing to find). `tests/unit/test_search_coverage.py` fails when `db/schema.sql` gains a table that's in neither, when a register names a table that's gone, and when a menu link in `web/index.html` is missing from `PAGES`. Help articles and admin settings are indexed straight from `web/knowledge.json` and `src/settings.py`, so they need nothing. `CLAUDE.md` records the rule and the steps for future changes. Adding content: a builder function per area in `BUILDERS`, a label in `KIND_LABELS`, and facets in `_values` if it should filter.
+
+**Scale.** Today's index is about 700 rows and rebuilds fully in under a second. Expected growth, and what changes when:
+
+| Stage | Rows | What holds, what changes |
+|---|---|---|
+| All ASX shares and funds | about 3,000 market rows | No change: PostgreSQL full text with GIN indexes is fast to millions of rows, and the nightly full rebuild stays a few seconds. |
+| Test group (multi-user Phase 1) | plus about 50 personal rows per user | Personal rows get `owner_id`; the save-time rebuild should replace only the saving user's rows (delete by area and owner) rather than the whole personal area. |
+| Public service | tens of thousands of users | Per-user personal rebuilds as above; market and help stay shared rows (no duplication per user). The query reads at most 400 candidates and counts facets in Python, which stays cheap; beyond that, counts can move into SQL. |
+| "Ask AI" or meaning-based search | same rows | Add an embedding column (pgvector, available on Supabase) to `search_index`; the same builders feed it. A separate search engine (OpenSearch, Typesense) isn't needed at any of these sizes. |
+
+**Tests.** `tests/unit/test_search_coverage.py` (every table and menu page accounted for) and a scenario search in `tests/integration/test_search.py` were added with the registers.
 
 **Tests.** `tests/unit/test_search_query.py` (words, query shape) and `tests/integration/test_search.py` (ranking, word starts, typos, tick-box counts, a saved watchlist searchable at once through the API, admin status and rebuild, start-up). Browser-checked at 1400px and 390px: scope menu, results and tick boxes, this-page search on the screener, Help and a company page, the fall-back to everywhere, and the admin rebuild.

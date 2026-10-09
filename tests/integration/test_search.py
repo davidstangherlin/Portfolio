@@ -78,3 +78,13 @@ def test_startup_builds_everything_when_empty_then_only_help_and_pages(db_sessio
     db_session.commit()
     assert "market 1" in gui.prepare_search()
     assert "market" not in gui.prepare_search()
+
+
+def test_what_if_scenarios_are_searchable(indexed):
+    from sqlalchemy import text
+
+    indexed.execute(text("INSERT INTO scenarios (name, notes) VALUES ('Rates up', 'What if the discount rate rises to 11%')"))
+    indexer.reindex(indexed, ("personal",))
+    indexed.commit()
+    hits = [(x["type"], x["title"]) for x in search(indexed, "rates up")["results"]]
+    assert ("What-if scenarios", "Rates up") in hits
