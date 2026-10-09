@@ -14,7 +14,8 @@ class Scenario(Base):
     __tablename__ = "scenarios"
 
     scenario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)  # unique per owner
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)  # users.user_id (src/accounts.py)
     notes: Mapped[str | None] = mapped_column(Text)
     overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.current_timestamp())

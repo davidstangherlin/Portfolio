@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from sqlalchemy import text
 
+from src.accounts import current_user_id
 from src.tracking.signals import HORIZONS_MONTHS, RULES_VERSION
 
 TOO_EARLY_BELOW = 30        # fewer signals than this: "too early"
@@ -106,7 +107,10 @@ _LATEST_OUTCOME = """
 
 
 def _bought_soon_after(session) -> set[tuple[str, date]]:
-    return {(code, d) for code, d in session.execute(text("SELECT asx_code, buy_date FROM holdings"))}
+    """The current user's purchases (src/accounts.py, §33)."""
+    return {(code, d) for code, d in session.execute(text("""
+        SELECT h.asx_code, h.buy_date FROM holdings h JOIN portfolios p USING (portfolio_id) WHERE p.owner_id = :o"""),
+        {"o": current_user_id(session)})}
 
 
 def _acted(purchases, code: str, signal_date: date) -> bool:

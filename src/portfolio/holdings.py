@@ -3,7 +3,10 @@ tables (db/schema.sql, docs/AS_BUILT.md §19).
 
 Every parcel belongs to a portfolio. Functions that take an optional
 portfolio use the only active one when none is given, creating "My
-portfolio" on first use, and refuse to guess when there are several."""
+portfolio" on first use, and refuse to guess when there are several.
+
+Everything here is scoped to the current user (src/accounts.py, §33): a
+portfolio or parcel belonging to someone else is simply not found."""
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from decimal import Decimal
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
+from src.accounts import current_user_id
 from src.models import Company, DailyPrice, Holding, Portfolio
 from src.portfolio import cgt
 
@@ -33,9 +37,29 @@ class HoldingsError(ValueError):
 
 # ---------- portfolios ----------
 
+def _mine(session: Session):
+    """The condition for the current user's portfolios."""
+    return Portfolio.owner_id == current_user_id(session)
+
+
+def owned_portfolio_ids(session: Session):
+    """The current user's portfolio IDs, as a subquery for parcel queries."""
+    return select(Portfolio.portfolio_id).where(_mine(session)).scalar_subquery()
+
+
+def get_portfolio(session: Session, portfolio_id) -> Portfolio | None:
+    """One of the current user's portfolios by ID, or None."""
+    try:
+        key = uuid.UUID(str(portfolio_id))
+    except ValueError:
+        return None
+    found = session.get(Portfolio, key)
+    return found if found is not None and found.owner_id == current_user_id(session) else None
+
+
 def list_portfolios(session: Session, include_archived: bool = True) -> list[Portfolio]:
     """Active portfolios first, then archived; oldest first within each."""
-    stmt = select(Portfolio)
+    stmt = select(Portfolio).where(_mine(session))
     if not include_archived:
         stmt = stmt.where(Portfolio.archived_at.is_(None))
     stmt = stmt.order_by(Portfolio.archived_at.is_not(None), Portfolio.created_at, Portfolio.name)
@@ -45,10 +69,8 @@ def list_portfolios(session: Session, include_archived: bool = True) -> list[Por
 def find_portfolio(session: Session, key: str) -> Portfolio:
     """A portfolio by its ID or its name (not case-sensitive)."""
     key = key.strip()
-    try:
-        found = session.get(Portfolio, uuid.UUID(key))
-    except ValueError:
-        found = session.execute(select(Portfolio).where(func.lower(Portfolio.name) == key.lower())).scalar_one_or_none()
+    found = get_portfolio(session, key) or session.execute(
+        select(Portfolio).where(_mine(session), func.lower(Portfolio.name) == key.lower())).scalar_one_or_none()
     if found is None:
         names = ", ".join(p.name for p in list_portfolios(session)) or "none yet"
         raise HoldingsError(f"no portfolio called {key!r} (portfolios: {names})")
@@ -82,7 +104,8 @@ def _check_tax_type(tax_type: str) -> str:
 
 
 def _check_unique(session: Session, name: str, except_id=None) -> None:
-    clash = session.execute(select(Portfolio).where(func.lower(Portfolio.name) == name.lower())).scalar_one_or_none()
+    clash = session.execute(
+        select(Portfolio).where(_mine(session), func.lower(Portfolio.name) == name.lower())).scalar_one_or_none()
     if clash is not None and clash.portfolio_id != except_id:
         raise HoldingsError(f"there is already a portfolio called {clash.name!r}")
 
@@ -90,7 +113,7 @@ def _check_unique(session: Session, name: str, except_id=None) -> None:
 def create_portfolio(session: Session, name: str, tax_type: str = "INDIVIDUAL") -> Portfolio:
     name = _clean_name(name)
     _check_unique(session, name)
-    portfolio = Portfolio(name=name, tax_type=_check_tax_type(tax_type))
+    portfolio = Portfolio(name=name, tax_type=_check_tax_type(tax_type), owner_id=current_user_id(session))
     session.add(portfolio)
     session.flush()
     return portfolio
@@ -156,6 +179,8 @@ def discount_rate(portfolio: Portfolio) -> Decimal:
 
 def _writable(session: Session, portfolio: Portfolio | None) -> Portfolio:
     portfolio = portfolio or default_portfolio(session)
+    if portfolio.owner_id != current_user_id(session):
+        raise HoldingsError("no such portfolio")
     if portfolio.is_archived:
         raise HoldingsError(f"{portfolio.name} is archived: unarchive it before recording trades")
     return portfolio
@@ -195,7 +220,7 @@ def add_parcel(
 
 
 def open_parcels(session: Session, asx_code: str | None = None, portfolio_id=None) -> list[Holding]:
-    stmt = select(Holding).where(Holding.sell_date.is_(None))
+    stmt = select(Holding).where(Holding.sell_date.is_(None), Holding.portfolio_id.in_(owned_portfolio_ids(session)))
     if portfolio_id is not None:
         stmt = stmt.where(Holding.portfolio_id == portfolio_id)
     if asx_code:
@@ -205,7 +230,7 @@ def open_parcels(session: Session, asx_code: str | None = None, portfolio_id=Non
 
 
 def sold_parcels(session: Session, portfolio_id=None) -> list[Holding]:
-    stmt = select(Holding).where(Holding.sell_date.is_not(None))
+    stmt = select(Holding).where(Holding.sell_date.is_not(None), Holding.portfolio_id.in_(owned_portfolio_ids(session)))
     if portfolio_id is not None:
         stmt = stmt.where(Holding.portfolio_id == portfolio_id)
     stmt = stmt.order_by(Holding.sell_date, Holding.asx_code)
@@ -215,7 +240,8 @@ def sold_parcels(session: Session, portfolio_id=None) -> list[Holding]:
 def find_parcel(session: Session, id_prefix: str) -> Holding:
     """Look a parcel up by its ID or any unique leading part of it (the
     8-character short ID `portfolio.py list` shows)."""
-    stmt = select(Holding).where(cast(Holding.holding_id, String).like(f"{id_prefix.strip().lower()}%"))
+    stmt = select(Holding).where(cast(Holding.holding_id, String).like(f"{id_prefix.strip().lower()}%"),
+                                 Holding.portfolio_id.in_(owned_portfolio_ids(session)))
     matches = list(session.execute(stmt).scalars())
     if not matches:
         raise HoldingsError(f"no parcel with ID starting {id_prefix!r}")

@@ -25,4 +25,10 @@ Every new table, page or kind of content must be searchable, or deliberately not
 
 ## Multi-user readiness
 
-Sift is heading to a hosted, multi-user service (test group first, public later). New personal data should be easy to scope to an owner; the search index already carries `owner_id`.
+Sift is heading to a hosted, multi-user service (test group first, public later); the plan and status are in `docs/MULTI_USER_PLAN.md`, the design in AS_BUILT §33. Phase 1 is built: a `users` table, and `owner_id` on every table of personal data.
+
+- **New personal table:** give it `owner_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE` (or hang it off an owned table, as parcels hang off portfolios), set it from `current_user_id(session)` (`src/accounts.py`) on insert, and filter every read by it in the data layer, not in routes. Make names unique per owner.
+- **Looking something up by ID** from a request: use the scoped getter (`get_portfolio`, `get_watchlist`, `get_scenario`) so someone else's row is a 404, never `session.get` alone.
+- **Shared data** (market, valuations, help) has no owner. Personal search rows carry `owner_id`.
+- **Admin-only** routes live under `/api/admin/`; the middleware refuses members there.
+- **Tests:** add a two-user case to `tests/integration/test_accounts.py` for anything personal (`gui.create_app(resolve_user=gui.test_header_user)` and the `X-Test-User` header).

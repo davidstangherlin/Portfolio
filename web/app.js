@@ -1007,7 +1007,13 @@ function paintChip(st) {
   chip.hidden = false;
 }
 async function loadStatus() {
-  try { cache.status = await getJSON("/api/status"); paintChip(cache.status); } catch (e) { /* chip stays hidden */ }
+  try {
+    cache.status = await getJSON("/api/status");
+    paintChip(cache.status);
+    // The admin console is for admins (§33); everyone else doesn't see the links.
+    const admin = !cache.status.user || cache.status.user.admin;
+    document.querySelectorAll(".settings-admin").forEach((el) => { el.hidden = !admin; });
+  } catch (e) { /* chip stays hidden */ }
 }
 
 /* Find a company: type a code or part of a name, pick from the list or press Enter. */

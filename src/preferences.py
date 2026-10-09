@@ -5,7 +5,9 @@ The dashboard layout is {"cards": [{"id", "hidden", "wide"}, ...]} in the
 order you arranged the widgets. `wide` is true (full width), false (half)
 or null (the widget's own default). Widgets the page doesn't know are
 ignored there, and widgets missing from the list keep their default place,
-so adding a widget to Sift never needs this changed."""
+so adding a widget to Sift never needs this changed.
+
+Each person has their own (src/accounts.py, §33)."""
 
 from __future__ import annotations
 
@@ -13,6 +15,8 @@ import json
 import re
 
 from sqlalchemy import text
+
+from src.accounts import current_user_id
 
 DASHBOARD_LAYOUT = "dashboard_layout"
 MAX_CARDS = 40
@@ -42,15 +46,17 @@ def clean_layout(body) -> dict:
 
 
 def get_preference(session, key: str):
-    return session.execute(text("SELECT value FROM ui_preferences WHERE pref_key = :k"), {"k": key}).scalar()
+    return session.execute(text("SELECT value FROM ui_preferences WHERE owner_id = :o AND pref_key = :k"),
+                           {"o": current_user_id(session), "k": key}).scalar()
 
 
 def set_preference(session, key: str, value) -> None:
     session.execute(text("""
-        INSERT INTO ui_preferences (pref_key, value) VALUES (:k, CAST(:v AS JSONB))
-        ON CONFLICT (pref_key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
-    """), {"k": key, "v": json.dumps(value)})
+        INSERT INTO ui_preferences (owner_id, pref_key, value) VALUES (:o, :k, CAST(:v AS JSONB))
+        ON CONFLICT (owner_id, pref_key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+    """), {"o": current_user_id(session), "k": key, "v": json.dumps(value)})
 
 
 def clear_preference(session, key: str) -> bool:
-    return session.execute(text("DELETE FROM ui_preferences WHERE pref_key = :k"), {"k": key}).rowcount > 0
+    return session.execute(text("DELETE FROM ui_preferences WHERE owner_id = :o AND pref_key = :k"),
+                           {"o": current_user_id(session), "k": key}).rowcount > 0

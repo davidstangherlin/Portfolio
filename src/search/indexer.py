@@ -12,9 +12,9 @@ saved (gui.py's `change()`), help and pages when Sift starts (they change
 only with a git pull), and on demand from the admin console or
 `python -m src.search.reindex`. Each rebuild is timed in `search_index_runs`.
 
-owner_id is NULL for now: Sift has one user. Personal rows will carry their
-owner once Sift has user accounts (multi-user Phase 1), and
-the query already shows only NULL or the asker's own rows."""
+Personal rows carry their owner_id (§33) and the query shows only shared
+rows (owner_id NULL) and the asker's own. A save rebuilds just the saver's
+personal rows; a nightly or manual rebuild does everyone's."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from src import accounts
 from src.search import embeddings
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ EXCLUDED = {
     "company_insights": "analyst counts and targets: numbers, reached through the company",
     "analyst_ratings": "monthly rating counts: numbers, reached through the company",
     "ui_preferences": "page layout settings",
+    "users": "accounts: who someone is, not something to find (§33)",
     "search_index": "the index itself",
     "search_index_runs": "the index's rebuild log",
     "search_queries": "the search log, used to tune ranking (Admin, Search insights)",
@@ -163,11 +165,13 @@ def coattail_docs(ctx: _Context) -> list[dict]:
 
 
 def personal_docs(ctx: _Context) -> list[dict]:
+    """The current user's lists, portfolios and scenarios (src/accounts.py)."""
     from src.portfolio import cgt
     from src.portfolio.holdings import list_portfolios
     from src.watchlist import lists
 
     session = ctx.session
+    owner = accounts.current_user_id(session)
     names = dict(session.execute(text("SELECT asx_code, company_name FROM companies")).all())
     docs = []
     by_list: dict = {}
@@ -181,7 +185,9 @@ def personal_docs(ctx: _Context) -> list[dict]:
                          body=" ".join(f"{c} {names.get(c) or ''} {note or ''}" for c, note in entries) or None,
                          facets={"codes": codes}))
     held = {}
-    for pid, code in session.execute(text("SELECT DISTINCT portfolio_id, asx_code FROM holdings WHERE sell_date IS NULL")):
+    for pid, code in session.execute(text("""
+            SELECT DISTINCT h.portfolio_id, h.asx_code FROM holdings h JOIN portfolios p USING (portfolio_id)
+            WHERE h.sell_date IS NULL AND p.owner_id = :o"""), {"o": owner}):
         held.setdefault(pid, []).append(code)
     for p in list_portfolios(session):
         codes = sorted(held.get(p.portfolio_id, []))
@@ -189,8 +195,10 @@ def personal_docs(ctx: _Context) -> list[dict]:
         docs.append(_doc("personal", "portfolio", str(p.portfolio_id), p.name, f"#/portfolio/{p.portfolio_id}",
                          subtitle=f"Portfolio · {cgt.TAX_TYPE_LABELS[p.tax_type]}{archived}",
                          body=" ".join(f"{c} {names.get(c) or ''}" for c in codes) or None, facets={"codes": codes}))
-    for sid, name, notes in session.execute(text("SELECT scenario_id, name, notes FROM scenarios")):
+    for sid, name, notes in session.execute(text("SELECT scenario_id, name, notes FROM scenarios WHERE owner_id = :o"), {"o": owner}):
         docs.append(_doc("personal", "scenario", str(sid), name, f"#/admin/scenario/{sid}", subtitle="What-if scenario", body=notes))
+    for d in docs:
+        d["owner_id"] = owner
     return docs
 
 
@@ -216,19 +224,36 @@ def page_docs(ctx: _Context) -> list[dict]:
 BUILDERS = {"market": market_docs, "coattail": coattail_docs, "personal": personal_docs, "help": help_docs, "pages": page_docs}
 
 
-def reindex(session, areas=AREAS, trigger: str = "manual", today: date | None = None) -> dict[str, int]:
+def _build(ctx: _Context, area: str, everyone: bool) -> list[dict]:
+    """An area's rows. Personal rows are built per owner: everyone's, or
+    only the current user's (after they save something)."""
+    if area != "personal" or not everyone:
+        return BUILDERS[area](ctx)
+    docs = []
+    for user in accounts.all_users(ctx.session):
+        with accounts.acting_as(user.user_id):
+            docs += BUILDERS[area](ctx)
+    return docs
+
+
+def reindex(session, areas=AREAS, trigger: str = "manual", today: date | None = None,
+            everyone: bool = True) -> dict[str, int]:
     """Rebuild these areas (all by default) and record each rebuild. The
-    caller commits. Returns the number of items indexed per area."""
+    caller commits. Returns the number of items indexed per area. With
+    `everyone` false, the personal area is rebuilt for the current user only."""
     ctx = _Context(session, today or date.today())
     counts = {}
     for area in areas:
         started = time.monotonic()
-        docs = BUILDERS[area](ctx)
+        docs = _build(ctx, area, everyone)
+        scope, params = "area = :a", {"a": area}
+        if area == "personal" and not everyone:
+            scope, params = "area = :a AND owner_id = :o", {"a": area, "o": accounts.current_user_id(session)}
         # Keep each unchanged row's embedding across the rebuild: only new or changed text is embedded again.
-        kept = session.execute(text("""
+        kept = session.execute(text(f"""
             SELECT doc_id, content_hash, embedding, embedding_model FROM search_index
-            WHERE area = :a AND embedding IS NOT NULL"""), {"a": area}).all()
-        session.execute(text("DELETE FROM search_index WHERE area = :a"), {"a": area})
+            WHERE {scope} AND embedding IS NOT NULL"""), params).all()
+        session.execute(text(f"DELETE FROM search_index WHERE {scope}"), params)
         if docs:
             session.execute(_INSERT, docs)
             if kept:

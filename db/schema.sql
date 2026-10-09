@@ -240,10 +240,17 @@ CREATE TABLE IF NOT EXISTS holdings (
 -- Parcels recorded before portfolios existed move into a first portfolio,
 -- "My portfolio" (individual), created only if there are parcels to move.
 ALTER TABLE holdings ADD COLUMN IF NOT EXISTS portfolio_id UUID REFERENCES portfolios(portfolio_id) ON DELETE RESTRICT;
-INSERT INTO portfolios (name, tax_type)
-    SELECT 'My portfolio', 'INDIVIDUAL'
-    WHERE NOT EXISTS (SELECT 1 FROM portfolios)
-      AND EXISTS (SELECT 1 FROM holdings WHERE portfolio_id IS NULL);
+-- Once portfolios have owners (section 7), it belongs to the first admin.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM portfolios) AND EXISTS (SELECT 1 FROM holdings WHERE portfolio_id IS NULL) THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'portfolios' AND column_name = 'owner_id') THEN
+            EXECUTE $q$INSERT INTO portfolios (name, tax_type, owner_id)
+                SELECT 'My portfolio', 'INDIVIDUAL', user_id FROM users WHERE role = 'admin' ORDER BY created_at, email LIMIT 1$q$;
+        ELSE
+            INSERT INTO portfolios (name, tax_type) VALUES ('My portfolio', 'INDIVIDUAL');
+        END IF;
+    END IF;
+END $$;
 UPDATE holdings SET portfolio_id = (SELECT portfolio_id FROM portfolios ORDER BY created_at, name LIMIT 1)
     WHERE portfolio_id IS NULL;
 ALTER TABLE holdings ALTER COLUMN portfolio_id SET NOT NULL;
@@ -700,3 +707,49 @@ CREATE INDEX IF NOT EXISTS idx_holdings_asx ON holdings(asx_code);
 CREATE INDEX IF NOT EXISTS idx_holdings_portfolio ON holdings(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_signal_snapshots_date ON signal_snapshots(snapshot_date);
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_company ON watchlist_items(company_id);
+
+-- 7. USERS AND OWNERS (multi-user Phase 1, docs/AS_BUILT.md §33, docs/MULTI_USER_PLAN.md)
+-- Each person's portfolios, watchlists, scenarios and dashboard layout
+-- belong to them; market data, valuations and help are shared. Everything
+-- from before accounts belongs to the first admin, created here if there
+-- are no users yet (the email is a placeholder until Phase 3 links logins).
+CREATE TABLE IF NOT EXISTS users (
+    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,         -- lower case
+    display_name VARCHAR(80) NOT NULL,
+    role VARCHAR(10) NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+    status VARCHAR(10) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+    auth_subject VARCHAR(255) UNIQUE,           -- the login service's id for this person (Phase 3)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP WITH TIME ZONE
+);
+INSERT INTO users (email, display_name, role)
+SELECT 'owner@sift.local', 'Owner', 'admin' WHERE NOT EXISTS (SELECT 1 FROM users);
+
+-- Owner on each table of personal data; existing rows go to the first admin.
+-- Holdings and watchlist items belong to their portfolio or watchlist.
+-- Names are unique per owner (two people can each have "Income ideas").
+DO $$
+DECLARE
+    first_admin UUID := (SELECT user_id FROM users WHERE role = 'admin' ORDER BY created_at, email LIMIT 1);
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['portfolios', 'watchlists', 'scenarios', 'ui_preferences'] LOOP
+        EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(user_id) ON DELETE CASCADE', t);
+        EXECUTE format('UPDATE %I SET owner_id = $1 WHERE owner_id IS NULL', t) USING first_admin;
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN owner_id SET NOT NULL', t);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%s_owner ON %I (owner_id)', t, t);
+    END LOOP;
+END $$;
+ALTER TABLE portfolios DROP CONSTRAINT IF EXISTS portfolios_name_key;
+ALTER TABLE watchlists DROP CONSTRAINT IF EXISTS watchlists_name_key;
+ALTER TABLE scenarios DROP CONSTRAINT IF EXISTS scenarios_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_portfolios_owner_name ON portfolios (owner_id, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_watchlists_owner_name ON watchlists (owner_id, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scenarios_owner_name ON scenarios (owner_id, lower(name));
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ui_preferences_owner_pkey') THEN
+        ALTER TABLE ui_preferences DROP CONSTRAINT IF EXISTS ui_preferences_pkey;
+        ALTER TABLE ui_preferences ADD CONSTRAINT ui_preferences_owner_pkey PRIMARY KEY (owner_id, pref_key);
+    END IF;
+END $$;

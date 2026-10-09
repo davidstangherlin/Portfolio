@@ -19,6 +19,7 @@ import re
 
 from sqlalchemy import text
 
+from src.accounts import current_user_id
 from src.search import embeddings, learning
 
 CANDIDATES = 400
@@ -75,10 +76,14 @@ def _sql(typo: bool, n: int) -> str:
     """
 
 
-def _mine_codes(session) -> tuple[set[str], set[str]]:
-    held = {c for (c,) in session.execute(text("SELECT DISTINCT asx_code FROM holdings WHERE sell_date IS NULL"))}
-    watched = {c for (c,) in session.execute(text(
-        "SELECT DISTINCT c.asx_code FROM watchlist_items i JOIN companies c USING (company_id)"))}
+def _mine_codes(session, owner_id) -> tuple[set[str], set[str]]:
+    """What this person holds and watches."""
+    held = {c for (c,) in session.execute(text("""
+        SELECT DISTINCT h.asx_code FROM holdings h JOIN portfolios p USING (portfolio_id)
+        WHERE h.sell_date IS NULL AND p.owner_id = :o"""), {"o": owner_id})}
+    watched = {c for (c,) in session.execute(text("""
+        SELECT DISTINCT c.asx_code FROM watchlist_items i JOIN companies c USING (company_id)
+        JOIN watchlists w USING (watchlist_id) WHERE w.owner_id = :o"""), {"o": owner_id})}
     return held, watched
 
 
@@ -123,8 +128,10 @@ def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_
     similarity, added to a word match's score or as the score of a row only
     meaning found), then what clicks and votes have taught for these words
     (src/search/learning.py). `log` records the search (once per search,
-    not per tick box); the result carries its query_id for clicks."""
+    not per tick box); the result carries its query_id for clicks. Personal
+rows and "Mine" are the current user's unless `owner_id` says otherwise."""
     selected = {g: set(v) for g, v in (selected or {}).items() if g in GROUPS and v}
+    owner_id = owner_id or current_user_id(session)
     ws = words(q)
     typo = _typo_tolerant(session)
     embedder = embeddings.get_embedder()
@@ -152,7 +159,7 @@ def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_
         if d in found:
             found[d]["score"] += b
     rows = sorted(found.values(), key=lambda r: (-r["score"], r["title"]))
-    held, watched = _mine_codes(session)
+    held, watched = _mine_codes(session, owner_id)
     for r in rows:
         r["_held"], r["_watched"] = held, watched
         r["_values"] = _values(r)

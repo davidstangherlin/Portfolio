@@ -7,7 +7,10 @@ or, for an ETF or LIC, its trailing 12-month distribution yield is above
 `yield_above`; or, for an LIC, its price is at least `nta_discount_above`
 percent below its last NTA. Shares are judged on the screener's rows
 (src/screening/enriched.py), ETFs and LICs on theirs (src/etf/views.py).
-Only shares Sift values, and ETFs and LICs it follows, can be added."""
+Only shares Sift values, and ETFs and LICs it follows, can be added.
+
+Lists belong to the current user (src/accounts.py, §33): someone else's
+list is simply not found."""
 
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from src.accounts import current_user_id
 from src.models import Company, Watchlist, WatchlistItem
 
 MAX_NAME = 60
@@ -29,15 +33,21 @@ class WatchlistError(ValueError):
 
 # ---------- lists ----------
 
+def _mine(session: Session):
+    return Watchlist.owner_id == current_user_id(session)
+
+
 def list_watchlists(session: Session) -> list[Watchlist]:
-    return list(session.execute(select(Watchlist).order_by(Watchlist.created_at, Watchlist.name)).scalars())
+    return list(session.execute(
+        select(Watchlist).where(_mine(session)).order_by(Watchlist.created_at, Watchlist.name)).scalars())
 
 
 def get_watchlist(session: Session, watchlist_id: str) -> Watchlist | None:
     try:
-        return session.get(Watchlist, uuid.UUID(str(watchlist_id)))
+        found = session.get(Watchlist, uuid.UUID(str(watchlist_id)))
     except ValueError:
         return None
+    return found if found is not None and found.owner_id == current_user_id(session) else None
 
 
 def _clean_name(session: Session, name, except_id=None) -> str:
@@ -46,14 +56,15 @@ def _clean_name(session: Session, name, except_id=None) -> str:
         raise WatchlistError("a watchlist needs a name")
     if len(name) > MAX_NAME:
         raise WatchlistError(f"watchlist names can be at most {MAX_NAME} characters")
-    clash = session.execute(select(Watchlist).where(func.lower(Watchlist.name) == name.lower())).scalar_one_or_none()
+    clash = session.execute(
+        select(Watchlist).where(_mine(session), func.lower(Watchlist.name) == name.lower())).scalar_one_or_none()
     if clash is not None and clash.watchlist_id != except_id:
         raise WatchlistError(f"there is already a watchlist called {clash.name!r}")
     return name
 
 
 def create_watchlist(session: Session, name) -> Watchlist:
-    watchlist = Watchlist(name=_clean_name(session, name))
+    watchlist = Watchlist(name=_clean_name(session, name), owner_id=current_user_id(session))
     session.add(watchlist)
     session.flush()
     return watchlist
@@ -161,6 +172,7 @@ def entries(session: Session, watchlist_id=None) -> list[tuple[WatchlistItem, st
     stmt = (select(WatchlistItem, Company.asx_code, Watchlist.name)
             .join(Company, Company.company_id == WatchlistItem.company_id)
             .join(Watchlist, Watchlist.watchlist_id == WatchlistItem.watchlist_id)
+            .where(_mine(session))
             .order_by(Watchlist.created_at, Company.asx_code))
     if watchlist_id is not None:
         stmt = stmt.where(WatchlistItem.watchlist_id == watchlist_id)

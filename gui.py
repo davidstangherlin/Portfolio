@@ -38,10 +38,12 @@ from urllib.parse import urlsplit
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
+from src import accounts
 from src.config import get_session
 from src.etf import profiles as fund_profiles, views as etf_views
 from src.ingestion.insights_ingestion import insights_payload
@@ -62,7 +64,6 @@ from src.watchlist import lists as watchlists
 from src import settings as model_settings
 from src.admin import scenarios as scenario_lab, workings as workings_module
 from src.admin.scenarios import ScenarioError
-from src.models import Scenario
 from src.settings import SettingsError
 from src.watchlist.lists import WatchlistError
 from src.valuation import dcf as dcf_module, ddm as ddm_module
@@ -658,8 +659,32 @@ def web_version() -> str:
     return hashlib.sha1("|".join(stamps).encode()).hexdigest()[:12]
 
 
-def create_app(password: str | None = None) -> FastAPI:
+def owner_user(request: Request, session) -> accounts.User | None:
+    """Who a request is from, until logins arrive (multi-user Phase 3, §33):
+    the owner, behind GUI_PASSWORD when that is set."""
+    return accounts.owner(session)
+
+
+def test_header_user(request: Request, session) -> accounts.User | None:
+    """Tests only: the account named by the X-Test-User header (an email),
+    else the owner. Never used by `python gui.py`."""
+    email = request.headers.get("x-test-user")
+    return accounts.find_user(session, email) if email else accounts.owner(session)
+
+
+def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
+    """`resolve_user(request, session)` says who each /api/ request is from
+    (None: nobody signed in). Personal data is read and written as that
+    user (src/accounts.py); /api/admin/ needs an admin."""
     app = FastAPI(title="ASX Value Screener", docs_url=None, redoc_url=None, openapi_url=None)
+
+    def request_user(request: Request) -> accounts.User | None:
+        with get_session() as session:
+            user = resolve_user(request, session)
+            if user is not None and user.is_active:
+                accounts.touch(session, user.user_id)
+            session.commit()
+            return user
 
     @app.middleware("http")
     async def require_password(request: Request, call_next):
@@ -668,8 +693,18 @@ def create_app(password: str | None = None) -> FastAPI:
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="ASX Value Screener"'})
         if request.method in WRITE_METHODS and not _same_site_write(request):
             return JSONResponse({"detail": "Changes are only accepted from Sift's own pages."}, status_code=403)
+        user = None
         try:
-            response = await call_next(request)
+            if request.url.path.startswith("/api/"):
+                user = await run_in_threadpool(request_user, request)
+                if user is None:
+                    return JSONResponse({"detail": "Sign in to use Sift."}, status_code=401, headers={"Cache-Control": "no-store"})
+                if not user.is_active:
+                    return JSONResponse({"detail": "This account is disabled."}, status_code=403, headers={"Cache-Control": "no-store"})
+                if request.url.path.startswith("/api/admin/") and not user.is_admin:
+                    return JSONResponse({"detail": "Only an admin can do that."}, status_code=403, headers={"Cache-Control": "no-store"})
+            with accounts.acting_as(user.user_id if user else None):
+                response = await call_next(request)
         except Exception as exc:  # noqa: BLE001 - an unexpected error becomes a readable message on the page
             logger.exception("Error serving %s", request.url.path)
             return JSONResponse({"detail": error_message(exc)}, status_code=500, headers={"Cache-Control": "no-store"})
@@ -680,7 +715,15 @@ def create_app(password: str | None = None) -> FastAPI:
     @app.get("/api/status")
     def api_status():
         with get_session() as session:
-            return JSONResponse(_json_ready(status_payload(session, date.today(), datetime.now())))
+            payload = status_payload(session, date.today(), datetime.now())
+            payload["user"] = accounts.current_user(session).info()
+            return JSONResponse(_json_ready(payload))
+
+    @app.get("/api/me")
+    def api_me():
+        """Who Sift is acting for (§33)."""
+        with get_session() as session:
+            return JSONResponse(accounts.current_user(session).info())
 
     @app.get("/api/dashboard")
     def api_dashboard():
@@ -741,10 +784,7 @@ def create_app(password: str | None = None) -> FastAPI:
         return rows_by_code(session) | funds_by_code(session, date.today())
 
     def portfolio_or_404(session, portfolio_id: str) -> Portfolio:
-        try:
-            found = session.get(Portfolio, uuid.UUID(portfolio_id))
-        except ValueError:
-            found = None
+        found = parcels_module.get_portfolio(session, portfolio_id)  # only the current user's (§33)
         if found is None:
             raise HTTPException(status_code=404, detail="No such portfolio")
         return found
@@ -754,6 +794,8 @@ def create_app(password: str | None = None) -> FastAPI:
             found = session.get(Holding, uuid.UUID(holding_id))
         except ValueError:
             found = None
+        if found is not None and parcels_module.get_portfolio(session, found.portfolio_id) is None:
+            found = None  # someone else's (§33)
         if found is None:
             raise HTTPException(status_code=404, detail="No such parcel")
         return found
@@ -762,7 +804,7 @@ def create_app(password: str | None = None) -> FastAPI:
         """Saved changes are searchable at once (§32). Search must never block a save."""
         try:
             with session.begin_nested():
-                search_indexer.reindex(session, ("personal",), "saved")
+                search_indexer.reindex(session, ("personal",), "saved", everyone=False)
         except Exception:  # noqa: BLE001
             logger.exception("Search index: personal data not reindexed")
 
@@ -970,10 +1012,7 @@ def create_app(password: str | None = None) -> FastAPI:
 
     # ---------- admin console (§24) ----------
     def scenario_or_404(session, scenario_id: str):
-        try:
-            found = session.get(Scenario, uuid.UUID(scenario_id))
-        except ValueError:
-            found = None
+        found = scenario_lab.get_scenario(session, scenario_id)  # only the current user's (§33)
         if found is None:
             raise HTTPException(status_code=404, detail="No such scenario")
         return found
@@ -998,7 +1037,7 @@ def create_app(password: str | None = None) -> FastAPI:
         except (KeyError, TypeError, ValueError):
             raise HTTPException(status_code=400, detail="query_id and doc_id are needed") from None
         with get_session() as session:
-            search_learning.record_click(session, query_id, doc_id, body.get("position"))
+            search_learning.record_click(session, query_id, doc_id, body.get("position"), accounts.current_user_id(session))
             session.commit()
         return JSONResponse({"ok": True})
 
@@ -1012,7 +1051,7 @@ def create_app(password: str | None = None) -> FastAPI:
         if vote not in (-1, 0, 1) or not norm.strip():
             raise HTTPException(status_code=400, detail="vote is 1, -1 or 0")
         with get_session() as session:
-            search_learning.record_vote(session, norm, doc_id, vote)
+            search_learning.record_vote(session, norm, doc_id, vote, accounts.current_user_id(session))
             session.commit()
         return JSONResponse({"ok": True, "vote": vote})
 
@@ -1068,7 +1107,7 @@ def create_app(password: str | None = None) -> FastAPI:
     @app.get("/api/admin/scenarios")
     def api_scenarios():
         with get_session() as session:
-            rows = session.execute(select(Scenario).order_by(Scenario.updated_at.desc(), Scenario.name)).scalars()
+            rows = scenario_lab.list_scenarios(session, ("updated", "name"))
             return JSONResponse(_json_ready({"scenarios": [scenario_info(x) for x in rows]}))
 
     @app.post("/api/admin/scenarios")
@@ -1119,8 +1158,8 @@ def create_app(password: str | None = None) -> FastAPI:
             if result is None:
                 raise HTTPException(status_code=404, detail=f"No workings for {asx_code.upper()}: no price or reports")
             result["scenario"] = name
-            result["scenarios"] = [{"scenario_id": str(x.scenario_id), "name": x.name} for x in
-                                   session.execute(select(Scenario).order_by(Scenario.name)).scalars()]
+            result["scenarios"] = [{"scenario_id": str(x.scenario_id), "name": x.name}
+                                   for x in scenario_lab.list_scenarios(session)]
             return JSONResponse(_json_ready(result))
 
     @app.get("/")

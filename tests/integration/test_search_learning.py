@@ -103,7 +103,7 @@ def fake_embedder():
 
 
 def test_ai_ready_rows_are_embedded_once_and_meaning_matches_are_blended(indexed, fake_embedder):
-    indexed.execute(text("INSERT INTO scenarios (name, notes) VALUES ('Bank squeeze', 'Bank loans')"))
+    indexed.execute(text("INSERT INTO scenarios (name, notes, owner_id) SELECT 'Bank squeeze', 'Bank loans', user_id FROM users"))
     indexer.reindex(indexed, today=date(2026, 10, 5))
     indexed.commit()
     rows = indexed.execute(text("SELECT count(*) FROM search_index")).scalar()

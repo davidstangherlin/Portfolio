@@ -15,6 +15,7 @@ db/
                             watchlists, the track record, saved scenarios and the screener view
 src/
   config.py                DB connection (env-var driven)
+  accounts.py              users and who Sift is acting for: personal data is scoped to them (multi-user Phase 1)
   settings.py              every adjustable setting: live values, ranges, formulas (see Admin console)
   apply_schema.py          brings the database up to the schema (nightly step 0, and on GUI start)
   models/                  SQLAlchemy ORM models, one per schema table
@@ -254,6 +255,12 @@ python gui.py --lan     # also your phone on home Wi-Fi (see below)
 ```
 Press `Ctrl+C` to stop it. On start it brings the database up to date (the same step the
 nightly job runs first), so restarting it after a `git pull` is enough.
+
+**Accounts (multi-user Phase 1).** Sift keeps a `users` table, and your portfolios,
+watchlists, what-if scenarios and dashboard layout belong to the first admin account,
+"Owner". Nothing changes in use: until sign-in arrives (Phase 3) every request, the command
+line and the nightly run act as the owner. Market data, valuations and help are shared. The
+plan and its status: `docs/MULTI_USER_PLAN.md`.
 
 - **Menu bar:** Dashboard, Screener, Watchlists, Portfolios, Track record and Markets (links
   to the ASX, the ASX's exchange traded funds (ETFs) list, the New York Stock Exchange (NYSE)

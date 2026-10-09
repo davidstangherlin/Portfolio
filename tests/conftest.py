@@ -35,7 +35,7 @@ SCHEMA_PATH = REPO_ROOT / "db" / "schema.sql"
 
 # Truncated between every DB-backed test for isolation - children first,
 # via CASCADE, same tables README.md's "Full teardown/reset" documents.
-_TABLES = "companies, daily_prices, financial_reports, valuation_metrics, holdings, portfolios, dividend_payments, signal_snapshots, signal_outcomes, track_record_monthly, watchlists, watchlist_items, scenarios, etf_monthly, etf_performance, asx_report_loads, company_insights, analyst_ratings, top_holders, asx_index_returns, fund_profiles, fund_holdings, ui_preferences, search_index, search_index_runs, search_queries, search_clicks, search_feedback, search_synonyms"
+_TABLES = "companies, daily_prices, financial_reports, valuation_metrics, holdings, portfolios, dividend_payments, signal_snapshots, signal_outcomes, track_record_monthly, watchlists, watchlist_items, scenarios, etf_monthly, etf_performance, asx_report_loads, company_insights, analyst_ratings, top_holders, asx_index_returns, fund_profiles, fund_holdings, ui_preferences, search_index, search_index_runs, search_queries, search_clicks, search_feedback, search_synonyms, users"
 
 
 def _connect(dbname: str | None = None):
@@ -99,6 +99,8 @@ def db_session(_test_database):
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(f"TRUNCATE {_TABLES} RESTART IDENTITY CASCADE")
+        # The owner every test acts as unless it says otherwise (src/accounts.py), as db/schema.sql creates it.
+        cur.execute("INSERT INTO users (email, display_name, role) VALUES ('owner@sift.local', 'Owner', 'admin')")
     conn.close()
 
     session = get_session_factory()()

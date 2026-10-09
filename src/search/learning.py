@@ -9,7 +9,7 @@
 - Synonyms (`search_synonyms`) widen a search: searching one term also
   finds the others in its group: `variants()`.
 
-Owners: rows carry owner_id (NULL while Sift has one user). Boosts pool
+Owners: rows carry the searcher's owner_id (src/accounts.py, §33). Boosts pool
 everyone's clicks and votes on shared results, which is what makes them
 useful; a user's own votes show on their results."""
 
@@ -37,8 +37,10 @@ def log_query(session, query: str, norm: str, results: int, owner_id=None) -> in
     """), {"o": owner_id, "q": query[:300], "n": norm[:300], "r": results}).scalar()
 
 
-def record_click(session, query_id: int, doc_id: str, position: int | None) -> None:
-    if session.execute(text("SELECT 1 FROM search_queries WHERE query_id = :q"), {"q": query_id}).first():
+def record_click(session, query_id: int, doc_id: str, position: int | None, owner_id=None) -> None:
+    """A click on a result of one of this person's own searches."""
+    if session.execute(text("SELECT 1 FROM search_queries WHERE query_id = :q AND owner_id IS NOT DISTINCT FROM :o"),
+                       {"q": query_id, "o": owner_id}).first():
         session.execute(text("INSERT INTO search_clicks (query_id, doc_id, position) VALUES (:q, :d, :p)"),
                         {"q": query_id, "d": doc_id[:160], "p": position})
 

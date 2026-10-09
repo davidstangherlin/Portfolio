@@ -83,7 +83,7 @@ def test_startup_builds_everything_when_empty_then_only_help_and_pages(db_sessio
 def test_what_if_scenarios_are_searchable(indexed):
     from sqlalchemy import text
 
-    indexed.execute(text("INSERT INTO scenarios (name, notes) VALUES ('Rates up', 'What if the discount rate rises to 11%')"))
+    indexed.execute(text("INSERT INTO scenarios (name, notes, owner_id) SELECT 'Rates up', 'What if the discount rate rises to 11%', user_id FROM users"))
     indexer.reindex(indexed, ("personal",))
     indexed.commit()
     hits = [(x["type"], x["title"]) for x in search(indexed, "rates up")["results"]]

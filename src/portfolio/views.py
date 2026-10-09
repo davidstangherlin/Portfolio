@@ -14,7 +14,8 @@ from sqlalchemy import func, select, text
 
 from src.models import Company, Holding, Portfolio
 from src.portfolio import cgt
-from src.portfolio.holdings import discount_rate, list_portfolios, open_parcels, realised_gain, sold_parcels
+from src.portfolio.holdings import (discount_rate, list_portfolios, open_parcels, owned_portfolio_ids, realised_gain,
+                                    sold_parcels)
 
 ZERO = Decimal("0")
 
@@ -159,7 +160,9 @@ def portfolio_summaries(session, rows_by_code: dict[str, dict], today: date) -> 
     closes = two_latest_closes(session, {p.asx_code for p in parcels})
     types = security_types(session, {p.asx_code for p in parcels})
     sales = dict(session.execute(
-        select(Holding.portfolio_id, func.count()).where(Holding.sell_date.is_not(None)).group_by(Holding.portfolio_id)
+        select(Holding.portfolio_id, func.count())
+        .where(Holding.sell_date.is_not(None), Holding.portfolio_id.in_(owned_portfolio_ids(session)))
+        .group_by(Holding.portfolio_id)
     ).all())
     out = []
     for portfolio in portfolios:

@@ -17,6 +17,7 @@ Two things are deliberately kept at their live values in a scenario:
 from __future__ import annotations
 
 import threading
+import uuid
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date
@@ -25,6 +26,7 @@ from decimal import Decimal
 from sqlalchemy import func, select, text
 
 from screen_asx import annotate_row, args_from_settings
+from src.accounts import current_user_id
 from src.models import Company, Scenario
 from src.portfolio.holdings import position_summaries
 from src.screening.actions import ACTION_ORDER
@@ -211,7 +213,8 @@ def _clean(session, name, notes, overrides, except_id=None) -> dict:
         raise ScenarioError("A scenario needs a name")
     if len(name) > 60:
         raise ScenarioError("Scenario names can be at most 60 characters")
-    clash = session.execute(select(Scenario).where(func.lower(Scenario.name) == name.lower())).scalar_one_or_none()
+    clash = session.execute(select(Scenario).where(
+        Scenario.owner_id == current_user_id(session), func.lower(Scenario.name) == name.lower())).scalar_one_or_none()
     if clash is not None and clash.scenario_id != except_id:
         raise ScenarioError(f"There is already a scenario called {clash.name!r}")
     notes = str(notes or "").strip() or None
@@ -230,12 +233,28 @@ def _clean(session, name, notes, overrides, except_id=None) -> dict:
 def save_scenario(session, name, notes, overrides, scenario=None):
     fields = _clean(session, name, notes, overrides, scenario.scenario_id if scenario else None)
     if scenario is None:
-        scenario = Scenario(**fields)
+        scenario = Scenario(**fields, owner_id=current_user_id(session))
         session.add(scenario)
     else:
         scenario.name, scenario.notes, scenario.overrides = fields["name"], fields["notes"], fields["overrides"]
     session.flush()
     return scenario
+
+
+def list_scenarios(session, order=("name",)):
+    """The current user's saved scenarios."""
+    columns = {"name": Scenario.name, "updated": Scenario.updated_at.desc()}
+    return list(session.execute(select(Scenario).where(Scenario.owner_id == current_user_id(session))
+                                .order_by(*(columns[c] for c in order))).scalars())
+
+
+def get_scenario(session, scenario_id):
+    """One of the current user's scenarios by ID, or None."""
+    try:
+        found = session.get(Scenario, uuid.UUID(str(scenario_id)))
+    except ValueError:
+        return None
+    return found if found is not None and found.owner_id == current_user_id(session) else None
 
 
 def scenario_settings(scenario) -> ModelSettings:
