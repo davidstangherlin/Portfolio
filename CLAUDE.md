@@ -25,6 +25,12 @@ Every new table, page or kind of content must be searchable, or deliberately not
 6. **AI-ready:** give every indexed row meaningful `title`, `subtitle` and `body` text; that text is what's embedded when meaning-based search is on (`src/search/embeddings.py`). Don't stuff rows with numbers: they don't embed well.
 7. **Learning tables** (`search_queries`, `search_clicks`, `search_feedback`, `search_synonyms`) are logs, not content: keep them in `EXCLUDED`.
 
+## AI and graph readiness (docs/kb/features/ai-and-graph.md)
+
+- PostgreSQL is the source of truth; the graph is an export (`src/graph/export.py`) and AI reaches Sift only through the read-only tools in `src/ai/tools.py` (MCP server and `/api/ai/tools`).
+- New data people will ask about: add or extend a tool (scoped to the current user, plain JSON, reasons in words, the not-advice note where actions appear) and a test in `tests/integration/test_ai_graph.py`. New entities or relationships worth exploring: add them to the export and `load.cypher`.
+- Tools never write. Keep `mcp` optional (`requirements-ai.txt`).
+
 ## Multi-user readiness
 
 Sift is heading to a hosted, multi-user service (test group first, public later); the plan and status are in `docs/MULTI_USER_PLAN.md`, the design in AS_BUILT §33. Phase 1 is built: a `users` table, and `owner_id` on every table of personal data.

@@ -1,0 +1,4 @@
+# Optional: Sift's MCP server for AI assistants (src/ai/mcp_server.py, docs/kb/features/ai-and-graph.md).
+# Install after requirements.txt:  pip install -r requirements-ai.txt
+-r requirements.txt
+mcp==2.3.0

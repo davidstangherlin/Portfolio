@@ -561,6 +561,28 @@ and cost base adjustments from corporate actions. A record-keeping aid, not tax 
 Back the table up occasionally, since unlike market data it can't be re-downloaded:
 `pg_dump -t holdings -t portfolios asx_value > holdings_backup.sql`.
 
+## AI assistants and the graph (optional)
+
+Sift is ready for AI assistants and knowledge graphs; PostgreSQL stays the source of truth.
+
+- **Ask Claude about your data:** install the optional package, then add Sift to Claude Desktop
+  (Settings, Developer, Edit Config, `mcpServers`):
+  ```
+  .venv\Scripts\pip install -r requirements-ai.txt
+  "sift": {"command": "C:\\Users\\you\\Portfolio\\.venv\\Scripts\\python.exe",
+           "args": ["-m", "src.ai.mcp_server"], "cwd": "C:\\Users\\you\\Portfolio"}
+  ```
+  Restart Claude Desktop and ask, for example, "Using Sift, how is my portfolio going?", "Why is
+  BHP a BUY?", "Which funds hold BHP?" or "How much do VAS and IOZ overlap?". The connector is
+  read-only, runs on your PC and acts for you (the owner; `--user <email>` for another account).
+- **Neo4j:** each night (or `python -m src.graph.export`) Sift writes `data/graph/`: CSV files
+  for companies, sectors, fund categories, managers, holders, who holds what, what each ETF
+  holds, and your portfolios and watchlists, plus `load.cypher`. Copy the CSV files into a Neo4j
+  database's `import` folder and run `load.cypher` in Neo4j Browser. `--shared-only` leaves out
+  your personal data. The folder is ignored by git.
+
+Details, example questions and Cypher: the developer knowledge base, "AI and graph readiness".
+
 ## Testing
 
 ```bash

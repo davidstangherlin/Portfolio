@@ -770,6 +770,81 @@
     "accounts-owners"
    ],
    "notes": "Part of Phase 5: privacy note, export and delete my data."
+  },
+  {
+   "id": "IMP-054",
+   "title": "Live sync to a Neo4j instance",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "The graph is a nightly snapshot loaded by hand.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "ai-and-graph",
+    "adr-012-graph-export"
+   ],
+   "notes": "Write the same nodes and relationships with the Neo4j driver when a running graph is wanted."
+  },
+  {
+   "id": "IMP-055",
+   "title": "Improve the prediction layer",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Suggested actions are fixed rules; the track record could teach which signals predict returns.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "track-record",
+    "screener-actions",
+    "ai-and-graph"
+   ],
+   "notes": "Use the scored history (signal_snapshots, signal_outcomes) to test and weight the rules; holder moves and fund flows from the graph as new features. Needs enough track record first."
+  },
+  {
+   "id": "IMP-056",
+   "title": "Embeddings in pgvector",
+   "type": "debt",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Meaning-based search compares every row in Python.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "search",
+    "ai-and-graph"
+   ],
+   "notes": "Move embedding to vector(384) with an HNSW index once hosted on Supabase."
+  },
+  {
+   "id": "IMP-057",
+   "title": "AI connector for testers",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "The MCP server runs locally for one person.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "ai-and-graph",
+    "adr-013-local-mcp-server"
+   ],
+   "notes": "A hosted, signed-in version after Phase 3, or an in-app assistant."
+  },
+  {
+   "id": "IMP-058",
+   "title": "Overseas fund holdings aren't linked",
+   "type": "issue",
+   "priority": "P4",
+   "status": "by-design",
+   "impact": "ETF holdings of overseas companies don't link to a Sift company.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "ai-and-graph"
+   ],
+   "notes": "Sift follows ASX companies only; unmatched lines stay in fund_holdings."
   }
  ]
 }

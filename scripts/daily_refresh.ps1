@@ -85,6 +85,7 @@ Invoke-Step "Signal Record" { python -m src.tracking.record_signals }
 Invoke-Step "Track Record" { python -m src.tracking.score_signals }
 Invoke-Step "Suggested Actions" { python screen_asx.py --actions }
 Invoke-Step "Search Index" { python -m src.search.reindex --trigger nightly }
+Invoke-Step "Graph Export" { python -m src.graph.export }  # data/graph: CSV files and load.cypher for Neo4j (docs/kb/features/ai-and-graph.md)
 
 Write-Log ""
 Write-Log "===== Daily Refresh Finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ====="

@@ -2232,6 +2232,40 @@
      "href": "#/coattail"
     }
    ]
+  },
+  {
+   "id": "ai-assistant",
+   "title": "Asking an AI assistant about Sift",
+   "category": "guides",
+   "aliases": [
+    "ai",
+    "claude",
+    "assistant",
+    "chat",
+    "mcp",
+    "ask questions",
+    "neo4j",
+    "graph",
+    "knowledge graph"
+   ],
+   "definition": "Sift can be connected to Claude Desktop on your PC, so you can ask about your portfolio, Sift's calls, who holds what and fund overlap in plain English.",
+   "body": [
+    "What Claude can ask Sift: a company's or fund's facts, why Sift suggests an action (the tests, flags and history), your portfolio and watchlists, who holds a company and which funds hold it, how funds overlap and which of your shares they hold, the screener and the track record.",
+    "It only reads: nothing in Sift is changed, and it sees only your own portfolios and watchlists. It runs on your PC; your data goes to Claude only when you ask a question, and only what that question needs.",
+    "Setting it up is a one-off step for the owner (README, AI assistants and the graph).",
+    "Sift also exports its data each night in a form a knowledge graph (Neo4j) can load, for exploring who holds what visually.",
+    "Sift's suggested actions are rule-based research prompts, not financial advice, and an AI's summary of them is no different."
+   ],
+   "related": [
+    "sift-search",
+    "coattail"
+   ],
+   "links": [
+    {
+     "text": "Open Coattail",
+     "href": "#/coattail"
+    }
+   ]
   }
  ]
 }

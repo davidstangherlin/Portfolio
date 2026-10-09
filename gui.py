@@ -45,6 +45,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src import accounts
 from src import version as sift_version
+from src.ai import tools as ai_tools
 from src.devkb import articles as kb_articles, generated as kb_generated, markdown as kb_markdown, register as kb_register
 from src.config import get_session
 from src.etf import profiles as fund_profiles, views as etf_views
@@ -815,6 +816,23 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
         return JSONResponse(_json_ready(article.info(today) | {
             "html": html_, "toc": toc, "related": related, "backlinks": backlinks,
             "category_name": kb_articles.CATEGORIES[article.category]}))
+
+    # ---------- AI tools (docs/kb/features/ai-and-graph.md) ----------
+    @app.get("/api/ai/tools")
+    def api_ai_tools():
+        """Every read-only AI tool with its JSON Schema, for an assistant to call."""
+        return JSONResponse({"tools": ai_tools.catalogue(), "note": ai_tools.NOT_ADVICE})
+
+    @app.post("/api/ai/tools/{name}")
+    def api_ai_tool(name: str, body: dict = Body(default={})):
+        """Run one AI tool for the current person. Read-only: its session is rolled back."""
+        with get_session() as session:
+            try:
+                return JSONResponse(ai_tools.call(session, name, body))
+            except ai_tools.ToolError as exc:
+                raise HTTPException(status_code=404 if name not in ai_tools.BY_NAME else 400, detail=str(exc)) from None
+            finally:
+                session.rollback()
 
     # ---------- users and impersonation (§35) ----------
     def user_or_404(session, user_id: str) -> accounts.User:

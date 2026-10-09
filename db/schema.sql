@@ -802,3 +802,27 @@ CREATE TABLE IF NOT EXISTS impersonations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_impersonations_open ON impersonations (admin_id) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_impersonations_started ON impersonations (started_at DESC);
+
+-- 10. ENTITIES FOR AI AND THE GRAPH (docs/kb/features/ai-and-graph.md)
+-- Fund managers and the holders behind them as records of their own, so
+-- "Vanguard" is one thing however Yahoo spells its funds, and each fund's
+-- holdings linked to Sift's companies. Rebuilt by src/graph/entities.py
+-- after each night's data; nothing here is entered by hand.
+CREATE TABLE IF NOT EXISTS managers (
+    manager_id VARCHAR(80) PRIMARY KEY,          -- a slug of the name: 'vanguard', 'blackrock'
+    name VARCHAR(255) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS holders (
+    holder_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL UNIQUE,           -- exactly as Yahoo names it
+    holder_kind VARCHAR(12) NOT NULL CHECK (holder_kind IN ('FUND', 'INSTITUTION')),
+    manager_id VARCHAR(80) REFERENCES managers(manager_id) ON DELETE SET NULL,
+    index_fund BOOLEAN NOT NULL DEFAULT FALSE,   -- tracks an index (by name; src/coattail/views.py)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_holders_manager ON holders (manager_id);
+ALTER TABLE top_holders ADD COLUMN IF NOT EXISTS holder_id UUID REFERENCES holders(holder_id) ON DELETE SET NULL;  -- the holder record
+ALTER TABLE fund_holdings ADD COLUMN IF NOT EXISTS held_company_id UUID REFERENCES companies(company_id) ON DELETE SET NULL;  -- the Sift company this holding is, when matched
+CREATE INDEX IF NOT EXISTS idx_top_holders_holder ON top_holders (holder_id);
+CREATE INDEX IF NOT EXISTS idx_fund_holdings_held ON fund_holdings (held_company_id);
