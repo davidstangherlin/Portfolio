@@ -1791,8 +1791,9 @@ function coattailControls(onChange) {
   const st = coattailState;
   const months = h("select", { "aria-label": "Reported", onchange: (e) => { st.months = Number(e.target.value); onChange(); } },
     COATTAIL_MONTHS.map(([v, t]) => h("option", { value: v, selected: v === st.months, text: t })));
-  const hideIndex = h("label", {}, h("input", { type: "checkbox", checked: st.hideIndex,
-    onchange: (e) => { st.hideIndex = e.target.checked; onChange(); } }), "Hide index funds");
+  // Why hiding them helps, on hover and the "i" (web/knowledge.json, index-funds-coattail).
+  const hideIndex = withHelp(h("label", {}, h("input", { type: "checkbox", checked: st.hideIndex,
+    onchange: (e) => { st.hideIndex = e.target.checked; onChange(); } }), "Hide index funds"), "Hide index funds");
   return [months, hideIndex];
 }
 
@@ -1937,7 +1938,7 @@ async function renderCoattailHolder(id) {
         h("td", { class: "opt2" }, wheel(p.company.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(p.company.scores) })),
         nameCell(p.company, "SHARE"),
         h("td", { class: "opt" }, h("div", { class: "holder-name", text: p.main.holder }),
-          h("div", { class: "name" }, p.main.kind === "FUND" ? "Fund" : "Institution", p.main.index_fund ? h("span", { class: "tag sm", text: "Index" }) : null,
+          h("div", { class: "name" }, p.main.kind === "FUND" ? "Fund" : "Institution", p.main.index_fund ? h("span", { class: "tag sm", text: "Index", title: "An index fund or ETF: it buys and sells to match its index (Hide index funds leaves these out)" }) : null,
             p.others.length ? h("span", { class: "also", title: p.others.map((o) => `${o.holder}: ${sharesText(o.shares)} shares`).join("\n"), text: ` +${plural(p.others.length, "more fund")}` }) : null)),
         h("td", { class: "num tabular", text: sharesText(p.main.shares) }),
         h("td", { class: `num tabular ${signClass(p.main.shares_change) || ""}`.trim(), title: p.main.percent_change === null ? "" : `${signedPct(p.main.percent_change)} since the previous report`,

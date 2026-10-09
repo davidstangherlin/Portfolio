@@ -27,6 +27,7 @@ UI_LABELS = [
     "Reference fund", "ASX report", "Category median", "Rank in category", "Against its index",
     # LICs (§27)
     "LIC", "NTA (pre-tax)", "Premium/discount to NTA", "Performance fee", "Market cap",
+    "Hide index funds",  # Coattail (§31)
     # Analysts and holders (§29)
     "Major holders", "Insiders", "Institutions", "Institutions (% of float)",
     "Number of institutions", "Top mutual fund holders", "Top institutional holders",

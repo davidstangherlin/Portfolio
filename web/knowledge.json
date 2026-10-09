@@ -2200,6 +2200,38 @@
      "href": "#/admin/kb"
     }
    ]
+  },
+  {
+   "id": "index-funds-coattail",
+   "title": "Hide index funds (Coattail)",
+   "category": "coattail",
+   "labels": [
+    "Hide index funds"
+   ],
+   "aliases": [
+    "hide index funds",
+    "index fund",
+    "passive fund",
+    "tracker fund"
+   ],
+   "definition": "Leaves out funds that track an index, such as Vanguard and iShares index funds and ETFs, so Coattail shows only holders that choose their companies.",
+   "hover": "Leaves out index funds and ETFs. They buy and sell to match their index, not because they rate a company, so their moves aren't a smart-money signal. Off by default, since managers like Vanguard and BlackRock hold mostly through them. Spotted by name, so a few may slip through.",
+   "body": [
+    "Why hide them: an index fund buys a company because it joined or grew in the index it tracks, and sells when it leaves or shrinks. A Vanguard index fund adding BHP says nothing about whether Vanguard's people think BHP is good value. Hiding them leaves the active managers, whose buying and selling reflects a view.",
+    "Why they're shown by default: the biggest managers, such as Vanguard, BlackRock (iShares) and State Street (SPDR), hold most of their ASX shares through index funds. Hiding those funds makes these managers look small or empty.",
+    "How Sift spots them: by the fund's name: index, ETF, iShares, SPDR, MSCI, FTSE, Russell, S&P or tracker. A fund whose name doesn't say so slips through, and an active fund with one of those words is hidden. Institutions such as Vanguard Group Inc run both kinds and are never marked. An index fund shows an Index tag on a holder's page.",
+    "A holder's page says how many companies the filters hide, with a Show all button."
+   ],
+   "related": [
+    "holder-moves",
+    "coattail"
+   ],
+   "links": [
+    {
+     "text": "Open Coattail",
+     "href": "#/coattail"
+    }
+   ]
   }
  ]
 }

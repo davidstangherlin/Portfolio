@@ -3,7 +3,7 @@ id: coattail
 title: Coattail: following the smart money
 category: features
 summary: How fund managers holding the screener's companies are grouped into holder cards, with what they're adding and cutting, and the plan for director trades and substantial holders.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -41,6 +41,10 @@ A menu heading of its own, after Track record, for coattail investing: watching 
 **Knowledge base.** New category Coattail: `coattail` (the user's definition, how Sift applies it, and what to keep in mind) and `holder-moves` (Who's investing, and the Holder change hover). Getting around lists the page.
 
 **Tests.** `tests/unit/test_coattail.py` (index fund names, managers, shares bought or sold) and `test_coattail_groups_holders_by_manager_with_shares_bought_or_sold` in `tests/integration/test_gui.py`.
+
+### Hide index funds
+
+`is_index_fund()` marks a holding when its holder is a fund (not an institution) whose name says it tracks an index (`INDEX_FUND`: index, ETF, iShares, SPDR, MSCI, FTSE, Russell, S&P, tracker). Index funds trade to match their index, not on a view of the company, so ticking Hide index funds leaves them out of every Coattail figure. It's off by default because Vanguard, BlackRock and State Street hold most of their ASX shares through index funds. The reasoning shows on hover (and the "i" on touch screens) from the Help entry `index-funds-coattail`; the Index tag on a holder's page has a matching tooltip. Matching by name misses funds whose names don't say so (IMP-034).
 
 ## Code map
 
