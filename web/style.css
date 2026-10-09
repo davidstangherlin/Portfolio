@@ -170,6 +170,11 @@ button, input, select { font: inherit; color: inherit; }
   .nav-tools { flex: 1 1 auto; justify-content: flex-end; }
 }
 @media (max-width: 480px) {
+  .nav-search input { min-width: 0; flex: 1 1 auto; }  /* the box gives way so its buttons stay inside it */
+  .nav-search { padding-left: 8px; }
+  /* The data chip shrinks to its coloured dot so search has room; its aria-label still says it all. */
+  .data-chip { padding: 0 9px; gap: 0; }
+  .data-chip > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .brand-name { display: none; }
   .topbar-inner { gap: 8px; }
   .nav-tools { gap: 6px; }
@@ -808,11 +813,18 @@ html.dl-drag-on, html.dl-drag-on body { overflow-anchor: none; }  /* the drag ke
 
 /* ---------- search (§32): scope menu, find on page, results with tick boxes ---------- */
 .nav-search { position: relative; }
-.scope-btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 22px; margin-left: -3px; padding: 0;
+/* Input first, then the actions on the right: search (submit) and the scope menu, behind a divider. */
+.nav-search { padding-right: 3px; }
+.search-actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 4px; padding-left: 4px; border-left: 1px solid var(--border); height: 24px; }
+.search-go { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer; }
+.search-go:hover { background: var(--hover); color: var(--ink); }
+.search-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scope-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 28px; padding: 0;
   border: 0; border-radius: 4px; background: none; color: var(--twisty); cursor: pointer; flex: none; }
 .scope-btn:hover, .scope-btn[aria-expanded="true"] { background: var(--hover); }
 .scope-btn:focus-visible { outline: 2px solid var(--twisty); outline-offset: 1px; }
-.scope-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 220px; padding: 4px; display: grid;
+.scope-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 70; min-width: 220px; padding: 4px; display: grid;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
 .scope-menu button { display: flex; gap: 8px; align-items: flex-start; text-align: left; border: 0; background: none; color: var(--ink);
   padding: 8px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
