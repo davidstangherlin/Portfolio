@@ -2054,7 +2054,13 @@
     "this page",
     "search scope",
     "reindex",
-    "search index"
+    "search index",
+    "thumbs up",
+    "thumbs down",
+    "synonyms",
+    "search insights",
+    "ai search",
+    "meaning-based search"
    ],
    "definition": "The search box in the menu bar finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists and portfolios, help articles, pages and settings.",
    "body": [
@@ -2062,7 +2068,10 @@
     "This page: on a list (the screener, ETFs, LICs, Coattail, a watchlist or portfolio) the words go into that list's search box; on Help, into the help search; on any other page they're highlighted where they appear, and Enter again moves to the next. If they're not on the page, Sift shows results from everywhere instead.",
     "Everything: an exact ASX code opens that company or fund straight away; anything else opens the results page. Each word can be the start of a word (wes finds Wesfarmers) and plurals match (dividends finds dividend). Small typos are forgiven when the exact words find little (vangaurd finds Vanguard).",
     "Results: the best 100, exact codes and titles first, with the matched words highlighted. Tick boxes down the left narrow them by type, sector or category, recommendation, Mine (held, on a watchlist, your lists) and knowledge article topic, each with a count; ticking one box never hides the others in its group. On a phone, Filters opens the tick boxes.",
-    "Kept up to date: the index is rebuilt after each nightly run, your own watchlists and portfolios the moment you save them, and help and pages each time Sift starts. Rebuild it now from Admin (Search index), or in PowerShell with .venv\\Scripts\\python.exe -m src.search.reindex."
+    "Kept up to date: the index is rebuilt after each nightly run, your own watchlists, portfolios and scenarios the moment you save them, and help and pages each time Sift starts. Rebuild it now from Admin, Search, or in PowerShell with .venv\\Scripts\\python.exe -m src.search.reindex.",
+    "Getting better with use: each search is noted, with which result you opened. Results opened and given a pink thumbs up rise for the same words next time; a thumbs down makes one sink. Click a thumb again to take your vote back.",
+    "Synonyms: Admin, Search lets you say that terms mean the same, such as cba = commonwealth bank, so searching one finds the others. Search insights there lists the top searches, searches that found nothing (usually fixed with a synonym) and results marked not what was wanted.",
+    "Meaning-based (AI) search is built in but switched off: once on, Sift also finds things by meaning, not just words, using a small model that runs inside Sift so nothing leaves your PC. Admin, Search says how to switch it on."
    ],
    "related": [
     "getting-around",

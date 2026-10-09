@@ -26,6 +26,8 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from src.search import embeddings
+
 logger = logging.getLogger(__name__)
 
 AREAS = ("market", "coattail", "personal", "help", "pages")
@@ -55,14 +57,18 @@ EXCLUDED = {
     "ui_preferences": "page layout settings",
     "search_index": "the index itself",
     "search_index_runs": "the index's rebuild log",
+    "search_queries": "the search log, used to tune ranking (Admin, Search insights)",
+    "search_clicks": "clicks on results, used to tune ranking",
+    "search_feedback": "thumbs up and down on results, used to tune ranking",
+    "search_synonyms": "synonyms that widen searches, managed in Admin",
     "signal_snapshots": "nightly history behind the track record; the track record page is indexed",
     "signal_outcomes": "scored history behind the track record",
     "track_record_monthly": "monthly track record figures",
 }
 
 _INSERT = text("""
-    INSERT INTO search_index (doc_id, area, kind, owner_id, code, title, subtitle, body, url, facets, rank_boost, search_vector)
-    VALUES (:doc_id, :area, :kind, :owner_id, :code, :title, :subtitle, :body, :url, CAST(:facets AS JSONB), :rank_boost,
+    INSERT INTO search_index (doc_id, area, kind, owner_id, code, title, subtitle, body, url, facets, rank_boost, content_hash, search_vector)
+    VALUES (:doc_id, :area, :kind, :owner_id, :code, :title, :subtitle, :body, :url, CAST(:facets AS JSONB), :rank_boost, :content_hash,
             setweight(to_tsvector('simple', coalesce(:code, '')), 'A')
             || setweight(to_tsvector('english', :title), 'A')
             || setweight(to_tsvector('english', coalesce(:subtitle, '')), 'B')
@@ -87,7 +93,8 @@ PAGES = [
 
 def _doc(area, kind, doc_id, title, url, code=None, subtitle=None, body=None, facets=None, rank_boost=0.0, owner_id=None):
     return {"doc_id": f"{kind}:{doc_id}", "area": area, "kind": kind, "owner_id": owner_id, "code": code, "title": title,
-            "subtitle": subtitle, "body": body, "url": url, "facets": json.dumps(facets or {}), "rank_boost": rank_boost}
+            "subtitle": subtitle, "body": body, "url": url, "facets": json.dumps(facets or {}), "rank_boost": rank_boost,
+            "content_hash": embeddings.content_hash(title, subtitle, body)}
 
 
 class _Context:
@@ -217,14 +224,29 @@ def reindex(session, areas=AREAS, trigger: str = "manual", today: date | None = 
     for area in areas:
         started = time.monotonic()
         docs = BUILDERS[area](ctx)
+        # Keep each unchanged row's embedding across the rebuild: only new or changed text is embedded again.
+        kept = session.execute(text("""
+            SELECT doc_id, content_hash, embedding, embedding_model FROM search_index
+            WHERE area = :a AND embedding IS NOT NULL"""), {"a": area}).all()
         session.execute(text("DELETE FROM search_index WHERE area = :a"), {"a": area})
         if docs:
             session.execute(_INSERT, docs)
+            if kept:
+                session.execute(text("""
+                    UPDATE search_index SET embedding = :e, embedding_model = :m WHERE doc_id = :d AND content_hash = :h"""),
+                    [{"d": d, "h": h, "e": e, "m": m} for d, h, e, m in kept])
         seconds = round(time.monotonic() - started, 2)
         session.execute(text("INSERT INTO search_index_runs (area, trigger, items, seconds) VALUES (:a, :t, :n, :s)"),
                         {"a": area, "t": trigger, "n": len(docs), "s": seconds})
         counts[area] = len(docs)
         logger.info("Search index: %s rebuilt, %d items in %.2fs (%s)", area, len(docs), seconds, trigger)
+    embedder = embeddings.get_embedder()
+    if embedder is not None:
+        n = embeddings.embed_missing(session, embedder, areas)
+        logger.info("Search index: %d rows embedded with %s", n, embedder.name)
+    if trigger == "nightly":
+        from src.search.learning import prune
+        prune(session)
     return counts
 
 
@@ -235,4 +257,5 @@ def status(session) -> dict:
         SELECT DISTINCT ON (area) area, trigger, items, seconds, finished_at FROM search_index_runs
         ORDER BY area, finished_at DESC""")).mappings()}
     typo = bool(session.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")).first())
-    return {"typo_tolerance": typo, "areas": [{"area": a, "items": items.get(a, 0), "last": last.get(a)} for a in AREAS]}
+    return {"typo_tolerance": typo, "ai": embeddings.status(session),
+            "areas": [{"area": a, "items": items.get(a, 0), "last": last.get(a)} for a in AREAS]}

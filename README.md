@@ -332,8 +332,11 @@ nightly job runs first), so restarting it after a `git pull` is enough.
   itself (its list's search box, or highlighting the words on the page). Results come with tick
   boxes down the left (type, sector or category, recommendation, Mine, knowledge article topic).
   The index is rebuilt after each nightly run, your own lists when you save them, and help and
-  pages when Sift starts; rebuild it now from **Admin → Search index**, or with
-  `.venv\Scripts\python.exe -m src.search.reindex`.
+  pages when Sift starts; rebuild it now from **Admin → Search**, or with
+  `.venv\Scripts\python.exe -m src.search.reindex`. Search learns: opened results and pink
+  thumbs up rise for the same search, thumbs down sink. **Admin → Search** also has synonyms
+  (cba = commonwealth bank), search insights (top and failed searches), and meaning-based (AI)
+  search, built in but off until you install a small local model.
 - **Coattail:** follow the smart money. A card per fund manager holding the screener's
   companies (Vanguard, BlackRock and so on, from Yahoo's top holder lists, refreshed weekly),
   with the average score wheel of what it holds and how many it's adding to and cutting; click

@@ -51,7 +51,7 @@ from src.portfolio import cgt, holdings as parcels_module, trade_input, views as
 from src.portfolio.holdings import HoldingsError
 from src import preferences
 from src.coattail import views as coattail
-from src.search import indexer as search_indexer, query as search_query
+from src.search import indexer as search_indexer, learning as search_learning, query as search_query
 from src.screening import movers
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
@@ -982,10 +982,70 @@ def create_app(password: str | None = None) -> FastAPI:
     @app.get("/api/search")
     def api_search(q: str = "", type: list[str] = Query(default=[]), sector: list[str] = Query(default=[]),  # noqa: A002
                    recommendation: list[str] = Query(default=[]), mine: list[str] = Query(default=[]),
-                   topic: list[str] = Query(default=[])):
+                   topic: list[str] = Query(default=[]), log: bool = False, query_id: int | None = None):
+        """`log=1` records the search (the page sends it once per new search, not per tick box)."""
         selected = {"type": type, "sector": sector, "recommendation": recommendation, "mine": mine, "topic": topic}
         with get_session() as session:
-            return JSONResponse(_json_ready(search_query.search(session, q, selected)))
+            result = search_query.search(session, q, selected, log=log, query_id=query_id)
+            session.commit()
+            return JSONResponse(_json_ready(result))
+
+    @app.post("/api/search/click")
+    def api_search_click(body: dict = Body(...)):
+        """A result was opened: it rises for these words next time."""
+        try:
+            query_id, doc_id = int(body["query_id"]), str(body["doc_id"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="query_id and doc_id are needed") from None
+        with get_session() as session:
+            search_learning.record_click(session, query_id, doc_id, body.get("position"))
+            session.commit()
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/search/feedback")
+    def api_search_feedback(body: dict = Body(...)):
+        """Thumbs up (1), down (-1) or withdrawn (0) on a result for these words."""
+        try:
+            norm, doc_id, vote = str(body["norm"]), str(body["doc_id"]), int(body["vote"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="norm, doc_id and vote are needed") from None
+        if vote not in (-1, 0, 1) or not norm.strip():
+            raise HTTPException(status_code=400, detail="vote is 1, -1 or 0")
+        with get_session() as session:
+            search_learning.record_vote(session, norm, doc_id, vote)
+            session.commit()
+        return JSONResponse({"ok": True, "vote": vote})
+
+    @app.get("/api/admin/search/insights")
+    def api_search_insights(days: int = 30):
+        with get_session() as session:
+            return JSONResponse(_json_ready(search_learning.insights(session, max(1, min(days, 365)))))
+
+    @app.get("/api/admin/search/synonyms")
+    def api_synonyms():
+        with get_session() as session:
+            return JSONResponse({"synonyms": search_learning.list_synonyms(session)})
+
+    @app.post("/api/admin/search/synonyms")
+    def api_add_synonyms(body: dict = Body(...)):
+        """A group of terms that mean the same: {"terms": ["cba", "commonwealth bank"]} or "cba, commonwealth bank"."""
+        terms = body.get("terms")
+        if isinstance(terms, str):
+            terms = terms.split(",")
+        with get_session() as session:
+            try:
+                group = search_learning.add_synonyms(session, terms)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
+            session.commit()
+            return JSONResponse({"added": group, "synonyms": search_learning.list_synonyms(session)})
+
+    @app.delete("/api/admin/search/synonyms/{synonym_id}")
+    def api_delete_synonyms(synonym_id: int):
+        with get_session() as session:
+            search_learning.delete_synonyms(session, synonym_id)
+            session.commit()
+            return JSONResponse({"synonyms": search_learning.list_synonyms(session)})
 
     @app.get("/api/admin/search")
     def api_search_status():

@@ -19,6 +19,8 @@ Every new table, page or kind of content must be searchable, or deliberately not
 3. **New kind of result:** give it a label in `KIND_LABELS` (`src/search/query.py`), and any facet it should filter by.
 4. **New personal data** (anything a user saves): put it in the `personal` area so it's indexed on save, with an owner once Sift has user accounts.
 5. **Help articles and settings** are indexed automatically from `web/knowledge.json` and `src/settings.py`.
+6. **AI-ready:** give every indexed row meaningful `title`, `subtitle` and `body` text; that text is what's embedded when meaning-based search is on (`src/search/embeddings.py`). Don't stuff rows with numbers: they don't embed well.
+7. **Learning tables** (`search_queries`, `search_clicks`, `search_feedback`, `search_synonyms`) are logs, not content: keep them in `EXCLUDED`.
 
 ## Multi-user readiness
 

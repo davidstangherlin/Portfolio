@@ -523,6 +523,50 @@ DO $$ BEGIN
         CREATE INDEX IF NOT EXISTS idx_search_title_trgm ON search_index USING GIN (lower(title) gin_trgm_ops);
     END IF;
 END $$;
+-- AI-ready (§32): content_hash fingerprints each row's text, so a rebuild
+-- keeps an unchanged row's embedding and only new or changed rows are
+-- embedded again. embedding is the row's meaning as numbers, filled only
+-- when an embedder is switched on (src/search/embeddings.py). A plain REAL[]
+-- works on any PostgreSQL; on a host with pgvector it can become vector(n).
+ALTER TABLE search_index ADD COLUMN IF NOT EXISTS content_hash VARCHAR(40);
+ALTER TABLE search_index ADD COLUMN IF NOT EXISTS embedding REAL[];
+ALTER TABLE search_index ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(80);
+
+-- Search learning (§32): what was searched, what was clicked and how
+-- results were rated, so clicked and liked results rise for that search,
+-- and Admin can show searches that found nothing. Kept for a year.
+CREATE TABLE IF NOT EXISTS search_queries (
+    query_id BIGSERIAL PRIMARY KEY,
+    owner_id UUID,
+    query TEXT NOT NULL,
+    norm TEXT NOT NULL,                        -- the query's words, lower case, as matched
+    results INTEGER NOT NULL,
+    searched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_search_queries_norm ON search_queries (norm, searched_at DESC);
+CREATE TABLE IF NOT EXISTS search_clicks (
+    query_id BIGINT NOT NULL REFERENCES search_queries(query_id) ON DELETE CASCADE,
+    doc_id VARCHAR(160) NOT NULL,
+    position SMALLINT,
+    clicked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_search_clicks_query ON search_clicks (query_id);
+CREATE TABLE IF NOT EXISTS search_feedback (
+    owner_key VARCHAR(40) NOT NULL DEFAULT '',  -- owner_id as text, '' while Sift has one user
+    norm TEXT NOT NULL,
+    doc_id VARCHAR(160) NOT NULL,
+    vote SMALLINT NOT NULL CHECK (vote IN (-1, 1)),
+    voted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_key, norm, doc_id)
+);
+-- Words that mean the same thing to a searcher (CBA, Commonwealth Bank):
+-- searching any one also finds the others. Managed in Admin.
+CREATE TABLE IF NOT EXISTS search_synonyms (
+    synonym_id SERIAL PRIMARY KEY,
+    terms TEXT[] NOT NULL,                      -- lower case, two or more
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS search_index_runs (
     run_id SERIAL PRIMARY KEY,
     area VARCHAR(12) NOT NULL,

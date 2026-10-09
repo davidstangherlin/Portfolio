@@ -19,7 +19,11 @@ import re
 
 from sqlalchemy import text
 
+from src.search import embeddings, learning
+
 CANDIDATES = 400
+SYNONYM_SCORE = 0.9     # a match through a synonym ranks just below the same match on the words typed
+SEMANTIC_WEIGHT = 2.0   # meaning similarity (0 to 1) x this; an exact title is 6, an exact code 10
 TYPO_WHEN = 5         # fewer word matches than this: try near misses too
 TYPO_MIN_LETTERS = 5
 TYPO_SIMILARITY = 0.42  # pg_trgm word_similarity; swapped letters (vangaurd) score about 0.44
@@ -92,15 +96,7 @@ def _values(row: dict) -> dict[str, list[str]]:
             "topic": [f["topic"]] if f.get("topic") else []}
 
 
-def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_id=None) -> dict:
-    """Results for `q`, narrowed by the ticked boxes in `selected` ({group: [values]}),
-    with every group's boxes and counts."""
-    selected = {g: set(v) for g, v in (selected or {}).items() if g in GROUPS and v}
-    ws = words(q)
-    if not ws:
-        return {"q": q, "total": 0, "results": [], "facets": [], "typo_tolerance": _typo_tolerant(session)}
-    typo = _typo_tolerant(session)
-    exact = re.sub(r"\s+", " ", (q or "").strip().lower()).replace("%", "").replace("_", "")
+def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool) -> list[dict]:
     params = {"plain": " ".join(ws), "exact": exact, "owner": owner_id}
     for i, w in enumerate(ws):
         params[f"w{i}"], params[f"p{i}"] = w, f"{w}:*"
@@ -108,6 +104,54 @@ def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_
     if typo and len(rows) < TYPO_WHEN and len(params["plain"]) >= TYPO_MIN_LETTERS:
         seen = {r["doc_id"] for r in rows}
         rows += [dict(r) for r in session.execute(text(_sql(True, len(ws))), params).mappings() if r["doc_id"] not in seen]
+    return rows
+
+
+_BY_ID = text("""
+    SELECT doc_id, kind, code, title, subtitle, url, facets, left(coalesce(nullif(body, ''), subtitle, ''), 220) AS snippet, rank_boost AS score
+    FROM search_index WHERE doc_id = ANY(:ids)
+""")
+
+
+def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_id=None, log: bool = False,
+           query_id: int | None = None) -> dict:
+    """Results for `q`, narrowed by the ticked boxes in `selected` ({group: [values]}),
+    with every group's boxes and counts.
+
+    Ranking: word matches (and synonyms of the words, scored at 90%), then,
+    when an embedder is on, meaning matches blended in (SEMANTIC_WEIGHT x
+    similarity, added to a word match's score or as the score of a row only
+    meaning found), then what clicks and votes have taught for these words
+    (src/search/learning.py). `log` records the search (once per search,
+    not per tick box); the result carries its query_id for clicks."""
+    selected = {g: set(v) for g, v in (selected or {}).items() if g in GROUPS and v}
+    ws = words(q)
+    typo = _typo_tolerant(session)
+    embedder = embeddings.get_embedder()
+    if not ws:
+        return {"q": q, "total": 0, "results": [], "facets": [], "typo_tolerance": typo, "ai": embedder is not None}
+    norm = " ".join(ws)
+    exact = re.sub(r"\s+", " ", (q or "").strip().lower()).replace("%", "").replace("_", "")
+    found: dict[str, dict] = {}
+    for i, variant in enumerate(learning.variants(session, ws)):
+        for r in _word_matches(session, variant, exact if i == 0 else " ".join(variant), owner_id, typo):
+            r["score"] = float(r["score"]) * (1 if i == 0 else SYNONYM_SCORE)
+            if r["doc_id"] not in found or r["score"] > found[r["doc_id"]]["score"]:
+                found[r["doc_id"]] = r
+    if embedder is not None:
+        meaning = dict(embeddings.semantic_matches(session, embedder, q, owner_id))
+        missing = [d for d in meaning if d not in found]
+        if missing:
+            for r in session.execute(_BY_ID, {"ids": missing}).mappings():
+                found[r["doc_id"]] = dict(r) | {"score": float(r["score"])}
+        for d, sim in meaning.items():
+            if d in found:
+                found[d]["score"] += SEMANTIC_WEIGHT * sim
+    learned = learning.boosts(session, norm)
+    for d, b in learned.items():
+        if d in found:
+            found[d]["score"] += b
+    rows = sorted(found.values(), key=lambda r: (-r["score"], r["title"]))
     held, watched = _mine_codes(session)
     for r in rows:
         r["_held"], r["_watched"] = held, watched
@@ -128,7 +172,12 @@ def search(session, q: str, selected: dict[str, list[str]] | None = None, owner_
         if boxes:
             facets.append({"group": g, "boxes": [{"value": v, "count": n, "ticked": v in selected.get(g, ())} for v, n in boxes]})
     shown = [r for r in rows if passes(r)]
-    results = [{"kind": r["kind"], "type": KIND_LABELS.get(r["kind"], r["kind"]), "code": r["code"], "title": r["title"],
-                "subtitle": r["subtitle"], "url": r["url"], "snippet": r["snippet"],
-                "mine": r["_values"]["mine"], "recommendation": (r["facets"] or {}).get("recommendation")} for r in shown[:SHOWN]]
-    return {"q": q, "total": len(shown), "capped": len(rows) >= CANDIDATES, "results": results, "facets": facets, "typo_tolerance": typo}
+    votes = learning.my_votes(session, norm, owner_id)
+    if log:
+        query_id = learning.log_query(session, q, norm, len(rows), owner_id)
+    results = [{"doc_id": r["doc_id"], "kind": r["kind"], "type": KIND_LABELS.get(r["kind"], r["kind"]), "code": r["code"],
+                "title": r["title"], "subtitle": r["subtitle"], "url": r["url"], "snippet": r["snippet"],
+                "mine": r["_values"]["mine"], "recommendation": (r["facets"] or {}).get("recommendation"),
+                "vote": votes.get(r["doc_id"], 0)} for r in shown[:SHOWN]]
+    return {"q": q, "norm": norm, "query_id": query_id, "total": len(shown), "capped": len(rows) >= CANDIDATES,
+            "results": results, "facets": facets, "typo_tolerance": typo, "ai": embedder is not None}

@@ -1948,6 +1948,33 @@ async function renderCoattailHolder(id) {
 const FACET_TITLES = { type: "Type", sector: "Sector or category", recommendation: "Recommendation", mine: "Mine", topic: "Knowledge articles" };
 const FACET_GROUPS = Object.keys(FACET_TITLES);
 const FACET_SHOWN = 8;  // boxes per group before "Show more"
+/* Search learning (§32): the search being looked at (logged once, its id
+   reused while only tick boxes change), clicks on results, and thumbs. */
+const searchLog = { q: null, queryId: null };
+function searchClick(queryId, docId, position) {
+  if (!queryId) return;
+  fetch("/api/search/click", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", "X-Sift": "1" },
+    body: JSON.stringify({ query_id: queryId, doc_id: docId, position }) }).catch(() => { /* learning only: never in the way */ });
+}
+const thumbIcon = (down) => s("svg", { viewBox: "0 0 24 24", width: 16, height: 16, "aria-hidden": "true", class: down ? "thumb-down" : null },
+  s("path", { d: "M7 10v11H3V10h4zm2 11h8.6a2 2 0 0 0 2-1.6l1.3-7A2 2 0 0 0 18.9 10H14V5.5A2.5 2.5 0 0 0 11.5 3L9 10v11z",
+    fill: "currentColor", "fill-opacity": "0", stroke: "currentColor", "stroke-width": 1.6, "stroke-linejoin": "round" }));
+function thumbs(norm, r) {
+  const wrap = h("div", { class: "thumbs", role: "group", "aria-label": `Was ${r.title} a good result?` });
+  const paint = () => {
+    for (const b of wrap.children) b.setAttribute("aria-pressed", String(Number(b.dataset.vote) === r.vote));
+  };
+  const btn = (vote, label) => h("button", { type: "button", class: "thumb", "data-vote": vote, title: label, "aria-label": `${label}: ${r.title}`,
+    onclick: async () => {
+      const next = r.vote === vote ? 0 : vote;
+      try { await send("POST", "/api/search/feedback", { norm, doc_id: r.doc_id, vote: next }); r.vote = next; paint(); }
+      catch (err) { placeTipBelow(wrap, [h("div", { text: err.message })]); setTimeout(hideTip, 2000); }
+    } }, thumbIcon(vote < 0));
+  wrap.append(btn(1, "Good result"), btn(-1, "Not what I wanted"));
+  paint();
+  return wrap;
+}
+
 /* A snippet from the server, with its matched words between \u0002 and \u0003, as text and <mark>s. */
 function snippetNodes(s) {
   return (s || "").split(/(\u0002[^\u0003]*\u0003)/).filter(Boolean).map((part) =>
@@ -1974,7 +2001,9 @@ async function renderSearch(query) {
   app.replaceChildren(pageHead("Search", `Searching for "${q}"...`), form);
   const api = new URLSearchParams(); api.set("q", q);
   for (const g of FACET_GROUPS) for (const v of params.getAll(g)) api.append(g, v);
+  if (searchLog.q === q && searchLog.queryId) api.set("query_id", searchLog.queryId); else api.set("log", "1");
   const d = await getJSON(`/api/search?${api.toString()}`);
+  if (d.query_id) Object.assign(searchLog, { q, queryId: d.query_id });
   const ticked = FACET_GROUPS.reduce((n, g) => n + params.getAll(g).length, 0);
   const toggle = (g, v, on) => {
     const p = new URLSearchParams(params);
@@ -1997,14 +2026,15 @@ async function renderSearch(query) {
     }));
   const filtersBtn = h("button", { type: "button", class: "btn small facets-toggle", "aria-expanded": "false", text: ticked ? `Filters (${ticked})` : "Filters",
     onclick: () => { const open = !facets.classList.contains("open"); facets.classList.toggle("open", open); filtersBtn.setAttribute("aria-expanded", String(open)); } });
-  const results = d.results.length ? h("ol", { class: "results" }, d.results.map((r) => h("li", {},
-    h("a", { class: "result", href: r.url },
+  const results = d.results.length ? h("ol", { class: "results" }, d.results.map((r, i) => h("li", { class: "result-row" },
+    h("a", { class: "result", href: r.url, onclick: () => searchClick(d.query_id, r.doc_id, i + 1) },
       h("div", { class: "result-top" }, h("span", { class: `tag sm result-type t-${r.kind}`, text: r.type.replace(/s$/, "") }),
         r.code ? h("span", { class: "code", text: r.code }) : null, h("span", { class: "result-title", text: r.title }),
         r.recommendation ? badge(r.recommendation) : null,
         r.mine.filter((m) => m !== "My lists").map((m) => h("span", { class: "tag sm mine-tag", text: m === "Held" ? "HELD" : "★ Watchlist" }))),
       r.subtitle ? h("div", { class: "result-sub", text: r.subtitle }) : null,
-      r.snippet && r.snippet.replace(/[\u0002\u0003]/g, "") !== r.subtitle ? h("div", { class: "result-snippet" }, snippetNodes(r.snippet)) : null))))
+      r.snippet && r.snippet.replace(/[\u0002\u0003]/g, "") !== r.subtitle ? h("div", { class: "result-snippet" }, snippetNodes(r.snippet)) : null),
+    thumbs(d.norm, r))))
     : h("p", { class: "empty" }, ticked ? "Nothing matches with these filters. " : `Nothing in Sift matches "${q}". `,
       ticked ? h("button", { type: "button", class: "link-btn", text: "Clear the filters", onclick: () => { const p = new URLSearchParams(); p.set("q", q); go(p); } })
         : "Try fewer or shorter words, or an ASX code.");
@@ -2014,6 +2044,77 @@ async function renderSearch(query) {
   app.replaceChildren(...[pageHead("Search", sub), form, flash,
     h("div", { class: "search-layout" }, d.facets.length ? [filtersBtn, facets] : null, h("section", { class: "search-results" }, results))].filter(Boolean));
   window.scrollTo(0, 0);
+}
+
+/* Admin, Search tab (§32): the index, meaning-based search, what people
+   search for, and synonyms. */
+async function renderAdminSearch() {
+  app.replaceChildren(pageHead("Model and rules", "Search"), adminTabs("search"), h("p", { class: "loading", text: "Loading..." }));
+  const index = searchIndexCard();
+  index.classList.add("wide");
+  const cards = h("div", { class: "cards" }, index, aiSearchCard(), synonymsCard(), searchInsightsCard());
+  app.replaceChildren(pageHead("Model and rules", "Search: how it's built and how it's used"), adminTabs("search"), cards);
+  window.scrollTo(0, 0);
+}
+function aiSearchCard() {
+  const body = h("div", {}, h("p", { class: "loading", text: "Loading..." }));
+  getJSON("/api/admin/search").then((s) => {
+    const a = s.ai;
+    body.replaceChildren(
+      h("p", {}, h("span", { class: `tag sm ${a.on ? "ai-on" : "ai-off"}`, text: a.on ? "ON" : "OFF" }), " ",
+        a.on ? `Using ${a.model}: ${fmt(a.embedded, 0)} of ${fmt(a.rows, 0)} rows embedded.` : "Search matches words; meaning-based matching is ready but switched off."),
+      a.on ? null : h("p", { class: "hint" }, "To switch it on (a small model that runs inside Sift; nothing leaves this PC): ", a.how, "."));
+  }).catch((err) => body.replaceChildren(h("p", { class: "error", text: err.message })));
+  return card("Meaning-based search (AI)", "Finds results by meaning as well as words, e.g. \"companies hurt by high interest rates\". Each item's text is embedded once and only again when it changes.", body);
+}
+function searchInsightsCard() {
+  const body = h("div", {}, h("p", { class: "loading", text: "Loading..." }));
+  const days = h("select", { "aria-label": "Period", class: "inline-select", onchange: () => load() },
+    [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last year"]].map(([v, t]) => h("option", { value: v, selected: v === 30, text: t })));
+  const list = (title, rows, cols, none) => [h("h3", { class: "sub-head", text: title }),
+    rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+      h("thead", {}, h("tr", {}, cols.map(([t, , num]) => h("th", { class: num ? "num" : null, text: t })))),
+      h("tbody", {}, rows.map((r) => h("tr", {}, cols.map(([, get, num]) => h("td", { class: num ? "num" : null }, get(r))))))))
+      : h("p", { class: "hint", text: none })];
+  const searchLink = (q) => h("a", { href: `#/search?q=${encodeURIComponent(q)}`, text: q });
+  function load() {
+    getJSON(`/api/admin/search/insights?days=${days.value}`).then((d) => {
+      const t = d.totals;
+      body.replaceChildren(
+        h("p", {}, `${plural(t.searches, "search", "searches")}, ${plural(t.nothing, "found nothing", "found nothing")}, ${plural(t.clicks, "result opened", "results opened")}.`),
+        ...list("Top searches", d.top, [["Search", (r) => searchLink(r.norm)], ["Times", (r) => fmt(r.searches, 0), true],
+          ["Results", (r) => fmt(r.results, 0), true], ["Opened a result", (r) => `${fmt(r.clicked / r.searches * 100, 0)}%`, true]], "No searches yet."),
+        ...list("Searches that found nothing", d.nothing, [["Search", (r) => searchLink(r.norm)], ["Times", (r) => fmt(r.searches, 0), true],
+          ["Last", (r) => longDate(r.last.slice(0, 10))]], "None: every search found something."),
+        h("p", { class: "hint", text: "Fix these with a synonym below, or by adding the missing thing to Sift." }),
+        ...list("Results marked not what was wanted", d.disliked, [["Search", (r) => searchLink(r.norm)], ["Result", (r) => r.title || r.doc_id],
+          ["Net votes", (r) => fmt(r.net, 0), true]], "None."));
+    }).catch((err) => body.replaceChildren(h("p", { class: "error", text: err.message })));
+  }
+  load();
+  const c = card("Search insights", "What's searched for, what's found and what's opened. Opened and liked results rise for the same search; disliked ones sink.",
+    h("div", { class: "controls" }, days), body);
+  c.classList.add("wide");
+  return c;
+}
+function synonymsCard() {
+  const listEl = h("div"), msg = formMessage();
+  const input = h("input", { type: "text", placeholder: "e.g. cba, commonwealth bank", "aria-label": "Terms that mean the same, separated by commas", class: "syn-input" });
+  const draw = (groups) => listEl.replaceChildren(groups.length ? h("ul", { class: "syn-list" }, groups.map((g) => h("li", {},
+    h("span", { text: g.terms.join(" = ") }),
+    h("button", { type: "button", class: "icon-x", "aria-label": `Remove ${g.terms.join(", ")}`, text: "✕", onclick: async () => {
+      try { draw((await send("DELETE", `/api/admin/search/synonyms/${g.synonym_id}`)).synonyms); } catch (err) { showMessage(msg, err.message, false); }
+    } }))))
+    : h("p", { class: "hint", text: "No synonyms yet." }));
+  const form = h("form", { class: "syn-form" }, input, h("button", { type: "submit", class: "btn", text: "Add" }));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { const d = await send("POST", "/api/admin/search/synonyms", { terms: input.value }); input.value = ""; draw(d.synonyms); showMessage(msg, `Added: ${d.added.terms.join(" = ")}.`, true); }
+    catch (err) { showMessage(msg, err.message, false); }
+  });
+  getJSON("/api/admin/search/synonyms").then((d) => draw(d.synonyms)).catch((err) => showMessage(msg, err.message, false));
+  return card("Synonyms", "Terms that mean the same to a searcher. Searching any one finds the others, e.g. cba = commonwealth bank, super = superannuation. Separate the terms with commas.",
+    form, msg, listEl);
 }
 
 /* Admin: the search index's state, and a button to rebuild it now. */
@@ -3249,7 +3350,7 @@ function stepValue(v, unit) {
 
 function adminTabs(current) {
   return h("div", { class: "tabs", role: "navigation", "aria-label": "Admin" },
-    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"]].map(([id, href, label]) =>
+    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"], ["search", "#/admin/search", "Search"]].map(([id, href, label]) =>
       h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
 }
 
@@ -3290,8 +3391,7 @@ async function renderAdmin() {
   app.replaceChildren(pageHead("Model and rules", "Every setting behind Sift's results"), adminTabs("settings"),
     h("div", { class: "cards" }, pipeline, ...groups,
       card("Trying other values", null, h("p", { class: "hint" }, "Change these in a ",
-        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario"))),
-      searchIndexCard()));
+        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario")))));
   window.scrollTo(0, 0);
 }
 
@@ -3555,6 +3655,7 @@ const ROUTES = [
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
   [/^#\/admin$/, "admin", () => renderAdmin()],
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
+  [/^#\/admin\/search$/, "admin", () => renderAdminSearch()],
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
   [/^#\/admin\/scenario\/([0-9a-f-]{36})$/, "admin", (m) => renderScenario(m[1])],
   [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
