@@ -80,6 +80,8 @@ Invoke-Step "Schema" { python -m src.apply_schema }
 # (each refreshed weekly); analyst ratings and holders likewise.
 Invoke-Step "Ingestion" { python -m src.ingestion.run_ingestion --tickers-file $WatchlistFile --delay 0.5 --weekly-fundamentals }
 Invoke-Step "ETFs" { python -m src.etf.run_etfs }
+# Director trades (Appendix 3Y) and substantial holder notices from ASX's announcement lists (docs/kb/features/coattail.md)
+Invoke-Step "ASX Notices" { python -m src.coattail.notices }
 Invoke-Step "Valuation" { python -m src.valuation.run_valuation --all }
 Invoke-Step "Signal Record" { python -m src.tracking.record_signals }
 Invoke-Step "Track Record" { python -m src.tracking.score_signals }

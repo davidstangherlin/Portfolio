@@ -1097,3 +1097,23 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 }
 @media (max-width: 560px) { .kb-body { padding: 14px; } .kb-list { grid-template-columns: minmax(0, 1fr); } .kb-reg-title { min-width: 0; } }
 .kb-register .kb-reg-id { white-space: nowrap; }
+
+/* ASX notices: director trades and substantial holders (docs/kb/features/coattail.md) */
+.notice-list .notice-line { align-items: flex-start; }
+.notice-what { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+.notice-list .tag.sm { margin-left: 0; }
+.notice-link { white-space: nowrap; font-size: 13px; }
+.tag.notice-dir, .tag.nature-on_market { background: var(--good-bg); color: var(--good-text); }
+.tag.notice-sub { background: var(--warning-bg); color: var(--warning-text); }
+.tag.event-substantial_new { background: var(--good-bg); color: var(--good-text); }
+.tag.event-substantial_cease { background: var(--critical-bg); color: var(--critical-text); }
+.trade-buy { color: var(--good-text); }
+.trade-sell { color: var(--critical-text); }
+.notices-table td { vertical-align: top; }
+.more-link { display: inline-block; margin-top: 8px; font-size: 13px; }
+.notices-table .phone-only { display: none; }
+@media (max-width: 900px) { .notices-table .phone-only { display: block; } .notices-table .strong { font-weight: 600; } }
+.notices-table td { white-space: normal; overflow-wrap: anywhere; }
+.notices-table td:nth-child(2) { min-width: 96px; }
+.more-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+@media (max-width: 480px) { .notice-movers li { flex-wrap: nowrap; } .notice-movers .side { flex-basis: auto; text-align: right; padding-left: 0; } }

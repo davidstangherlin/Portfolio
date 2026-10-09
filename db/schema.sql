@@ -851,3 +851,62 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZON
 ALTER TABLE search_queries ADD COLUMN IF NOT EXISTS scope VARCHAR(10) NOT NULL DEFAULT 'all';
 ALTER TABLE search_queries ADD COLUMN IF NOT EXISTS impersonated_by UUID REFERENCES users(user_id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_search_queries_owner ON search_queries (owner_id, searched_at DESC);
+
+-- 12. ASX DIRECTOR TRADES AND SUBSTANTIAL HOLDERS (docs/kb/features/coattail.md)
+-- Shared market data, loaded each night by src/coattail/notices.py from
+-- ASX's announcement lists: director interest notices (Appendix 3Y) and
+-- substantial holder notices (forms 603, 604, 605: stakes of 5% or more),
+-- for every ASX company. Each notice's PDF is read for the details; what
+-- couldn't be read stays NULL and read_status says so.
+CREATE TABLE IF NOT EXISTS asx_notices (
+    notice_id VARCHAR(20) PRIMARY KEY,           -- ASX's document id (idsId)
+    asx_code VARCHAR(10) NOT NULL,
+    company_id UUID REFERENCES companies(company_id) ON DELETE SET NULL,  -- when Sift follows the company
+    released_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    headline TEXT NOT NULL,
+    kind VARCHAR(20) NOT NULL CHECK (kind IN ('DIRECTOR', 'SUBSTANTIAL_NEW', 'SUBSTANTIAL_CHANGE', 'SUBSTANTIAL_CEASE')),
+    price_sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+    pages SMALLINT,
+    pdf_url TEXT NOT NULL,
+    entity_name VARCHAR(255),                    -- the company's name as the notice gives it
+    read_status VARCHAR(12) NOT NULL DEFAULT 'pending'
+        CHECK (read_status IN ('pending', 'read', 'partial', 'unreadable', 'failed')),
+    read_attempts SMALLINT NOT NULL DEFAULT 0,
+    read_note TEXT,
+    reader_version SMALLINT,
+    read_at TIMESTAMP WITH TIME ZONE,
+    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_asx_notices_code ON asx_notices (asx_code, released_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asx_notices_released ON asx_notices (released_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asx_notices_kind ON asx_notices (kind, released_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asx_notices_unread ON asx_notices (read_status) WHERE read_status IN ('pending', 'failed');
+-- One row per director in an Appendix 3Y (a notice can cover several).
+CREATE TABLE IF NOT EXISTS director_trades (
+    notice_id VARCHAR(20) NOT NULL REFERENCES asx_notices(notice_id) ON DELETE CASCADE,
+    line_no SMALLINT NOT NULL,
+    director VARCHAR(160),
+    interest VARCHAR(10),                        -- direct, indirect or both
+    change_date DATE,
+    security_class VARCHAR(160),
+    acquired NUMERIC(20, 2),
+    disposed NUMERIC(20, 2),
+    consideration NUMERIC(20, 2),                -- dollars in total
+    price NUMERIC(14, 4),                        -- dollars a share, stated or worked out
+    held_after TEXT,
+    nature TEXT,
+    nature_kind VARCHAR(12) NOT NULL DEFAULT 'OTHER'
+        CHECK (nature_kind IN ('ON_MARKET', 'OFF_MARKET', 'EXERCISE', 'DRP', 'ISSUE', 'OTHER')),
+    direction VARCHAR(6) NOT NULL DEFAULT 'NONE' CHECK (direction IN ('BUY', 'SELL', 'MIXED', 'NONE')),
+    PRIMARY KEY (notice_id, line_no)
+);
+CREATE TABLE IF NOT EXISTS substantial_holdings (
+    notice_id VARCHAR(20) PRIMARY KEY REFERENCES asx_notices(notice_id) ON DELETE CASCADE,
+    holder VARCHAR(255),
+    manager VARCHAR(255),                        -- the manager behind the holder (src/coattail/views.py manager_of)
+    event_date DATE,
+    previous_pct NUMERIC(7, 3),                  -- voting power before (form 604)
+    present_pct NUMERIC(7, 3),                   -- after; 0 when they ceased (form 605: below 5%)
+    votes NUMERIC(20, 0)
+);
+CREATE INDEX IF NOT EXISTS idx_substantial_holdings_manager ON substantial_holdings (manager);

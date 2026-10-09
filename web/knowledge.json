@@ -76,7 +76,7 @@
     "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
     "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
     "Track record: whether Sift's suggestions have actually worked.",
-    "Coattail: follow the smart money. The fund managers holding the screener's companies, as cards you can open, and which companies they're adding to and cutting, with ASX director trades and substantial holders to come.",
+    "Coattail: follow the smart money. The fund managers holding the screener's companies, as cards you can open, and which companies they're adding to and cutting (Big funds); ASX director trades; and substantial holders crossing, raising or cutting 5%.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
     "Model and rules (avatar menu, admins): every setting and formula, what-if scenarios and Users.",
     "Search: the box at the top right finds anything in Sift, everywhere or just on the page you're on (the pink ▾ chooses). Results can be narrowed with tick boxes down the left."
@@ -1966,7 +1966,7 @@
    "body": [
     "The term comes from the everyday phrase \"riding on someone's coattails\": tagging along right behind a successful person so you can benefit from their effort and momentum.",
     "In plain English: instead of spending hours researching financial reports yourself, you watch what famous investors or large hedge funds (such as Warren Buffett or Ray Dalio) buy and sell, and then make the same trades in your own account. You're effectively using their multi-million-dollar research teams and expertise to guide your own choices.",
-    "In Sift: the Coattail page focuses on the ASX. It shows the fund managers holding the screener's companies, such as Vanguard and BlackRock, with what each holds and what it bought or sold. ASX director trades (Appendix 3Y notices) and substantial holder notices (stakes of 5% or more) are coming next. Famous US investors' portfolios, from their quarterly 13F filings, are noted for later.",
+    "In Sift: the Coattail page focuses on the ASX. It shows the fund managers holding the screener's companies, such as Vanguard and BlackRock, with what each holds and what it bought or sold. Its Director trades tab lists directors buying or selling their own company's shares (Appendix 3Y notices), and its Substantial holders tab investors crossing, raising or cutting a stake of 5% or more, for every ASX company, each night. Famous US investors' portfolios, from their quarterly 13F filings, are noted for later.",
     "Keep in mind: holdings are reported after the event, often weeks or months later; you see what they bought but not why, or when they'll sell; and their time frame and position size may differ from yours. Their moves are a lead for your own research, alongside Sift's valuation, not a replacement for it."
    ],
    "related": [
@@ -2250,7 +2250,7 @@
    ],
    "definition": "Sift can be connected to Claude Desktop on your PC, so you can ask about your portfolio, Sift's calls, who holds what and fund overlap in plain English.",
    "body": [
-    "What Claude can ask Sift: a company's or fund's facts, why Sift suggests an action (the tests, flags and history), your portfolio and watchlists, who holds a company and which funds hold it, how funds overlap and which of your shares they hold, the screener and the track record.",
+    "What Claude can ask Sift: a company's or fund's facts, why Sift suggests an action (the tests, flags and history), your portfolio and watchlists, who holds a company and which funds hold it, how funds overlap and which of your shares they hold, director trades and substantial holder notices, the screener and the track record.",
     "It only reads: nothing in Sift is changed, and it sees only your own portfolios and watchlists. It runs on your PC; your data goes to Claude only when you ask a question, and only what that question needs.",
     "Setting it up is a one-off step for the owner (README, AI assistants and the graph).",
     "Sift also exports its data each night in a form a knowledge graph (Neo4j) can load, for exploring who holds what visually.",
@@ -2264,6 +2264,94 @@
     {
      "text": "Open Coattail",
      "href": "#/coattail"
+    }
+   ]
+  },
+  {
+   "id": "director-trades",
+   "title": "Director trades (Appendix 3Y)",
+   "category": "coattail",
+   "glossary": "term",
+   "glossary_title": "Appendix 3Y",
+   "labels": [
+    "On market only"
+   ],
+   "aliases": [
+    "director trades",
+    "directors buying",
+    "directors selling",
+    "insider buying",
+    "insider selling",
+    "appendix 3y",
+    "3y",
+    "change of director's interest notice",
+    "director's interest",
+    "on market"
+   ],
+   "definition": "A director buying or selling their own company's shares, which ASX requires them to report within five business days on an Appendix 3Y, \"Change of Director's Interest Notice\".",
+   "hover": "Only trades made on the market at the market price: usually the director's own money, so they say the most. Leaves out options, share plans, dividend reinvestment and transfers.",
+   "body": [
+    "Why it matters: directors know their company better than anyone. A director spending their own money buying on the market is one of the clearer signals of confidence; a sale says less, since people sell for many reasons (tax, a house, spreading their money).",
+    "Where: Coattail, Director trades. Each night Sift reads ASX's lists of the day's announcements and the previous business day's, for every ASX company, keeps each \"Change of Director's Interest Notice\", and reads its PDF for the director, the date, the shares bought or sold, the dollars, the price and the nature of the change. A notice can cover several directors: each is a line.",
+    "Type: On market (bought or sold on the ASX at the market price), Off market (a private transfer, often between the director's own entities), Options or rights (exercised or vested), Issued to them (pay, incentive plans, placements, share purchase plans), Dividend reinvestment, or Other. Tick On market only to keep the trades that say the most.",
+    "Directors trading on market adds up, for each company, the dollars its directors bought less the dollars they sold on market in the period, with how many directors took part. Several directors buying at once is a stronger signal than one.",
+    "Read from the PDF: the forms are fixed, but every company lays them out a little differently. When Sift can't find a detail it shows \"Not read\" and the Notice link opens the original on the ASX website. Check the original before acting on a number.",
+    "Also on each company's page (the last year) and on the dashboard for the companies you hold or watch (the last week). Not financial advice: a lead for your own research."
+   ],
+   "related": [
+    "substantial-holders",
+    "coattail",
+    "holder-moves"
+   ],
+   "links": [
+    {
+     "text": "Open Director trades",
+     "href": "#/coattail?tab=directors"
+    }
+   ]
+  },
+  {
+   "id": "substantial-holders",
+   "title": "Substantial holders (5% or more)",
+   "category": "coattail",
+   "glossary": "term",
+   "glossary_title": "Substantial holder",
+   "labels": [
+    "Yours only"
+   ],
+   "aliases": [
+    "substantial holder",
+    "substantial holding",
+    "substantial shareholder",
+    "becoming a substantial holder",
+    "change in substantial holding",
+    "ceasing to be a substantial holder",
+    "form 603",
+    "form 604",
+    "form 605",
+    "5%",
+    "voting power"
+   ],
+   "definition": "An investor with 5% or more of a company's votes. They must tell ASX when they cross 5% (form 603, \"Becoming a substantial holder\"), when their stake moves by 1% or more (form 604, \"Change in substantial holding\") and when they fall below 5% (form 605, \"Ceasing to be a substantial holder\").",
+   "hover": "Only companies you hold or have on a watchlist.",
+   "body": [
+    "Why it matters: substantial holders are usually fund managers, super funds and other companies. A respected manager crossing 5% or building its stake is a sign of conviction; several cutting at once is worth a look.",
+    "Where: Coattail, Substantial holders. Each night Sift keeps the announcements titled with Becoming, Change in or Ceasing (substantial holder notices only, not, say, a change in chief executive) for every ASX company, and reads each PDF for the holder, the date and its voting power (% of votes) before and after. Change is the difference in percentage points.",
+    "Holders are grouped by the manager behind them, as on the Big funds tab: \"Perpetual Limited and its related bodies corporate\" is Perpetual. When the manager also has a Big funds card, its name links to it.",
+    "A ceasing notice says only that the stake is now under 5%, not how far under. Index managers such as Vanguard and BlackRock file many of these as their funds track the index, so their notices say less than an active manager's.",
+    "Read from the PDF: when a detail can't be found, Sift says so and the Notice link opens the original on the ASX website.",
+    "Also on each company's page and on the dashboard for your own companies. Not financial advice: a lead for your own research."
+   ],
+   "related": [
+    "director-trades",
+    "coattail",
+    "holder-moves",
+    "major-holders"
+   ],
+   "links": [
+    {
+     "text": "Open Substantial holders",
+     "href": "#/coattail?tab=substantial"
     }
    ]
   }

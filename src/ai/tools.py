@@ -286,6 +286,26 @@ def help_topic(session, term: str) -> dict:
     return {"articles": [{"title": e["title"], "definition": e.get("definition"), "detail": e.get("body", [])} for e in hits[:3]]}
 
 
+def notices(session, code: str | None = None, kind: str | None = None, days: int = 30, mine: bool = False) -> dict:
+    """ASX director trades and substantial holder notices (docs/kb/features/coattail.md)."""
+    from src.coattail import notice_views
+    from src.portfolio.holdings import open_parcels
+    from src.watchlist.lists import watched_codes
+    if kind not in (None, "directors", "substantial"):
+        raise ToolError("kind is directors or substantial")
+    days = max(1, min(int(days or 30), 365))
+    codes = None
+    if mine:
+        codes = {p.asx_code for p in open_parcels(session)} | set(watched_codes(session))
+    rows = notice_views.notices(session, kind, days, code=_code(code) if code else None, codes=codes, limit=200)
+    return {"days": days, "notices": [{
+        "code": n["asx_code"], "company": n["company_name"], "released": n["released_at"], "type": n["kind_label"],
+        "what": notice_views.in_words(n), "details_read": n["read_status"] == "read", "notice": n["pdf_url"]} for n in rows],
+        "about": "What directors (Appendix 3Y) and holders of 5% or more (forms 603, 604, 605) reported to ASX, read from each notice's PDF. "
+                 "On-market buys with a director's own money say the most; options, share plans and dividend reinvestment say little.",
+        "note": "Leads for research, not advice."}
+
+
 def _expanding(name):
     from sqlalchemy import bindparam
     return bindparam(name, expanding=True)
@@ -308,6 +328,11 @@ TOOLS = [
     Tool("screener", "Shares from Sift's screener, best score first, optionally filtered by suggested action (BUY, INVESTIGATE, WATCH, AVOID...) or sector.", screener,
          {"action": {"type": "string", "description": "e.g. BUY"}, "sector": {"type": "string", "description": "e.g. Financial Services"},
           "limit": {"type": "integer", "description": "up to 100", "default": 20}}),
+    Tool("notices", "ASX director trades (directors buying or selling their own company's shares) and substantial holder notices (holders crossing, raising or cutting 5% or more), for one company, the person's own companies, or the whole market, over the last so many days.", notices,
+         {"code": {"type": "string", "description": "ASX code, e.g. BHP; leave out for every company"},
+          "kind": {"type": "string", "description": "directors or substantial; leave out for both"},
+          "days": {"type": "integer", "description": "how far back, up to 365", "default": 30},
+          "mine": {"type": "boolean", "description": "only companies the person holds or watches", "default": False}}),
     Tool("track_record", "How Sift's suggested actions have performed against the average screened share at 1, 3, 6 and 12 months.", track_record),
     Tool("help_topic", "Sift's own explanation of a term or screen, such as margin of safety, franking or Coattail.", help_topic,
          {"term": {"type": "string", "description": "the term, e.g. margin of safety", "required": True}}),

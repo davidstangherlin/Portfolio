@@ -573,14 +573,15 @@
    "title": "Coattail: director trades and substantial holder notices",
    "type": "idea",
    "priority": "P2",
-   "status": "planned",
+   "status": "done",
    "impact": "Coattail shows fund holdings only.",
    "raised": "2026-10-08",
    "updated": "2026-10-09",
    "articles": [
-    "coattail"
+    "coattail",
+    "adr-014-asx-notices-source"
    ],
-   "notes": "Waiting on the source probe output from the owner's PC (scripts/probe_coattail_sources.py)."
+   "notes": "Built 2026-10-09 from ASX's market-wide announcement lists, each notice's PDF read nightly; shown on Coattail tabs, company pages and the dashboard."
   },
   {
    "id": "IMP-041",
@@ -859,6 +860,51 @@
     "accounts-owners"
    ],
    "notes": "With Supabase Auth: start a session on sign-in, end it on sign-out, log failed attempts, and decide with the privacy note whether to keep an IP address."
+  },
+  {
+   "id": "IMP-060",
+   "title": "Prove the notice reader on real ASX notices",
+   "type": "risk",
+   "priority": "P1",
+   "status": "open",
+   "impact": "The reader was built on the forms' published layout and test PDFs laid out the same way; ASX's real PDFs vary by company.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "coattail",
+    "rb-asx-notices"
+   ],
+   "notes": "Run python -m src.coattail.notices --dry-run on the owner's PC, then check the first week's partial and failed notices; add each new layout to tests/unit/test_notice_reader.py."
+  },
+  {
+   "id": "IMP-061",
+   "title": "Make notices searchable",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Searching a director's or substantial holder's name finds nothing; notices are reached through Coattail and company pages.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "coattail",
+    "search"
+   ],
+   "notes": "Index the last 90 days of notices in a notices area with words, not numbers: \"Perpetual became a substantial holder in GOOD\"."
+  },
+  {
+   "id": "IMP-062",
+   "title": "Alerts for director buying and new substantial holders",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "The dashboard shows notices on your companies, but nothing tells you when you're away.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "coattail",
+    "watchlists"
+   ],
+   "notes": "A watchlist trigger (director bought on market, holder crossed 5%) and, with hosting, an email."
   }
  ]
 }

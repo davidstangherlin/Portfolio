@@ -359,7 +359,14 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   companies (Vanguard, BlackRock and so on, from Yahoo's top holder lists, refreshed weekly),
   with the average score wheel of what it holds and how many it's adding to and cutting; click
   one for every company it holds and the shares bought or sold. Also which companies managers
-  are adding to and cutting most. ASX director trades and substantial holders are next.
+  are adding to and cutting most (Big funds tab). The Director trades tab lists directors
+  buying or selling their own company's shares (Appendix 3Y), with the net dollars bought on
+  market per company; the Substantial holders tab lists investors crossing, raising or cutting
+  5% (forms 603, 604, 605). Both cover every ASX company, loaded each night from ASX's
+  announcement lists with each notice's PDF read for the details; they also show on each
+  company's page and, for your own companies, on the dashboard. Check it works on your PC with
+  `python -m src.coattail.notices --dry-run`; `--mine` loads six months of history for the
+  companies you hold or watch.
 - **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or
@@ -633,7 +640,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → ETFs → valuation → signal record → track record scoring → screener → search index, logging everything to a timestamped file
+schema update → ingestion → ETFs → ASX notices → valuation → signal record → track record scoring → screener → search index, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step's heading in the log shows when it
 started, and a line after it says how long it took.
 

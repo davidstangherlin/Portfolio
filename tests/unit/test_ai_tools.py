@@ -16,7 +16,7 @@ def test_every_tool_is_described_with_a_schema():
         schema = t["input_schema"]
         assert schema["type"] == "object" and set(schema["required"]) <= set(schema["properties"])
         for spec in schema["properties"].values():
-            assert spec["type"] in ("string", "integer", "array") and spec["description"]
+            assert spec["type"] in ("string", "integer", "boolean", "array") and spec["description"]
 
 
 def test_answers_are_plain_json():

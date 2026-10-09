@@ -35,7 +35,7 @@ INSTRUCTIONS = (
     "the screener and the track record. Quote figures as Sift gives them and say where they come from. Sift's "
     "suggested actions are rule-based research prompts, not financial advice; say so when discussing buying or selling."
 )
-_TYPES = {"string": str, "integer": int, "array": list[str]}
+_TYPES = {"string": str, "integer": int, "boolean": bool, "array": list[str]}
 
 
 def _wrapper(tool: tools.Tool, user_id):

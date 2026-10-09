@@ -3,7 +3,7 @@ id: ai-and-graph
 title: AI and graph readiness
 category: features
 summary: How Sift is made ready for AI assistants and knowledge graphs: entity records for managers, holders and fund holdings, a Neo4j-ready graph export, read-only AI tools, and a local MCP server for Claude.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -41,6 +41,7 @@ It runs before every graph export, so each night. It is safe to re-run.
 | Sector, Category | (Holder)-[:MANAGED_BY]->(Manager) |
 | Manager, Holder (also :Fund or :Institution) | (Holder)-[:HOLDS {shares, percent_held, percent_change, reported}]->(Company) |
 | User, Portfolio, Watchlist (personal) | (Company)-[:FUND_HOLDS {weight_percent}]->(Company) |
+| Director (by name within the company) | (Director)-[:DIRECTOR_OF]->(Company), (Director)-[:TRADED {notice, date, direction, acquired, disposed, value, price, nature}]->(Company), (Manager)-[:SUBSTANTIAL_NOTICE {notice, event, date, previous_pct, present_pct}]->(Company) ([Coattail](kb:coattail)) |
 | | (User)-[:OWNS]->(Portfolio or Watchlist), (Portfolio)-[:HOLDS_POSITION {units, cost_base}]->(Company), (Watchlist)-[:WATCHES]->(Company) |
 
 `--shared-only` leaves out people, portfolios and watchlists (for sharing a graph). The nightly run exports after the search index. Calls on companies are the shared ones (for someone not holding the share); the history of calls stays in PostgreSQL, where the AI tools read it.
@@ -69,6 +70,7 @@ RETURN m.name, collect(c.id) ORDER BY size(collect(c.id)) DESC
 | `my_portfolio`, `my_watchlists` | The person's holdings with value, gain and calls; watchlists with triggers met |
 | `who_holds`, `manager` | Holders of a company (with manager, index flag, adding or cutting) and the Sift funds holding it; one manager's holdings |
 | `fund_overlap` | Overlap between ETFs and LICs by weight, and which of the person's shares sit inside them |
+| `notices` | ASX director trades and substantial holder notices for one company, the person's own companies or the market, in words ([Coattail](kb:coattail)) |
 | `screener`, `track_record`, `help_topic` | Screener rows by action or sector; the track record; Sift's own explanation of a term |
 
 Answers are plain JSON with units in field names and reasons in words, and carry the "not financial advice" note where actions appear. Wrong input (an unknown code, a missing argument) is a `ToolError` with a message for the assistant to relay.

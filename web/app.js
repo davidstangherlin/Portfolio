@@ -926,7 +926,7 @@ async function renderCompany(code) {
     held,
     watchNote(d.watchlists),
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard,
-      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), workingsCard(c.asx_code)),
+      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), companyNoticesCard(c.notices), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
@@ -1395,6 +1395,7 @@ async function renderDashboard() {
       { id: "portfolios", title: "Portfolios", build: () => (pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null) },
       { id: "actions", title: "Today's suggested actions", build: () => actionsCard(d) },
       { id: "tracking", title: "Track record", build: () => trackingCard(d.tracking) },
+      { id: "notices", title: "Director and holder notices", build: () => noticesDashCard(d.notices || []) },
     ]),
     statusFoot(d.status),
   ].filter(Boolean));
@@ -1802,7 +1803,180 @@ function coattailControls(onChange) {
   return [months, hideIndex];
 }
 
-async function renderCoattail() {
+/* ---------- ASX notices: director trades and substantial holders (docs/kb/features/coattail.md) ---------- */
+const NATURE_LABELS = { ON_MARKET: "On market", OFF_MARKET: "Off market", EXERCISE: "Options or rights", DRP: "Dividend reinvestment", ISSUE: "Issued to them", OTHER: "Other" };
+const EVENT_LABELS = { SUBSTANTIAL_NEW: "Became", SUBSTANTIAL_CHANGE: "Changed", SUBSTANTIAL_CEASE: "Ceased" };
+const noticeState = { days: 30, show: "all", onMarket: false, mine: false, q: "" };
+/* ASX releases are dated in Sydney time, whatever the viewer's time zone. */
+const noticeDay = (iso) => new Date(iso).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
+const noticeWhen = (iso) => new Date(iso).toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const noticeLink = (n, label = "Notice") => h("a", { href: n.pdf_url, target: "_blank", rel: "noopener noreferrer", class: "notice-link",
+  title: `${n.headline} (the PDF on the ASX website)`, "aria-label": `${n.headline}, ${n.asx_code}: open the notice on the ASX website`, text: `${label} ↗` });
+
+function tradeText(t) {
+  const units = t.direction === "SELL" ? t.disposed : t.acquired;
+  if (t.direction === "NONE") return "No shares bought or sold";
+  const verb = { BUY: "Bought", SELL: "Sold", MIXED: "Bought and sold" }[t.direction];
+  const amount = t.direction === "MIXED" ? `${sharesText(t.acquired)} and ${sharesText(t.disposed)}` : sharesText(units);
+  return `${verb} ${amount} shares${t.consideration !== null ? ` for ${compact(t.consideration)}` : ""}${t.price !== null ? ` at ${money(t.price, t.price < 1 ? 3 : 2)}` : ""}`;
+}
+function holdingText(n) {
+  const x = n.holding || {};
+  const who = x.holder || "A holder";
+  if (n.kind === "SUBSTANTIAL_NEW") return `${who} now holds ${x.present_pct === null || x.present_pct === undefined ? "5% or more" : pct(x.present_pct, 2)}`;
+  if (n.kind === "SUBSTANTIAL_CEASE") return `${who} is now below 5%`;
+  return x.previous_pct !== null && x.present_pct !== null && x.present_pct !== undefined
+    ? `${who}: ${pct(x.previous_pct, 2)} to ${pct(x.present_pct, 2)}` : `${who} changed their holding`;
+}
+/* What happened to the holding, without the holder's name: "6.12% to 7.15%". */
+function holdingChange(n) {
+  const x = n.holding || {};
+  if (n.kind === "SUBSTANTIAL_NEW") return `${EVENT_LABELS[n.kind]} a holder${x.present_pct !== null && x.present_pct !== undefined ? ` at ${pct(x.present_pct, 2)}` : ""}`;
+  if (n.kind === "SUBSTANTIAL_CEASE") return "Now below 5%";
+  return x.previous_pct !== null && x.present_pct !== null && x.present_pct !== undefined ? `${pct(x.previous_pct, 2)} to ${pct(x.present_pct, 2)}` : "Changed";
+}
+/* One line per notice, for the company page and the dashboard. */
+function noticeLine(n) {
+  const unread = n.read_status !== "read" && !n.trades.length && !(n.holding && n.holding.holder);
+  const what = n.kind === "DIRECTOR"
+    ? (n.trades.length ? n.trades.map((t) => `${t.director || "A director"}: ${tradeText(t)}${t.nature_kind !== "OTHER" ? ` (${NATURE_LABELS[t.nature_kind].toLowerCase()})` : ""}`).join("; ") : "")
+    : holdingText(n);
+  return h("li", { class: "notice-line" },
+    h("div", { class: "main" }, h("span", { class: `tag sm notice-${n.kind === "DIRECTOR" ? "dir" : "sub"}`, text: n.kind_label }), " ",
+      n.in_sift === false ? h("span", { class: "code", text: n.asx_code }) : h("a", { class: "code", href: `#/company/${n.asx_code}`, text: n.asx_code }),
+      h("div", { class: "notice-what", text: unread ? `Details not read: ${n.read_note || "open the notice"}` : what })),
+    h("div", { class: "side" }, h("span", { class: "hint", text: noticeDay(n.released_at) }), " ", noticeLink(n)));
+}
+function companyNoticesCard(list) {
+  const el = card("Director and substantial holder notices", "From ASX announcements over the last year: directors trading their own company's shares (Appendix 3Y) and holders of 5% or more. On-market buys with the director's own money say the most.",
+    list && list.length ? h("ul", { class: "items notice-list" }, list.map(noticeLine)) : h("p", { class: "hint", text: "None in the last year." }), helpLink("director-trades"));
+  el.classList.add("wide");
+  return el;
+}
+function noticesDashCard(list) {
+  return card("Director and holder notices", "On the companies you hold or watch, from ASX in the last week.",
+    list.length ? h("ul", { class: "items notice-list" }, list.slice(0, 8).map(noticeLine)) : h("p", { class: "hint", text: "None on your companies this week." }),
+    h("div", { class: "more-links" }, h("a", { class: "more-link", href: "#/coattail?tab=directors", text: "All director trades" }),
+      h("a", { class: "more-link", href: "#/coattail?tab=substantial", text: "All substantial holders" })));
+}
+
+function coattailTabs(current) {
+  return h("div", { class: "tabs", role: "navigation", "aria-label": "Coattail" },
+    [["funds", "#/coattail", "Big funds"], ["directors", "#/coattail?tab=directors", "Director trades"], ["substantial", "#/coattail?tab=substantial", "Substantial holders"]]
+      .map(([id, href, label]) => h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
+}
+const COATTAIL_NOTE = () => h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail"));
+
+async function renderNotices(group) {
+  app.replaceChildren(pageHead("Coattail", group === "directors" ? "Director trades" : "Substantial holders"), coattailTabs(group), h("p", { class: "loading", text: "Loading notices..." }));
+  const st = noticeState;
+  const d = await getJSON(`/api/coattail/notices?group=${group}&days=${st.days}`);
+  const dirs = group === "directors";
+  const body = h("div"), count = h("span", { class: "count" });
+  const shows = dirs ? [["all", "All trades"], ["BUY", "Bought"], ["SELL", "Sold"]]
+    : [["all", "All notices"], ["SUBSTANTIAL_NEW", "Became a holder"], ["SUBSTANTIAL_CHANGE", "Changed"], ["SUBSTANTIAL_CEASE", "Ceased"], ["raised", "Raised"], ["cut", "Cut"]];
+  if (!shows.some(([v]) => v === st.show)) st.show = "all";
+  const period = h("select", { "aria-label": "Period", onchange: (e) => { st.days = Number(e.target.value); renderNotices(group); } },
+    [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last year"]].map(([v, t]) => h("option", { value: v, selected: v === st.days, text: t })));
+  const show = h("select", { "aria-label": "Show", onchange: (e) => { st.show = e.target.value; draw(); } },
+    shows.map(([v, t]) => h("option", { value: v, selected: v === st.show, text: t })));
+  const search = h("input", { type: "search", placeholder: dirs ? "Search companies or directors" : "Search companies or holders", value: st.q, "aria-label": "Search notices",
+    oninput: (e) => { st.q = e.target.value; draw(); } });
+  // Their hovers come from web/knowledge.json (director-trades, substantial-holders).
+  const box = (label, key) => withHelp(h("label", {}, h("input", { type: "checkbox", checked: st[key], onchange: (e) => { st[key] = e.target.checked; draw(); } }), label), label);
+  const onMarket = dirs ? box("On market only", "onMarket") : null;
+  const mine = box("Yours only", "mine");
+
+  const words = (n) => [n.asx_code, n.company_name, n.headline, ...(n.trades || []).map((t) => t.director), n.holding && n.holding.holder].filter(Boolean).join(" ").toLowerCase();
+  function keep(n) {
+    if (st.mine && !n.held && !n.watchlists.length) return false;
+    if (st.q && !words(n).includes(st.q.trim().toLowerCase())) return false;
+    if (dirs) {
+      const trades = n.trades.filter((t) => (!st.onMarket || t.nature_kind === "ON_MARKET") && (st.show === "all" || t.direction === st.show || t.direction === "MIXED"));
+      return st.onMarket || st.show !== "all" ? trades.length > 0 : true;
+    }
+    const change = n.holding ? n.holding.change_pts : null;
+    if (st.show === "raised") return change > 0 || n.kind === "SUBSTANTIAL_NEW";
+    if (st.show === "cut") return change < 0 || n.kind === "SUBSTANTIAL_CEASE";
+    return st.show === "all" || n.kind === st.show;
+  }
+  const company = (n) => n.in_sift ? nameCell(n, "SHARE") : h("td", {}, h("span", { class: "code", text: n.asx_code }), h("div", { class: "name", text: n.company_name || "Not in Sift's screener" }));
+  const row = (n, cells) => (n.in_sift ? rowTo(`#/company/${n.asx_code}`, ...cells) : h("tr", {}, cells));
+  const unread = (n) => h("span", { class: "hint", text: `Not read: ${n.read_note || "open the notice"}` });
+
+  function directorRows(list) {
+    const out = [];
+    for (const n of list) {
+      const trades = n.trades.length ? n.trades : [null];
+      trades.forEach((t, i) => out.push(row(n, [
+        h("td", { class: "opt", text: i ? "" : noticeDay(n.released_at), title: noticeWhen(n.released_at) }),
+        i ? h("td") : company(n),
+        h("td", { class: "opt" }, t ? h("div", { text: t.director || NA }) : unread(n), t && t.change_date ? h("div", { class: "sub-text", text: `Traded ${longDate(t.change_date)}` }) : null),
+        h("td", {}, t ? h("div", { class: "phone-only strong", text: t.director || NA }) : h("div", { class: "phone-only" }, unread(n)),
+          h("div", { class: t ? `trade-${t.direction.toLowerCase()}` : null, text: t ? tradeText(t) : "" }),
+          t ? h("div", { class: "sub-text phone-only", text: `${NATURE_LABELS[t.nature_kind]}, ${noticeDay(n.released_at)}` }) : null,
+          i ? null : h("div", { class: "phone-only" }, noticeLink(n))),
+        h("td", { class: "opt" }, t ? h("span", { class: `tag sm nature-${t.nature_kind.toLowerCase()}`, title: t.nature || "", text: NATURE_LABELS[t.nature_kind] }) : null),
+        h("td", { class: "num opt" }, i ? null : noticeLink(n)),
+      ])));
+    }
+    return out;
+  }
+  function holderRows(list) {
+    return list.map((n) => {
+      const x = n.holding || {};
+      const who = x.holder ? (x.manager_id ? h("a", { href: `#/coattail/${x.manager_id}`, text: x.holder, onclick: (e) => e.stopPropagation() }) : x.holder) : unread(n);
+      return row(n, [
+        h("td", { class: "opt", text: noticeDay(n.released_at), title: noticeWhen(n.released_at) }),
+        company(n),
+        h("td", {}, h("div", {}, who), h("div", { class: "sub-text phone-only", text: `${holdingChange(n)}, ${noticeDay(n.released_at)}` }),
+          h("div", { class: "phone-only" }, noticeLink(n))),
+        h("td", { class: "opt" }, h("span", { class: `tag sm event-${n.kind.toLowerCase()}`, text: EVENT_LABELS[n.kind] })),
+        h("td", { class: "num opt", text: x.previous_pct !== null && x.previous_pct !== undefined ? pct(x.previous_pct, 2) : "" }),
+        h("td", { class: "num opt", text: n.kind === "SUBSTANTIAL_CEASE" ? "Under 5%" : pct(x.present_pct, 2) }),
+        h("td", { class: `num opt ${signClass(x.change_pts) || ""}`.trim(), text: x.change_pts !== null && x.change_pts !== undefined ? `${x.change_pts > 0 ? "+" : ""}${fmt(x.change_pts, 2)} pts` : "" }),
+        h("td", { class: "num opt" }, noticeLink(n)),
+      ]);
+    });
+  }
+  function draw() {
+    const list = d.rows.filter(keep);
+    const heads = dirs ? [["Date", "opt"], ["Company"], ["Director", "opt"], ["Trade"], ["Type", "opt"], ["", "num opt"]]
+      : [["Date", "opt"], ["Company"], ["Holder"], ["Event", "opt"], ["Before", "num opt"], ["After", "num opt"], ["Change", "num opt"], ["", "num opt"]];
+    count.textContent = list.length === d.rows.length ? plural(d.rows.length, "notice") : `${list.length} of ${plural(d.rows.length, "notice")}`;
+    body.replaceChildren(list.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid notices-table" },
+      h("thead", {}, h("tr", {}, heads.map(([t, cls]) => h("th", { scope: "col", class: cls || null, text: t })))),
+      h("tbody", {}, dirs ? directorRows(list) : holderRows(list))))
+      : h("p", { class: "empty", text: d.rows.length ? "No notices match these filters." : `No ${dirs ? "director trades" : "substantial holder notices"} in this period.` }));
+  }
+  const side = (title, rows, none) => h("div", {}, h("h3", { class: "sub-head", text: title }), rows.length ? h("ul", { class: "items notice-movers" }, rows.map((x) => h("li", {},
+    h("div", { class: "main" }, x.in_sift ? h("a", { class: "code", href: `#/company/${x.asx_code}`, text: x.asx_code }) : h("span", { class: "code", text: x.asx_code }),
+      h("div", { class: "name", text: x.company_name || "" })),
+    h("div", { class: "side" }, h("span", { class: `tabular ${x.net > 0 ? "pos" : "neg"}`, text: compact(Math.abs(x.net)) }),
+      h("div", { class: "hint", text: plural(x.net > 0 ? x.buyers : x.sellers, "director") })))))
+    : h("p", { class: "hint", text: none }));
+  const sm = d.summary;
+  const summary = dirs
+    ? card("Directors trading on market", `Net dollars bought or sold on market by each company's directors, ${st.days === 365 ? "over the last year" : `in the last ${st.days} days`}.`,
+      h("div", { class: "movers-cols" }, side("Buying", sm.buying, "No on-market buying in this period."), side("Selling", sm.selling, "No on-market selling in this period.")))
+    : card("Substantial holders", `Notices from holders of 5% or more, ${st.days === 365 ? "over the last year" : `in the last ${st.days} days`}.`,
+      h("div", { class: "stats" }, statTile("Became a holder", String(sm.became), null, "crossed 5%"), statTile("Raised", String(sm.raised), "pos", "holding up"),
+        statTile("Cut", String(sm.cut), "neg", "holding down"), statTile("Ceased", String(sm.ceased), null, "fell below 5%")));
+  summary.classList.add("wide");
+  const status = d.status.latest
+    ? `From ASX's announcement lists, loaded each night; latest notice ${noticeWhen(d.status.latest)}.${d.status.unread ? ` ${plural(d.status.unread, "notice", "notices")} couldn't be fully read: open the notice for its details.` : ""}${d.capped ? " Showing the newest 1,000." : ""}`
+    : "No notices loaded yet. They arrive with the nightly run (the ASX Notices step).";
+  app.replaceChildren(pageHead("Coattail", dirs ? "Director trades" : "Substantial holders"), COATTAIL_NOTE(), coattailTabs(group),
+    h("div", { class: "cards" }, summary),
+    h("div", { class: "controls" }, period, show, search, onMarket, mine, count),
+    body, h("p", { class: "hint coverage" }, status, " ", helpLink(dirs ? "director-trades" : "substantial-holders")));
+  draw();
+  window.scrollTo(0, 0);
+}
+
+async function renderCoattail(query) {
+  const tab = new URLSearchParams(query || "").get("tab");
+  if (tab === "directors" || tab === "substantial") return renderNotices(tab);
   app.replaceChildren(h("p", { class: "loading", text: "Loading Coattail..." }));
   const d = coattailData = await getJSON("/api/coattail");
   const st = coattailState;
@@ -1897,13 +2071,11 @@ async function renderCoattail() {
   const intro = card("Where the funds are going", `For each screener company, how many fund managers added to or cut their holding since their previous report: click a number to see who. Recommendation is Sift's own suggested action for the company, to compare with what the managers are doing. From Yahoo Finance's top holder lists, refreshed weekly${d.as_of ? `; latest report ${longDate(d.as_of)}` : ""}.`, summary);
   intro.classList.add("wide");
   const next = card("Coming next", null, h("ul", { class: "plain-list" },
-    h("li", { text: "ASX director trades: directors buying or selling their own company's shares (Appendix 3Y notices)." }),
-    h("li", { text: "ASX substantial holders: investors crossing, raising or cutting a stake of 5% or more." }),
-    h("li", { text: "Later: famous US investors' portfolios, such as Berkshire Hathaway's and Bridgewater's, from their quarterly 13F filings." })));
+    h("li", { text: "Famous US investors' portfolios, such as Berkshire Hathaway's and Bridgewater's, from their quarterly 13F filings." })));
   next.classList.add("wide");
   app.replaceChildren(
     pageHead("Coattail", `Following the smart money in ${plural(d.screened, "screener company", "screener companies")}`),
-    h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail")),
+    COATTAIL_NOTE(), coattailTabs("funds"),
     h("div", { class: "controls" }, ...coattailControls(refresh)),
     ...(d.holdings.length ? [h("div", { class: "cards" }, intro),
       h("div", { class: "section-head" },
@@ -4173,7 +4345,7 @@ const ROUTES = [
   [/^#\/lics(?:\?(.*))?$/, "lics", (m) => { presetFunds("LIC", m[1]); return renderFunds("LIC"); }],
   [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
   [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
-  [/^#\/coattail$/, "coattail", () => renderCoattail()],
+  [/^#\/coattail(?:\?(.*))?$/, "coattail", (m) => renderCoattail(m[1])],
   [/^#\/coattail\/([a-z0-9-]+)$/, "coattail", (m) => renderCoattailHolder(m[1])],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
   [/^#\/admin$/, "admin", () => renderAdmin()],

@@ -55,6 +55,7 @@ from src.models import Holding, Portfolio
 from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
 from src.portfolio.holdings import HoldingsError
 from src import preferences
+from src.coattail import notice_views
 from src.coattail import views as coattail
 from src.search import indexer as search_indexer, learning as search_learning, query as search_query
 from src.screening import movers
@@ -301,6 +302,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
     row["business_summary"] = company.business_summary or None
     row["business_summary_short"] = short_summary(company.business_summary)
     row["insights"] = insights_payload(session, company.company_id, row.get("current_price"))
+    row["notices"] = notice_views.company_notices(session, asx_code, today)
     row["trading_currency"] = company.trading_currency
     row["financial_currency"] = company.financial_currency
     row["as_of_date"] = metric.as_of_date
@@ -485,6 +487,7 @@ def dashboard_payload(session, today: date, now: datetime, log_dir: Path = LOG_D
         "tracking": tracking_status(session) | {"headline": track_report.headline(session)},
         "top": top,
         "layout": preferences.get_preference(session, preferences.DASHBOARD_LAYOUT),
+        "notices": notice_views.my_notices(session, set(universe.positions), watched, today=today),
         "movers": {"shares": movers.share_movers(session, rows, watched, today),
                    "etfs": movers.fund_movers(etfs), "lics": movers.fund_movers(lics)},
         "thresholds": {"margin_of_safety": universe.args.min_margin_of_safety, "roe": universe.args.min_roe,
@@ -900,6 +903,18 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             rows = load_universe(session, date.today()).rows
             payload = coattail.holdings(session, rows, watchlists.watched_codes(session))
             return JSONResponse(_json_ready(payload | {"axes": list(AXES), "checks_per_axis": CHECKS_PER_AXIS}))
+
+    @app.get("/api/coattail/notices")
+    def api_coattail_notices(group: str = "directors", days: int = 30):
+        """Coattail's Director trades and Substantial holders tabs: ASX notices
+        for every company, with yours (held or watched) marked."""
+        if group not in notice_views.GROUPS:
+            raise HTTPException(status_code=400, detail=f"group must be one of {', '.join(notice_views.GROUPS)}")
+        if days not in notice_views.DAYS:
+            raise HTTPException(status_code=400, detail=f"days must be one of {', '.join(map(str, notice_views.DAYS))}")
+        with get_session() as session:
+            held = {p.asx_code for p in parcels_module.open_parcels(session)}
+            return JSONResponse(_json_ready(notice_views.tab_payload(session, group, days, held, watchlists.watched_codes(session))))
 
     @app.get("/api/track-record")
     def api_track_record(version: str | None = None):

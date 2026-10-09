@@ -7,3 +7,4 @@ tabulate==0.10.0
 openpyxl==3.1.5
 fastapi==0.142.2
 uvicorn==0.54.0
+pypdf==6.18.1
