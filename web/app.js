@@ -3677,11 +3677,24 @@ function applySettings(settings) {
   if (before.chart_patterns !== me.settings.chart_patterns) { slots.forEach((sl) => { delete sl.el.dataset.w; }); drawSlots(); }
   setSearchPage(searchScope.page);
 }
-async function saveSettings(changes) {
+/* Applied at once, then saved to the account. If the save fails the change
+   stays in this page (and, for the theme, this browser) and a quiet note says
+   so on the Preferences page: never a popup (§35). `revert` puts it back instead. */
+async function saveSettings(changes, { revert = false } = {}) {
   const before = me.settings;
-  applySettings({ ...before, ...changes });  // at once; put back if Sift refuses
-  try { applySettings((await send("PUT", "/api/me/settings", changes)).settings); }
-  catch (err) { applySettings(before); throw err; }
+  applySettings({ ...before, ...changes });
+  try {
+    applySettings((await send("PUT", "/api/me/settings", changes)).settings);
+    prefNotice("");
+  } catch (err) {
+    if (revert) applySettings(before);
+    prefNotice(`Not saved to your account (${err.message}); it applies in this browser for now.`);
+    throw err;
+  }
+}
+function prefNotice(text) {
+  const el = document.getElementById("pref-msg");
+  if (el) showMessage(el, text, false);
 }
 const initials = (name) => (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 function paintMe() {
@@ -3870,14 +3883,14 @@ function prefSwitch(key, label) {
   sw.addEventListener("click", async () => {
     const value = sw.getAttribute("aria-checked") !== "true";
     sw.setAttribute("aria-checked", String(value));
-    try { await saveSettings({ [key]: value }); } catch (err) { sw.setAttribute("aria-checked", String(!value)); alert(err.message); }
+    try { await saveSettings({ [key]: value }); } catch (err) { /* noted on the page; the switch keeps its new position */ }
   });
   return sw;
 }
 function prefChoice(key, label, choices) {
   const sel = h("select", { "aria-label": label, onchange: async (e) => {
     const raw = e.target.value, value = typeof choices[0][0] === "number" ? Number(raw) : raw;
-    try { await saveSettings({ [key]: value }); } catch (err) { alert(err.message); }
+    try { await saveSettings({ [key]: value }); } catch (err) { /* noted on the page */ }
   } }, choices.map(([v, text]) => h("option", { value: v, text, selected: me.settings[key] === v })));
   return sel;
 }
@@ -3891,7 +3904,7 @@ function themeCards() {
     const card = h("button", { type: "button", role: "radio", class: `theme-card theme-${value}`, "aria-checked": String(me.settings.theme === value),
       onclick: async () => {
         for (const c of card.parentNode.children) c.setAttribute("aria-checked", String(c === card));
-        try { await saveSettings({ theme: value }); } catch (err) { alert(err.message); }
+        try { await saveSettings({ theme: value }); } catch (err) { /* the theme stays switched; noted on the page */ }
       } },
       h("span", { class: "theme-swatch", "aria-hidden": "true" },
         Array.from({ length: THEME_STRIPES }, (_, i) => h("span", { class: "theme-stripe", style: `background:var(--sw-${value}-${i + 1})` }))),
@@ -3928,9 +3941,10 @@ async function renderPreferences(section) {
   paint();
   const reset = h("button", { type: "button", class: "btn", text: "Reset all to defaults", onclick: async () => {
     if (!confirm("Put every preference back to Sift's default?")) return;
-    try { applySettings((await send("DELETE", "/api/me/settings")).settings); paint(); } catch (err) { alert(err.message); }
+    try { applySettings((await send("DELETE", "/api/me/settings")).settings); paint(); prefNotice(""); } catch (err) { prefNotice(err.message); }
   } });
   app.replaceChildren(pageHead("Preferences", "Saved to your account, so they follow you to any browser", reset),
+    h("p", { class: "form-msg", id: "pref-msg", role: "status" }),
     h("div", { class: "pref-layout" }, nav, pane));
 }
 

@@ -3,7 +3,7 @@ id: profile-preferences-impersonation
 title: Profile, Preferences, Users and impersonation
 category: features
 summary: The avatar menu, Profile and Preferences pages, keyboard shortcuts, the Users admin tab and how admins impersonate members safely.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -64,6 +64,7 @@ Columns and types: [Data dictionary](kb:ref-data-dictionary).
 
 - An admin is stuck as someone else: End impersonation on the banner; see [Impersonation](kb:rb-impersonation).
 - A preference doesn't stick: check the PUT /api/me/settings response; unknown names are refused.
+- The Preferences page shows "Not saved to your account (Method Not Allowed)" or similar: the server is older than the pages (a `git pull` updates the pages at once, the server only when Sift is restarted). Restart Sift. Changing a preference never pops up a dialog: it applies at once and a failed save is only noted on the page.
 
 ## Known limits
 
