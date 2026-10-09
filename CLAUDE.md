@@ -1,12 +1,14 @@
 # Sift: working notes for Claude
 
-Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL, plain JavaScript pages in `web/`. The full design record is `docs/AS_BUILT.md`; read the relevant section before changing a feature.
+Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL, plain JavaScript pages in `web/`. How each part is designed and works is in the developer knowledge base, `docs/kb/` (shown to admins in Sift at Admin, Developer); read the feature article and its decision records before changing a feature. `docs/AS_BUILT.md` keeps the change log and the original design record.
 
 ## Conventions
 
 - Australian English, no em dashes (a test enforces this in `web/knowledge.json`).
 - Commit and push to `main`. Before pushing: run the whole test suite (`.venv/bin/python -m pytest -q`) and, for page changes, check the page in a browser at desktop and phone widths.
-- Every change gets a row in the AS_BUILT change log (newest at the bottom of the table) and, for a new feature, its own numbered section. Keep `README.md` and the help articles in `web/knowledge.json` in step.
+- Every change gets a row in the AS_BUILT change log (newest at the bottom of the table). Keep `README.md` and the help articles in `web/knowledge.json` in step.
+- Developer knowledge base (`docs/kb/`, guide: `docs/kb/start-here/kb-guide.md`): update the feature article a change touches (raise its `version`, set `reviewed`); a new feature gets a new article on the feature template; a significant design choice gets a decision record (`decisions/adr-...`); a fix for a recurring problem gets a runbook (`operations/rb-...`); known issues and ideas go in `docs/kb/improvements.json`. `tests/unit/test_devkb.py` checks every header, link and code path.
+- Releases: bump `src/version.py` and add `docs/kb/releases/release-<version>.md` (the test checks they match).
 - Personal data stays out of git: `allords.txt` and other ticker files, `.env`, `logs/`, `data/asx_reports/`. Never ask for the database password in chat.
 - UI colour: every action button is pink (`--action`: `.btn`, `.btn.primary` for the main one, `.icon-btn`), links are blue (`--accent`), deleting is red (`.btn.danger`). Use the classes or tokens, never raw colours (`web/style.css`, "Action colour").
 - Schema changes go in `db/schema.sql` and must be idempotent (`IF NOT EXISTS`); they apply on start-up and at the start of the nightly run.

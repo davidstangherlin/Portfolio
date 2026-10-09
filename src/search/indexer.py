@@ -31,7 +31,7 @@ from src.search import embeddings
 
 logger = logging.getLogger(__name__)
 
-AREAS = ("market", "coattail", "personal", "help", "pages")
+AREAS = ("market", "coattail", "personal", "help", "pages", "devkb")
 KNOWLEDGE = Path(__file__).resolve().parents[2] / "web" / "knowledge.json"
 
 # Every table in db/schema.sql is either searched (here, with the area that
@@ -71,10 +71,11 @@ EXCLUDED = {
 }
 
 _INSERT = text("""
-    INSERT INTO search_index (doc_id, area, kind, owner_id, code, title, subtitle, body, url, facets, rank_boost, content_hash, search_vector)
-    VALUES (:doc_id, :area, :kind, :owner_id, :code, :title, :subtitle, :body, :url, CAST(:facets AS JSONB), :rank_boost, :content_hash,
+    INSERT INTO search_index (doc_id, area, kind, owner_id, audience, code, title, subtitle, body, url, facets, rank_boost, content_hash, search_vector)
+    VALUES (:doc_id, :area, :kind, :owner_id, :audience, :code, :title, :subtitle, :body, :url, CAST(:facets AS JSONB), :rank_boost, :content_hash,
             setweight(to_tsvector('simple', coalesce(:code, '')), 'A')
             || setweight(to_tsvector('english', :title), 'A')
+            || setweight(to_tsvector('simple', :title), 'A')  -- every title word, even ones English drops ("up", "top")
             || setweight(to_tsvector('english', coalesce(:subtitle, '')), 'B')
             || setweight(to_tsvector('english', coalesce(:body, '')), 'C'))
     ON CONFLICT (doc_id) DO NOTHING
@@ -99,8 +100,9 @@ PAGES = [
 ]
 
 
-def _doc(area, kind, doc_id, title, url, code=None, subtitle=None, body=None, facets=None, rank_boost=0.0, owner_id=None):
-    return {"doc_id": f"{kind}:{doc_id}", "area": area, "kind": kind, "owner_id": owner_id, "code": code, "title": title,
+def _doc(area, kind, doc_id, title, url, code=None, subtitle=None, body=None, facets=None, rank_boost=0.0, owner_id=None,
+         audience="all"):
+    return {"doc_id": f"{kind}:{doc_id}", "area": area, "kind": kind, "owner_id": owner_id, "audience": audience, "code": code, "title": title,
             "subtitle": subtitle, "body": body, "url": url, "facets": json.dumps(facets or {}), "rank_boost": rank_boost,
             "content_hash": embeddings.content_hash(title, subtitle, body)}
 
@@ -227,7 +229,31 @@ def page_docs(ctx: _Context) -> list[dict]:
     return docs
 
 
-BUILDERS = {"market": market_docs, "coattail": coattail_docs, "personal": personal_docs, "help": help_docs, "pages": page_docs}
+# Developer articles are long and match many words; they rank after the
+# shares, help and pages people usually want, unless their title matches.
+DEVKB_BOOST = -2.0
+
+
+def devkb_docs(ctx: _Context) -> list[dict]:
+    """The developer knowledge base (§36): admins only."""
+    from src.devkb import articles, generated, markdown
+
+    docs = [_doc("devkb", "devkb", a.id, a.title, f"#/admin/kb/{a.id}",
+                 subtitle=f"{articles.CATEGORIES[a.category]} · {a.summary}", body=markdown.plain(a.body)[:20000],
+                 facets={"topic": "Developer knowledge base"}, audience="admin", rank_boost=DEVKB_BOOST)
+            for a in articles.load() if a.status != "retired"]
+    docs += [_doc("devkb", "devkb", key, title, f"#/admin/kb/{key}", subtitle=f"Generated reference · {summary}",
+                  facets={"topic": "Developer knowledge base"}, audience="admin", rank_boost=DEVKB_BOOST)
+             for key, (title, _, summary) in generated.GENERATED.items()]
+    docs.append(_doc("devkb", "devkb", "home", "Developer knowledge base", "#/admin/kb",
+                     subtitle="Admin · how Sift is designed and how it works: articles, runbooks, decision records, "
+                              "generated reference, the improvement register and release notes",
+                     facets={"topic": "Developer knowledge base"}, audience="admin"))
+    return docs
+
+
+BUILDERS = {"market": market_docs, "coattail": coattail_docs, "personal": personal_docs, "help": help_docs, "pages": page_docs,
+            "devkb": devkb_docs}
 
 
 def _build(ctx: _Context, area: str, everyone: bool) -> list[dict]:

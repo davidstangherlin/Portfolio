@@ -30,7 +30,8 @@ TYPO_MIN_LETTERS = 5
 TYPO_SIMILARITY = 0.42  # pg_trgm word_similarity; swapped letters (vangaurd) score about 0.44
 SHOWN = 100
 KIND_LABELS = {"share": "Shares", "etf": "ETFs", "lic": "LICs", "manager": "Fund managers", "watchlist": "Watchlists",
-               "portfolio": "Portfolios", "scenario": "What-if scenarios", "help": "Help articles", "page": "Pages", "setting": "Settings"}
+               "portfolio": "Portfolios", "scenario": "What-if scenarios", "help": "Help articles", "page": "Pages", "setting": "Settings",
+               "devkb": "Developer articles"}
 GROUPS = ("type", "sector", "recommendation", "mine", "topic")  # the tick-box groups, top to bottom
 HL_START, HL_END = "\u0002", "\u0003"  # snippet highlight markers; the page turns them into <mark>
 
@@ -69,11 +70,16 @@ def _sql(typo: bool, n: int) -> str:
                      WHEN lower(s.title) LIKE :exact || '%' THEN 2 ELSE 0 END)
                + ts_rank_cd(s.search_vector, q.query) * 4 + {near} + s.rank_boost AS score
         FROM search_index s, q
-        WHERE (s.owner_id IS NULL OR s.owner_id = :owner)
+        WHERE (s.owner_id IS NULL OR s.owner_id = :owner) AND (s.audience = 'all' OR :admin)
           AND {match}
         ORDER BY score DESC, s.title
         LIMIT {CANDIDATES}
     """
+
+
+def _is_admin(session, user_id) -> bool:
+    """Admin-only rows (the developer knowledge base, §36) are for admins."""
+    return bool(session.execute(text("SELECT role = 'admin' FROM users WHERE user_id = :u"), {"u": user_id}).scalar())
 
 
 def _mine_codes(session, owner_id) -> tuple[set[str], set[str]]:
@@ -102,7 +108,7 @@ def _values(row: dict) -> dict[str, list[str]]:
 
 
 def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool) -> list[dict]:
-    params = {"plain": " ".join(ws), "exact": exact, "owner": owner_id}
+    params = {"plain": " ".join(ws), "exact": exact, "owner": owner_id, "admin": _is_admin(session, owner_id)}
     for i, w in enumerate(ws):
         params[f"w{i}"], params[f"p{i}"] = w, f"{w}:*"
     rows = [dict(r) for r in session.execute(text(_sql(False, len(ws))), params).mappings()]
@@ -114,7 +120,7 @@ def _word_matches(session, ws: list[str], exact: str, owner_id, typo: bool) -> l
 
 _BY_ID = text("""
     SELECT doc_id, kind, code, title, subtitle, url, facets, left(coalesce(nullif(body, ''), subtitle, ''), 220) AS snippet, rank_boost AS score
-    FROM search_index WHERE doc_id = ANY(:ids)
+    FROM search_index WHERE doc_id = ANY(:ids) AND (audience = 'all' OR :admin)
 """)
 
 
@@ -149,7 +155,7 @@ rows and "Mine" are the current user's unless `owner_id` says otherwise."""
         meaning = dict(embeddings.semantic_matches(session, embedder, q, owner_id))
         missing = [d for d in meaning if d not in found]
         if missing:
-            for r in session.execute(_BY_ID, {"ids": missing}).mappings():
+            for r in session.execute(_BY_ID, {"ids": missing, "admin": _is_admin(session, owner_id)}).mappings():
                 found[r["doc_id"]] = dict(r) | {"score": float(r["score"])}
         for d, sim in meaning.items():
             if d in found:

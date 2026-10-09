@@ -525,6 +525,8 @@ CREATE TABLE IF NOT EXISTS search_index (
 );
 CREATE INDEX IF NOT EXISTS idx_search_vector ON search_index USING GIN (search_vector);
 CREATE INDEX IF NOT EXISTS idx_search_area ON search_index (area);
+-- Who may see a row: everyone, or admins only (the developer knowledge base, §36).
+ALTER TABLE search_index ADD COLUMN IF NOT EXISTS audience VARCHAR(10) NOT NULL DEFAULT 'all';  -- all or admin
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
         CREATE INDEX IF NOT EXISTS idx_search_title_trgm ON search_index USING GIN (lower(title) gin_trgm_ops);

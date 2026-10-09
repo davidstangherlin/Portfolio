@@ -87,4 +87,4 @@ def test_what_if_scenarios_are_searchable(indexed):
     indexer.reindex(indexed, ("personal",))
     indexed.commit()
     hits = [(x["type"], x["title"]) for x in search(indexed, "rates up")["results"]]
-    assert ("What-if scenarios", "Rates up") in hits
+    assert ("What-if scenarios", "Rates up") in hits, hits

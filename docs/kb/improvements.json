@@ -1,0 +1,775 @@
+{
+ "about": "Sift's improvement register (docs/AS_BUILT.md §36). IMP-001 to IMP-036 keep AS_BUILT's known issue numbers. Fields: see src/devkb/register.py.",
+ "items": [
+  {
+   "id": "IMP-001",
+   "title": "current_ratio is always blank",
+   "type": "debt",
+   "priority": "P4",
+   "status": "open",
+   "impact": "The screener can't judge liquidity.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion",
+    "valuation-models"
+   ],
+   "notes": "Add current assets and liabilities to financial_reports if this metric matters."
+  },
+  {
+   "id": "IMP-002",
+   "title": "Franking defaults to 100% (Australian) or 0% (foreign)",
+   "type": "issue",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Grossed-up yield is wrong for partly franked payers.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models",
+    "ingestion"
+   ],
+   "notes": "Correct affected rows by hand; the correction survives re-ingestion. No automated source exists."
+  },
+  {
+   "id": "IMP-003",
+   "title": "Shares outstanding is derived, not stored",
+   "type": "risk",
+   "priority": "P3",
+   "status": "open",
+   "impact": "A wrong market value from Yahoo skews the Graham Number, P/B, FCF per share and DCF together.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models",
+    "ingestion"
+   ],
+   "notes": "Store shares outstanding from an independent source if data quality problems appear."
+  },
+  {
+   "id": "IMP-004",
+   "title": "Yahoo's field names are unversioned and change without notice",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Statements can come back blank after a Yahoo change (happened 2026-10-01).",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion",
+    "rb-yahoo-fields",
+    "data-sources"
+   ],
+   "notes": "Runbook: rb-yahoo-fields."
+  },
+  {
+   "id": "IMP-005",
+   "title": "Yahoo blocked from the development environment",
+   "type": "issue",
+   "priority": "P4",
+   "status": "done",
+   "impact": "Live ingestion is tested only on the owner's PC.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "testing-and-validation"
+   ],
+   "notes": "Resolved by running ingestion on the owner's machine."
+  },
+  {
+   "id": "IMP-006",
+   "title": "No automated test suite",
+   "type": "debt",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Regressions would surface only by inspection.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "testing-and-validation"
+   ],
+   "notes": "Resolved 2026-10-02; over 680 tests now."
+  },
+  {
+   "id": "IMP-007",
+   "title": ".env holds the database password in plain text",
+   "type": "risk",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Standard for one PC; not for hosting.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "setup-and-configuration",
+    "adr-008-supabase-flyio"
+   ],
+   "notes": "Use the host's secret store in Phase 4."
+  },
+  {
+   "id": "IMP-008",
+   "title": "One DCF model applied to every sector, including banks",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Banks and REITs had no estimate.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models",
+    "adr-004-dcf-ddm-by-sector"
+   ],
+   "notes": "Resolved 2026-10-02 with the DDM."
+  },
+  {
+   "id": "IMP-009",
+   "title": "DCF used only the latest year's free cash flow",
+   "type": "issue",
+   "priority": "P2",
+   "status": "done",
+   "impact": "Estimates swung with one year's figure.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models"
+   ],
+   "notes": "Resolved: 3-year average base."
+  },
+  {
+   "id": "IMP-010",
+   "title": "One bad ticker could abort a batch",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "A whole night's ingestion could be lost.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion"
+   ],
+   "notes": "Resolved: per-ticker isolation and pacing."
+  },
+  {
+   "id": "IMP-011",
+   "title": "No official index constituent list is bundled",
+   "type": "issue",
+   "priority": "P3",
+   "status": "open",
+   "impact": "The screened universe is whatever allords.txt holds.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "data-sources"
+   ],
+   "notes": "Source the list from the ASX or S&P each quarter."
+  },
+  {
+   "id": "IMP-012",
+   "title": "Margin of safety could overflow its column",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "A run crashed at 500 companies.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models"
+   ],
+   "notes": "Resolved: values beyond 5000% become blank."
+  },
+  {
+   "id": "IMP-013",
+   "title": "Valuation committed once per run",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "One crash lost every company's valuation that night.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models"
+   ],
+   "notes": "Resolved: per-company commits."
+  },
+  {
+   "id": "IMP-014",
+   "title": "No flag for one-off special dividends",
+   "type": "issue",
+   "priority": "P2",
+   "status": "done",
+   "impact": "Yields looked huge after capital returns.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models"
+   ],
+   "notes": "Resolved: payout ratio warning, later abnormal dividends held out."
+  },
+  {
+   "id": "IMP-015",
+   "title": "Any ratio could overflow its column",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Single fields lost whole valuation rows.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "valuation-models"
+   ],
+   "notes": "Resolved: every field clamped to its column."
+  },
+  {
+   "id": "IMP-016",
+   "title": "Pipeline run by hand",
+   "type": "issue",
+   "priority": "P2",
+   "status": "done",
+   "impact": "Data went stale.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "nightly-run"
+   ],
+   "notes": "Resolved: nightly script and Task Scheduler."
+  },
+  {
+   "id": "IMP-017",
+   "title": "No way to tell newly cheap companies from value traps",
+   "type": "idea",
+   "priority": "P2",
+   "status": "done",
+   "impact": "Static margin of safety hid the difference.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "trends-markers"
+   ],
+   "notes": "Resolved: trends and the trap warning."
+  },
+  {
+   "id": "IMP-018",
+   "title": "Fundamentals trend compares only two reports",
+   "type": "debt",
+   "priority": "P3",
+   "status": "open",
+   "impact": "A mid-window dip and recovery is missed.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "trends-markers",
+    "review-hotspots"
+   ],
+   "notes": "A multi-point check would be the proper fix if false flags become a problem."
+  },
+  {
+   "id": "IMP-019",
+   "title": "CGT records cover share parcels only",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Dividends, franking credits, carried losses and corporate actions aren't modelled.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "portfolios-cgt"
+   ],
+   "notes": "A dividends_received table is the natural next step for tax time."
+  },
+  {
+   "id": "IMP-020",
+   "title": "Price markers need 200 stored days",
+   "type": "issue",
+   "priority": "P4",
+   "status": "by-design",
+   "impact": "Price signal blank until history builds.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "trends-markers"
+   ],
+   "notes": "One-off backfill with a 1-year price fetch."
+  },
+  {
+   "id": "IMP-021",
+   "title": "Actions are rule-based with fixed thresholds",
+   "type": "risk",
+   "priority": "P3",
+   "status": "by-design",
+   "impact": "Rules can't know context such as a takeover bid.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "screener-actions"
+   ],
+   "notes": "Each action carries its reason. Not financial advice."
+  },
+  {
+   "id": "IMP-022",
+   "title": "Code with a new column broke the live database until the schema was applied",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Every valuation failed.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "adr-011-idempotent-schema"
+   ],
+   "notes": "Resolved: schema applied on start and nightly."
+  },
+  {
+   "id": "IMP-023",
+   "title": "Phone access uses Basic authentication over plain HTTP",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "On an untrusted network the password could be read.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "web-gui",
+    "adr-008-supabase-flyio"
+   ],
+   "notes": "Use only on home Wi-Fi; hosting brings HTTPS and proper sign-in."
+  },
+  {
+   "id": "IMP-024",
+   "title": "Yahoo's dividend feed mixed in one-off distributions",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Inflated yields and DDM values.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion"
+   ],
+   "notes": "Resolved: dividend_history.py."
+  },
+  {
+   "id": "IMP-025",
+   "title": "No currency conversion between statements and prices",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "USD and NZD reporters were mis-valued.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion"
+   ],
+   "notes": "Resolved; revenue trend still includes currency moves."
+  },
+  {
+   "id": "IMP-026",
+   "title": "The track record can't be backfilled",
+   "type": "risk",
+   "priority": "P4",
+   "status": "by-design",
+   "impact": "No results until horizons pass.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "track-record",
+    "adr-005-immutable-signal-record"
+   ],
+   "notes": "By design."
+  },
+  {
+   "id": "IMP-027",
+   "title": "Parcels can't move between portfolios",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "A transfer must be entered as a sale and a buy.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "portfolios-cgt"
+   ],
+   "notes": "A transfer feature would record the change of ownership date and value."
+  },
+  {
+   "id": "IMP-028",
+   "title": "Watchlist triggers are a state, not an alert",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Nothing is sent; a trigger met and lost between visits isn't seen.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "watchlists"
+   ],
+   "notes": "Pairs with notifications (IMP-039)."
+  },
+  {
+   "id": "IMP-029",
+   "title": "The benchmark is the plain average of screened companies",
+   "type": "risk",
+   "priority": "P3",
+   "status": "by-design",
+   "impact": "Small companies count as much as large ones.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "track-record"
+   ],
+   "notes": "A market-cap-weighted benchmark could be added alongside."
+  },
+  {
+   "id": "IMP-030",
+   "title": "What-if scenarios judge today's data only",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Can't show whether a scenario would have done better historically.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "admin-console"
+   ],
+   "notes": "Phase 4 of the admin console: backtesting against the track record."
+  },
+  {
+   "id": "IMP-031",
+   "title": "Prices stored before 2026-10-06 were dividend-adjusted monthly",
+   "type": "issue",
+   "priority": "P4",
+   "status": "open",
+   "impact": "Small steps at ex-dates in older charts.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion"
+   ],
+   "notes": "One-off 2-year price refetch cleans it."
+  },
+  {
+   "id": "IMP-032",
+   "title": "ETF report reader built before seeing the real file",
+   "type": "issue",
+   "priority": "P2",
+   "status": "done",
+   "impact": "Columns might not have mapped.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "etfs-collection"
+   ],
+   "notes": "Resolved 2026-10-06 against the real report."
+  },
+  {
+   "id": "IMP-033",
+   "title": "LIC NTA is monthly",
+   "type": "risk",
+   "priority": "P4",
+   "status": "by-design",
+   "impact": "Premium or discount uses NTA about a month old.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "lics"
+   ],
+   "notes": "The NTA date is shown beside the figure."
+  },
+  {
+   "id": "IMP-034",
+   "title": "Yahoo's analyst and holder data is thin for ASX companies",
+   "type": "risk",
+   "priority": "P3",
+   "status": "by-design",
+   "impact": "Missing ratings; holder lists mainly overseas funds, top 10 only.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "analyst-insights",
+    "coattail"
+   ],
+   "notes": "Shown as context only."
+  },
+  {
+   "id": "IMP-035",
+   "title": "Nightly runs cut off with no error",
+   "type": "issue",
+   "priority": "P1",
+   "status": "done",
+   "impact": "Nights not updated.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "nightly-run",
+    "rb-nightly-run-failed"
+   ],
+   "notes": "Resolved 2026-10-06: task settings and timed steps."
+  },
+  {
+   "id": "IMP-036",
+   "title": "No exchange rate for the PNG kina",
+   "type": "issue",
+   "priority": "P3",
+   "status": "open",
+   "impact": "BFL, KSL and SST statements failed nightly.",
+   "raised": "2026-10-02",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion"
+   ],
+   "notes": "Addressed 2026-10-07 by chaining through USD; not yet confirmed against Yahoo."
+  },
+  {
+   "id": "IMP-037",
+   "title": "Review the articles migrated from the early as-built sections",
+   "type": "debt",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Parts describe the command line as first built; some may be out of date.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "ingestion",
+    "valuation-models",
+    "trends-markers",
+    "system-overview",
+    "setup-and-configuration",
+    "data-model",
+    "testing-and-validation"
+   ],
+   "notes": "Their next review is 2026-11-09."
+  },
+  {
+   "id": "IMP-038",
+   "title": "No continuous integration",
+   "type": "debt",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Tests run only when someone runs them before pushing.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "testing-and-validation",
+    "change-process"
+   ],
+   "notes": "A GitHub Actions workflow running the suite on every push (with a PostgreSQL service) would catch misses."
+  },
+  {
+   "id": "IMP-039",
+   "title": "No notifications (email or phone)",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Triggers, nightly failures and review reminders show only in Sift.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "watchlists",
+    "profile-preferences-impersonation",
+    "developer-kb"
+   ],
+   "notes": "Needs a sending service; fits Phase 4."
+  },
+  {
+   "id": "IMP-040",
+   "title": "Coattail: director trades and substantial holder notices",
+   "type": "idea",
+   "priority": "P2",
+   "status": "planned",
+   "impact": "Coattail shows fund holdings only.",
+   "raised": "2026-10-08",
+   "updated": "2026-10-09",
+   "articles": [
+    "coattail"
+   ],
+   "notes": "Waiting on the source probe output from the owner's PC (scripts/probe_coattail_sources.py)."
+  },
+  {
+   "id": "IMP-041",
+   "title": "Meaning-based search is built but off",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Search matches words, not meaning.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "search"
+   ],
+   "notes": "Switch on with SIFT_EMBEDDINGS=local and sentence-transformers."
+  },
+  {
+   "id": "IMP-042",
+   "title": "Preferences: Language and region, Notifications",
+   "type": "idea",
+   "priority": "P3",
+   "status": "planned",
+   "impact": "Date format and time zone are fixed.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "profile-preferences-impersonation"
+   ],
+   "notes": "The owner will supply the reference screenshot."
+  },
+  {
+   "id": "IMP-043",
+   "title": "Multi-user Phase 3: sign-in",
+   "type": "idea",
+   "priority": "P1",
+   "status": "planned",
+   "impact": "Testers can't sign in; accounts are used only through impersonation.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "accounts-owners",
+    "adr-008-supabase-flyio"
+   ],
+   "notes": "Needs a Supabase project (Sydney); share only the URL and anon key."
+  },
+  {
+   "id": "IMP-044",
+   "title": "Multi-user Phase 4: hosting",
+   "type": "idea",
+   "priority": "P2",
+   "status": "planned",
+   "impact": "Sift runs only on the owner's PC.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "architecture",
+    "adr-008-supabase-flyio"
+   ],
+   "notes": "Supabase Postgres and Fly.io, Sydney."
+  },
+  {
+   "id": "IMP-045",
+   "title": "Multi-user Phase 5: tester readiness",
+   "type": "idea",
+   "priority": "P2",
+   "status": "planned",
+   "impact": "Privacy note, terms, not-advice wording, usage limits, error monitoring, feedback link.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "accounts-owners"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "IMP-046",
+   "title": "Backups are manual",
+   "type": "risk",
+   "priority": "P1",
+   "status": "open",
+   "impact": "A disk failure could lose portfolios and the track record since the last manual backup.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "rb-backup-restore"
+   ],
+   "notes": "Until hosting, a scheduled weekly pg_dump to another drive or cloud folder."
+  },
+  {
+   "id": "IMP-047",
+   "title": "app.js is one 4,000-line file",
+   "type": "debt",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Harder to change safely as Sift grows.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "web-gui",
+    "adr-002-fastapi-plain-js"
+   ],
+   "notes": "Split into modules by page when several people work on pages."
+  },
+  {
+   "id": "IMP-048",
+   "title": "No alerting or monitoring for nightly failures",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "A failed night is noticed only when someone opens Sift.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "nightly-run",
+    "rb-nightly-run-failed"
+   ],
+   "notes": "An email at the end of a failed run; error monitoring when hosted."
+  },
+  {
+   "id": "IMP-049",
+   "title": "Everything depends on one PC",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "If the PC is off, lost or broken, Sift and its nightly run stop.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "architecture"
+   ],
+   "notes": "Resolved by hosting (IMP-044); meanwhile keep backups (IMP-046)."
+  },
+  {
+   "id": "IMP-050",
+   "title": "An admin's open impersonation applies in all their browsers",
+   "type": "issue",
+   "priority": "P4",
+   "status": "by-design",
+   "impact": "A forgotten session shows everywhere until ended or 8 hours pass.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "profile-preferences-impersonation",
+    "rb-impersonation"
+   ],
+   "notes": "Per-browser sessions arrive with sign-in tokens (Phase 3)."
+  },
+  {
+   "id": "IMP-051",
+   "title": "Yahoo Finance data terms for a public service",
+   "type": "risk",
+   "priority": "P1",
+   "status": "open",
+   "impact": "Showing Yahoo's data to other people may not be permitted; a licensed provider may be needed.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "data-sources",
+    "adr-003-yahoo-data-source"
+   ],
+   "notes": "Settle before Phase 5 (testers outside the household)."
+  },
+  {
+   "id": "IMP-052",
+   "title": "Dependency updates and security patches",
+   "type": "debt",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Pinned packages age; security fixes need a routine.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "ref-dependencies",
+    "change-process"
+   ],
+   "notes": "A quarterly check of requirements.txt against new releases, with the test suite."
+  },
+  {
+   "id": "IMP-053",
+   "title": "Privacy and retention for testers' personal data",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Portfolios are sensitive; testers need to know what's kept and for how long.",
+   "raised": "2026-10-09",
+   "updated": "2026-10-09",
+   "articles": [
+    "accounts-owners"
+   ],
+   "notes": "Part of Phase 5: privacy note, export and delete my data."
+  }
+ ]
+}

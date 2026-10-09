@@ -376,6 +376,12 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   compact spacing, wrapping long names, help tips, reduce motion, patterns and data tables for
   charts, always-visible buttons, keyboard shortcuts, start page, search scope and rows shown.
   Shortcuts: `/` search, `?` the list, `g` then a letter to go somewhere (`g s` Screener).
+- **Developer knowledge base (admins):** Admin, Developer: how Sift is designed and how it works,
+  in articles kept with the code in `docs/kb/`. Start here guides, one article per feature, data,
+  runbooks for common problems, decision records, reference pages generated from Sift itself (data
+  dictionary, API, settings, dependencies, tests), the improvement register and release notes. Each
+  article has a version, owner and review dates; overdue reviews show on its home page. Sift's
+  version is in `src/version.py`.
 - **Users and impersonation (admins):** Admin, Users adds, disables and changes the role of
   accounts. Impersonate lets an admin see and use Sift exactly as a member does, with a banner
   and End button on every page; sessions end by themselves after 8 hours and are all logged.

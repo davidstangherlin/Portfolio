@@ -2165,6 +2165,41 @@
      "href": "#/admin/users"
     }
    ]
+  },
+  {
+   "id": "developer-kb",
+   "title": "Developer knowledge base (admins)",
+   "category": "admin",
+   "aliases": [
+    "developer knowledge base",
+    "as built",
+    "design",
+    "architecture",
+    "runbook",
+    "decision record",
+    "release notes",
+    "improvement register",
+    "technical debt",
+    "data dictionary",
+    "api reference"
+   ],
+   "definition": "Admins have a developer knowledge base under Admin, Developer: how Sift is designed and how it works, for diagnosing problems, planning improvements and handing work to a helper.",
+   "body": [
+    "Articles: start here (overview, architecture, setup, testing, how changes are made), one article per feature, data, operations runbooks for common problems, and decision records explaining why Sift is built the way it is.",
+    "Generated reference pages are built from Sift itself each time they're opened, so they're always current: the data dictionary, every API route, every setting, dependencies and the test catalogue.",
+    "The improvement register lists known issues, technical debt, ideas and risks, with priority and status. Release notes record each version of Sift.",
+    "Each article shows its version, owner, published and last reviewed dates and when it's next due for review; overdue reviews show on the home page.",
+    "Articles are kept with the code in git (docs/kb), so they change with it. Only admins can open them, and only admins find them in search."
+   ],
+   "related": [
+    "users-impersonation"
+   ],
+   "links": [
+    {
+     "text": "Open the developer knowledge base",
+     "href": "#/admin/kb"
+    }
+   ]
   }
  ]
 }

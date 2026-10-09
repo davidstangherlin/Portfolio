@@ -44,6 +44,8 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from screen_asx import load_annotated_rows, parse_args as screener_defaults
 from src import accounts
+from src import version as sift_version
+from src.devkb import articles as kb_articles, generated as kb_generated, markdown as kb_markdown, register as kb_register
 from src.config import get_session
 from src.etf import profiles as fund_profiles, views as etf_views
 from src.ingestion.insights_ingestion import insights_payload
@@ -155,13 +157,13 @@ def error_message(exc: Exception) -> str:
 
 
 def prepare_search() -> str:
-    """Bring the search index up to date at start-up (§32): help and pages
-    always (they change only with a git pull), and everything when the
+    """Bring the search index up to date at start-up (§32): help, pages and
+    the developer knowledge base always (they change only with a git pull), and everything when the
     index is empty (a new install). Never stops the server starting."""
     try:
         with get_session() as session:
             empty = not session.execute(text("SELECT 1 FROM search_index WHERE area = 'market' LIMIT 1")).first()
-            counts = search_indexer.reindex(session, search_indexer.AREAS if empty else ("help", "pages"), "startup")
+            counts = search_indexer.reindex(session, search_indexer.AREAS if empty else ("help", "pages", "devkb"), "startup")
             session.commit()
         return "Search index: " + ", ".join(f"{a} {n}" for a, n in counts.items()) + "."
     except Exception as exc:  # noqa: BLE001 - search can be rebuilt later; the pages still work
@@ -724,6 +726,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             payload = status_payload(session, date.today(), datetime.now())
             payload["user"] = accounts.current_user(session).info()
             payload["impersonating"] = request.state.user.user_id != request.state.acting.user_id
+            payload["version"] = sift_version.VERSION
             return JSONResponse(_json_ready(payload))
 
     def me_payload(request: Request, session) -> dict:
@@ -756,6 +759,61 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
     @app.delete("/api/me/settings")
     def api_reset_my_settings():
         return change(lambda session: {"settings": preferences.save_settings(session, preferences.SETTINGS_DEFAULTS)})
+
+    # ---------- developer knowledge base (§36) ----------
+    def kb_index(today: date) -> dict:
+        found = kb_articles.load()
+        listed = [a.info(today) for a in found]
+        listed += [{"id": key, "title": title, "category": cat, "summary": summary, "status": "published",
+                    "generated": True} for key, (title, cat, summary) in kb_generated.GENERATED.items()]
+        return {"articles": listed, "found": found}
+
+    @app.get("/api/admin/kb")
+    def api_kb():
+        """The developer knowledge base's home: every article by category, reviews due, the register and releases."""
+        today = date.today()
+        idx = kb_index(today)
+        releases = sorted((a for a in idx["found"] if a.category == "releases" and a.release),
+                          key=lambda a: a.published, reverse=True)
+        return JSONResponse(_json_ready({
+            "version": sift_version.VERSION, "released": sift_version.RELEASED,
+            "categories": [{"id": k, "name": v} for k, v in kb_articles.CATEGORIES.items()],
+            "articles": idx["articles"], "reviews": kb_articles.review_summary(idx["found"], today),
+            "register": kb_register.summary(kb_register.load()),
+            "latest_release": releases[0].info(today) if releases else None,
+        }))
+
+    @app.get("/api/admin/kb/register")
+    def api_kb_register():
+        """The improvement register: known issues, technical debt, ideas and risks."""
+        titles = {a.id: a.title for a in kb_articles.load()}
+        items = [i | {"article_titles": [{"id": x, "title": titles.get(x, x)} for x in i["articles"]]} for i in kb_register.load()]
+        return JSONResponse(_json_ready({"items": items, "types": kb_register.TYPES, "priorities": kb_register.PRIORITIES,
+                                         "statuses": kb_register.STATUSES}))
+
+    @app.get("/api/admin/kb/{article_id}")
+    def api_kb_article(article_id: str):
+        """One article (or generated reference page), rendered, with its contents and links."""
+        today = date.today()
+        found = kb_articles.by_id()
+        if article_id in kb_generated.GENERATED:
+            title, cat, summary = kb_generated.GENERATED[article_id]
+            with get_session() as session:
+                body = kb_generated.build(article_id, session, app)
+            html_, toc = kb_markdown.render(body)
+            return JSONResponse(_json_ready({"id": article_id, "title": title, "category": cat, "summary": summary,
+                                             "generated": True, "html": html_, "toc": toc, "related": [], "backlinks": []}))
+        article = found.get(article_id)
+        if article is None:
+            raise HTTPException(status_code=404, detail="No such article")
+        html_, toc = kb_articles.rendered(article)
+        related = [{"id": r, "title": found[r].title if r in found else kb_generated.GENERATED.get(r, (r,))[0]}
+                   for r in article.related]
+        backlinks = [{"id": a.id, "title": a.title} for a in found.values()
+                     if a.id != article.id and (article.id in a.related or f"kb:{article.id}" in a.body)]
+        return JSONResponse(_json_ready(article.info(today) | {
+            "html": html_, "toc": toc, "related": related, "backlinks": backlinks,
+            "category_name": kb_articles.CATEGORIES[article.category]}))
 
     # ---------- users and impersonation (§35) ----------
     def user_or_404(session, user_id: str) -> accounts.User:

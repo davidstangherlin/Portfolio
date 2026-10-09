@@ -3370,7 +3370,7 @@ function stepValue(v, unit) {
 
 function adminTabs(current) {
   return h("div", { class: "tabs", role: "navigation", "aria-label": "Admin" },
-    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"], ["search", "#/admin/search", "Search"], ["users", "#/admin/users", "Users"]].map(([id, href, label]) =>
+    [["settings", "#/admin", "Settings and formulas"], ["scenarios", "#/admin/scenarios", "What-if scenarios"], ["search", "#/admin/search", "Search"], ["users", "#/admin/users", "Users"], ["kb", "#/admin/kb", "Developer"]].map(([id, href, label]) =>
       h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
 }
 
@@ -3912,6 +3912,137 @@ async function renderPreferences(section) {
 }
 
 /* ---------- Admin: Users (§35) ---------- */
+/* ---------- Admin: developer knowledge base (§36) ---------- */
+const REVIEW_PILL = { ok: ["under", "Reviewed"], due: ["fair", "Review due"], overdue: ["over", "Review overdue"] };
+const kbDate = (iso) => iso ? longDate(String(iso).slice(0, 10)) : "";
+function reviewPill(a) {
+  if (a.generated) return h("span", { class: "pill none", text: "Generated" });
+  const [cls, text] = REVIEW_PILL[a.review] || REVIEW_PILL.ok;
+  return h("span", { class: `pill ${cls}`, text: a.status === "draft" ? "Draft" : a.status === "retired" ? "Retired" : text });
+}
+function kbItem(a) {
+  return h("li", { class: "kb-item", "data-text": `${a.title} ${a.summary} ${a.id}`.toLowerCase() },
+    h("div", { class: "kb-item-head" }, h("a", { href: `#/admin/kb/${a.id}`, text: a.title }), reviewPill(a)),
+    h("div", { class: "sub-text", text: a.summary }),
+    a.generated ? null : h("div", { class: "kb-meta-line", text: `v${a.version} · ${a.owner} · reviewed ${kbDate(a.reviewed)} · next ${kbDate(a.next_review)}` }));
+}
+async function renderKb() {
+  app.replaceChildren(pageHead("Developer knowledge base", null), adminTabs("kb"), h("p", { class: "loading", text: "Loading..." }));
+  const d = await getJSON("/api/admin/kb");
+  const filter = h("input", { type: "search", class: "pref-search kb-filter", placeholder: "Filter articles", "aria-label": "Filter articles" });
+  const reviewList = (items, cls) => h("ul", { class: "kb-review-list" }, items.map((a) => h("li", {},
+    h("a", { href: `#/admin/kb/${a.id}`, text: a.title }), h("span", { class: `pill ${cls}`, text: kbDate(a.next_review) }))));
+  const r = d.reviews, reg = d.register;
+  const top = h("div", { class: "cards kb-top" },
+    h("div", { class: "card" }, h("h2", { text: "Reviews" }),
+      h("p", { class: "sub-text", text: `${r.total} articles${r.drafts ? `, ${r.drafts} in draft` : ""}. Each has a next review date; overdue and due within 30 days show here.` }),
+      r.overdue.length ? [h("h3", { class: "related-head", text: `Overdue (${r.overdue.length})` }), reviewList(r.overdue, "over")] : null,
+      r.due.length ? [h("h3", { class: "related-head", text: `Due soon (${r.due.length})` }), reviewList(r.due, "fair")] : null,
+      !r.overdue.length && !r.due.length ? h("p", { class: "form-msg ok", text: "Every article is within its review date." }) : null),
+    h("div", { class: "card" }, h("h2", { text: "Improvement register" }),
+      h("p", { class: "kb-big" }, h("strong", { text: String(reg.open) }), " open", reg.p1 ? h("span", { class: "pill over", text: `${reg.p1} P1` }) : null),
+      h("p", { class: "sub-text", text: `${reg.by_type.issue} known issues, ${reg.by_type.debt} technical debt, ${reg.by_type.idea} ideas, ${reg.by_type.risk} risks.` }),
+      h("a", { href: "#/admin/kb/register", class: "btn", text: "Open the register" })),
+    h("div", { class: "card" }, h("h2", { text: `Sift ${d.version}` }),
+      h("p", { class: "sub-text", text: `Released ${kbDate(d.released)}.` }),
+      d.latest_release ? h("p", {}, h("a", { href: `#/admin/kb/${d.latest_release.id}`, text: d.latest_release.title })) : null,
+      h("p", {}, h("a", { href: "#/admin/kb/kb-guide", text: "How this knowledge base works" }))));
+  const sections = d.categories.map((c) => {
+    const items = d.articles.filter((a) => a.category === c.id).sort((a, b) => (a.generated ? 1 : 0) - (b.generated ? 1 : 0) || a.title.localeCompare(b.title));
+    if (!items.length) return null;
+    return h("section", { class: "card wide kb-section", "data-cat": c.id }, h("h2", { text: `${c.name} (${items.length})` }), h("ul", { class: "kb-list" }, items.map(kbItem)));
+  }).filter(Boolean);
+  const empty = h("p", { class: "sub-text", text: "No article matches.", hidden: true });
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    let shown = 0;
+    for (const sec of sections) {
+      let n = 0;
+      for (const li of sec.querySelectorAll(".kb-item")) { const ok = !q || li.dataset.text.includes(q); li.hidden = !ok; n += ok; }
+      sec.hidden = !n; shown += n;
+    }
+    empty.hidden = shown > 0;
+  });
+  app.replaceChildren(pageHead("Developer knowledge base", `How Sift is designed and how it works: admins only`), adminTabs("kb"),
+    top, h("div", { class: "kb-filter-row" }, filter), empty, h("div", { class: "cards" }, sections));
+  window.scrollTo(0, 0);
+}
+async function renderKbArticle(id, query) {
+  app.replaceChildren(pageHead("Developer knowledge base", null), adminTabs("kb"), h("p", { class: "loading", text: "Loading..." }));
+  const a = await getJSON(`/api/admin/kb/${id}`);
+  const body = h("div", { class: "kb-article" });
+  body.innerHTML = a.html;  // rendered server-side from Markdown with every text escaped (src/devkb/markdown.py)
+  const fact = (label, value) => value ? [h("dt", { text: label }), h("dd", {}, value)] : null;
+  const meta = a.generated
+    ? h("dl", { class: "facts" }, fact("Kind", "Generated from Sift each time it's opened, so it's always current"))
+    : h("dl", { class: "facts" },
+      fact("Version", `v${a.version}`), fact("Status", a.status[0].toUpperCase() + a.status.slice(1)),
+      fact("Owner", a.owner), fact("Published", kbDate(a.published)), fact("Last reviewed", kbDate(a.reviewed)),
+      fact("Next review", h("span", {}, kbDate(a.next_review), " ", reviewPill(a))),
+      fact("Release", a.release), fact("Decision", a.decision_status), fact("Source", a.source),
+      a.code.length ? fact("Code", h("ul", { class: "kb-paths" }, a.code.map((c) => h("li", {}, h("code", { text: c }))))) : null,
+      a.tables.length ? fact("Tables", h("ul", { class: "kb-paths" }, a.tables.map((t) => h("li", {}, h("a", { href: `#/admin/kb/ref-data-dictionary?section=${t}` }, h("code", { text: t })))))) : null,
+      fact("File", h("code", { text: a.path })));
+  const links = (title, items) => items.length ? [h("h3", { class: "related-head", text: title }),
+    h("ul", { class: "related-links" }, items.map((x) => h("li", {}, h("a", { href: `#/admin/kb/${x.id}`, text: x.title }))))] : null;
+  const toc = a.toc.filter((t) => t.level <= 3);
+  const aside = h("aside", { class: "kb-aside" },
+    h("div", { class: "card" }, h("h2", { text: "About this article" }), meta, links("Related", a.related), links("Referenced by", a.backlinks)),
+    toc.length > 2 ? h("nav", { class: "card kb-toc", "aria-label": "On this page" }, h("h2", { text: "On this page" }),
+      h("ul", {}, toc.map((t) => h("li", { class: `toc-${t.level}` }, h("a", { href: `#/admin/kb/${a.id}?section=${t.id}`, text: t.text }))))) : null);
+  const crumbs = h("p", { class: "kb-crumbs" }, h("a", { href: "#/admin/kb", text: "Developer knowledge base" }), " › ",
+    a.category_name || (a.generated ? "Generated reference" : a.category));
+  app.replaceChildren(pageHead(a.title, null), adminTabs("kb"), crumbs, h("p", { class: "kb-summary", text: a.summary }),
+    h("div", { class: "kb-layout" }, h("article", { class: "card kb-body" }, body), aside));
+  const section = new URLSearchParams(query || "").get("section");
+  const target = section && document.getElementById(section);
+  if (target) target.scrollIntoView({ block: "start" }); else window.scrollTo(0, 0);
+}
+async function renderKbRegister(query) {
+  app.replaceChildren(pageHead("Improvement register", null), adminTabs("kb"), h("p", { class: "loading", text: "Loading..." }));
+  const d = await getJSON("/api/admin/kb/register");
+  const asked = new URLSearchParams(query || "").get("q") || "";
+  const state = { q: asked, type: "", priority: "", status: asked ? "" : "live" };
+  const pick = (key, label, options) => h("select", { "aria-label": label, onchange: (e) => { state[key] = e.target.value; paint(); } },
+    options.map(([v, t]) => h("option", { value: v, text: t, selected: state[key] === v })));
+  const tbody = h("tbody", {});
+  const count = h("span", { class: "sub-text" });
+  const closed = new Set(["done", "wont", "by-design"]);
+  const pillFor = { P1: "over", P2: "fair", P3: "none", P4: "none" };
+  function paint() {
+    const q = state.q.toLowerCase();
+    const rows = d.items.filter((i) => (!state.type || i.type === state.type) && (!state.priority || i.priority === state.priority)
+      && (state.status === "" || (state.status === "live" ? !closed.has(i.status) : i.status === state.status))
+      && (!q || `${i.id} ${i.title} ${i.impact} ${i.notes}`.toLowerCase().includes(q)))
+      .sort((a, b) => a.priority.localeCompare(b.priority) || a.id.localeCompare(b.id));
+    count.textContent = `${rows.length} of ${d.items.length}`;
+    tbody.replaceChildren(...rows.map((i) => h("tr", {},
+      h("td", { class: "strong kb-reg-id", text: i.id }),
+      h("td", { class: "kb-reg-title" }, h("div", { class: "strong", text: i.title }), h("div", { class: "sub-text", text: i.impact }),
+        i.notes ? h("details", {}, h("summary", { text: "Notes" }), h("p", { text: i.notes })) : null,
+        i.article_titles.length ? h("div", { class: "kb-meta-line" }, i.article_titles.map((x, k) => [k ? ", " : "", h("a", { href: `#/admin/kb/${x.id}`, text: x.title })])) : null),
+      h("td", { class: "opt", text: d.types[i.type] }),
+      h("td", {}, h("span", { class: `pill ${pillFor[i.priority]}`, text: i.priority })),
+      h("td", { text: d.statuses[i.status] }),
+      h("td", { class: "opt", text: kbDate(i.updated) }))));
+  }
+  const search = h("input", { type: "search", class: "pref-search", placeholder: "Search the register", "aria-label": "Search the register", value: state.q,
+    oninput: (e) => { state.q = e.target.value; paint(); } });
+  paint();
+  app.replaceChildren(pageHead("Improvement register", "Known issues, technical debt, ideas and risks"), adminTabs("kb"),
+    h("p", { class: "kb-crumbs" }, h("a", { href: "#/admin/kb", text: "Developer knowledge base" }), " › Improvement register"),
+    h("div", { class: "card wide" },
+      h("div", { class: "kb-reg-filters" }, search,
+        pick("type", "Type", [["", "All types"], ...Object.entries(d.types)]),
+        pick("priority", "Priority", [["", "All priorities"], ...Object.entries(d.priorities)]),
+        pick("status", "Status", [["live", "Not closed"], ["", "All statuses"], ...Object.entries(d.statuses)]), count),
+      h("p", { class: "sub-text", text: "Edited in docs/kb/improvements.json (in git). Closed means done, won't do or by design." }),
+      h("div", { class: "table-wrap" }, h("table", { class: "grid kb-register" },
+        h("thead", {}, h("tr", {}, ["ID", "Item", "Type", "Priority", "Status", "Updated"].map((x, i) => h("th", { scope: "col", class: i === 2 || i === 5 ? "opt" : null, text: x })))),
+        tbody))));
+  window.scrollTo(0, 0);
+}
+
 const when = (iso) => new Date(iso).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 async function renderAdminUsers() {
   app.replaceChildren(pageHead("Model and rules", "Users"), adminTabs("users"), h("p", { class: "loading", text: "Loading..." }));
@@ -3979,6 +4110,9 @@ const ROUTES = [
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
   [/^#\/admin\/search$/, "admin", () => renderAdminSearch()],
   [/^#\/admin\/users$/, "admin", () => renderAdminUsers()],
+  [/^#\/admin\/kb$/, "admin", () => renderKb()],
+  [/^#\/admin\/kb\/register(?:\?(.*))?$/, "admin", (m) => renderKbRegister(m[1])],
+  [/^#\/admin\/kb\/([a-z0-9-]+)(?:\?(.*))?$/, "admin", (m) => renderKbArticle(m[1], m[2])],
   [/^#\/profile$/, "profile", () => renderProfile()],
   [/^#\/preferences(?:\/([a-z]+))?$/, "preferences", (m) => renderPreferences(m[1])],
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
