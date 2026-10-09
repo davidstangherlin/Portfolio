@@ -3,7 +3,7 @@ id: profile-preferences-impersonation
 title: Profile, Preferences, Users and impersonation
 category: features
 summary: The avatar menu, Profile and Preferences pages, keyboard shortcuts, the Users admin tab and how admins impersonate members safely.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -32,7 +32,7 @@ Modelled on ServiceNow's user menu, Preferences and user record (the user's scre
 | Section | Setting | Effect |
 |---|---|---|
 | Display | compact, wrap_text, help_tips | tighter cards and table rows; long names wrap; the "i" help buttons and dotted underlines hidden when off |
-| Theme | theme | system, light or dark, with picture cards; still cached in the browser so the page opens in the right theme, and a browser's earlier choice is carried to the account once |
+| Theme | theme | dark (the default) or light, chosen on two tiles that show each theme's colours as thick stripes on black or white; still cached in the browser so the page opens in the right theme (dark until light is chosen), and a browser's earlier light choice is carried to the account once. A saved "system" theme from before 2026-10-09 counts as not chosen |
 | Accessibility | reduce_motion, chart_patterns, chart_tables, show_hover_buttons, keyboard_shortcuts | no transitions; second and third line series dashed and bars hatched (legend keys too); each chart's data table open; "i" buttons and widget pins always shown; shortcuts off |
 | User experience | start_page, search_scope, rows_shown | the page Sift opens on (only when no page was asked for); the search box's default scope (auto, everything, this page); rows before "Show more" (50, 100, 250) |
 

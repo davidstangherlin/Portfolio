@@ -2111,7 +2111,7 @@
    "body": [
     "Profile: your display name (how Sift greets you and how admins see you) and email. The email changes with sign-in, coming in a later release.",
     "Display: compact spacing fits more on the screen; wrapping shows long names in full; help tips are the small \"i\" beside terms.",
-    "Theme: light, dark, or system (follows your device).",
+    "Theme: dark (the default) or light. Each tile shows that theme's colours.",
     "Accessibility: reduce motion turns animations off; patterns as well as colours dash the lines and hatch the bars in charts so they can be told apart without colour; data tables opens the table under every chart; show all buttons shows the buttons that otherwise appear on hover; keyboard shortcuts can be turned off.",
     "User experience: the page Sift opens on, what the search box searches until you change it with the pink ▾, and how many rows long tables show before \"Show more\".",
     "Keyboard shortcuts: \"/\" to search, \"?\" for the list, and \"g\" then a letter to go somewhere: d Dashboard, s Screener, e ETFs, l LICs, w Watchlists, p Portfolios, t Track record, c Coattail, h Help, f Preferences.",

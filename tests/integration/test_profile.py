@@ -30,19 +30,29 @@ def client(db_session):
 def test_settings_are_checked_merged_and_personal(client):
     me = client.get("/api/me", headers=as_(OWNER)).json()
     assert me["settings"] == preferences.SETTINGS_DEFAULTS and me["impersonated_by"] is None
-    saved = client.put("/api/me/settings", json={"theme": "dark", "compact": True}, headers=as_(OWNER, True)).json()
-    assert saved["settings"]["theme"] == "dark" and saved["settings"]["compact"] is True
+    saved = client.put("/api/me/settings", json={"theme": "light", "compact": True}, headers=as_(OWNER, True)).json()
+    assert saved["settings"]["theme"] == "light" and saved["settings"]["compact"] is True
     client.put("/api/me/settings", json={"start_page": "screener"}, headers=as_(OWNER, True))
     s = client.get("/api/me", headers=as_(OWNER)).json()["settings"]
-    assert (s["theme"], s["compact"], s["start_page"]) == ("dark", True, "screener")  # merged, not replaced
-    assert client.get("/api/me", headers=as_(SAM)).json()["settings"]["theme"] == "system"  # Sam's are his own
+    assert (s["theme"], s["compact"], s["start_page"]) == ("light", True, "screener")  # merged, not replaced
+    assert client.get("/api/me", headers=as_(SAM)).json()["settings"]["theme"] == "dark"  # Sam's are his own, the default
 
-    for bad, message in (({"theme": "pink"}, "theme must be system, light, dark"), ({"compact": "yes"}, "compact must be true or false"),
+    for bad, message in (({"theme": "pink"}, "theme must be light, dark"), ({"compact": "yes"}, "compact must be true or false"),
                          ({"rows_shown": "100"}, "rows_shown must be 50, 100, 250"), ({"colour": 1}, "Unknown setting: colour")):
         r = client.put("/api/me/settings", json=bad, headers=as_(OWNER, True))
         assert r.status_code == 400 and r.json()["detail"].startswith(message[0].upper() + message[1:])
     reset = client.delete("/api/me/settings", headers=as_(OWNER, True)).json()["settings"]
     assert reset == preferences.SETTINGS_DEFAULTS
+
+
+def test_a_retired_theme_falls_back_to_dark_and_saving_still_works(client, db_session):
+    """Sift once offered a "system" theme; a saved one now counts as not chosen."""
+    preferences.set_preference(db_session, preferences.USER_SETTINGS, {"theme": "system", "compact": True})
+    db_session.commit()
+    me = client.get("/api/me", headers=as_(OWNER)).json()
+    assert me["settings"]["theme"] == "dark" and me["settings"]["compact"] is True and me["settings_chosen"] == ["compact"]
+    saved = client.put("/api/me/settings", json={"wrap_text": True}, headers=as_(OWNER, True))
+    assert saved.status_code == 200 and saved.json()["settings"]["theme"] == "dark"
 
 
 def test_profile_name(client):

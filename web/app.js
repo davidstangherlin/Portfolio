@@ -13,7 +13,7 @@ const ACTION_STATUS = {
 };
 let PAGE_SIZE = 100;  // rows before "Show more": the rows_shown preference (§35)
 /* Who Sift is acting for and their Preferences (§35), filled from /api/me as the page starts. */
-const SETTING_DEFAULTS = { theme: "system", compact: false, wrap_text: false, help_tips: true, reduce_motion: false,
+const SETTING_DEFAULTS = { theme: "dark", compact: false, wrap_text: false, help_tips: true, reduce_motion: false,
   chart_patterns: false, chart_tables: false, show_hover_buttons: false, keyboard_shortcuts: true,
   start_page: "dashboard", search_scope: "auto", rows_shown: 100 };
 const me = { user: null, by: null, settings: { ...SETTING_DEFAULTS } };
@@ -3657,9 +3657,9 @@ function workingsBody(d, choose) {
 /* ---------- you: avatar menu, preferences, shortcuts, impersonation (§35) ---------- */
 const THEME_KEY = "sift-theme";  // kept in the browser too, so the page opens in the right theme before Sift answers
 function applyTheme(choice) {
-  if (choice === "light" || choice === "dark") document.documentElement.setAttribute("data-theme", choice);
-  else document.documentElement.removeAttribute("data-theme");
-  try { choice === "system" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch (e) { /* not kept; still applied */ }
+  if (choice !== "light") choice = "dark";  // two themes, dark unless light is chosen (§35)
+  document.documentElement.setAttribute("data-theme", choice);
+  try { localStorage.setItem(THEME_KEY, choice); } catch (e) { /* not kept; still applied */ }
   slots.forEach((sl) => { delete sl.el.dataset.w; }); // charts pick up the new colours on redraw
   drawSlots();
 }
@@ -3705,10 +3705,12 @@ const meReady = getJSON("/api/me").then((m) => {
   me.user = m; me.by = m.impersonated_by;
   applySettings(m.settings);
   paintMe();
-  // Before Preferences the theme lived only in this browser: carry it over once.
+  // Before Preferences the theme lived only in this browser: carry it over once, if the account hasn't chosen one.
   let local = null;
   try { local = localStorage.getItem(THEME_KEY); } catch (e) { /* no storage */ }
-  if (!me.by && m.settings.theme === "system" && (local === "light" || local === "dark")) saveSettings({ theme: local }).catch(() => {});
+  if (!me.by && !(m.settings_chosen || []).includes("theme") && local === "light" && m.settings.theme !== "light") {
+    saveSettings({ theme: "light" }).catch(() => {});
+  }
 }).catch(() => { /* Sift still works with the defaults */ });
 async function endImpersonation() {
   try { await send("DELETE", "/api/impersonation"); } finally { location.hash = "#/"; location.reload(); }
@@ -3857,7 +3859,10 @@ const PREFS = [
 ];
 const PREF_SECTIONS = [["display", "Display", "M3 5h18v12H3zM8 21h8M12 17v4"], ["theme", "Theme", "M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2-1.5h2a4 4 0 0 0 4-4c0-4.5-4-8-9-8zM7.5 11.5h0M10 7.5h0M15 7.5h0"],
   ["accessibility", "Accessibility", "M12 3.5a1.5 1.5 0 1 0 0 .01M5 8.5l7 1.5 7-1.5M12 10v5M9 21l3-6 3 6"], ["experience", "User experience", "M4 4l7 17 2.5-7.5L21 11z"]];
-const THEMES = [["system", "System", "Follows your device"], ["light", "Light", ""], ["dark", "Dark", ""]];
+/* Each theme's tile: its own colours as thick stripes, on white (light) or black (dark).
+   The colours come from style.css (--sw-light-*, --sw-dark-*), kept beside each theme's tokens. */
+const THEMES = [["dark", "Dark", "Black pages, light text. The default"], ["light", "Light", "White pages, dark text"]];
+const THEME_STRIPES = 7;
 
 function prefSwitch(key, label) {
   const on = !!me.settings[key];
@@ -3888,9 +3893,10 @@ function themeCards() {
         for (const c of card.parentNode.children) c.setAttribute("aria-checked", String(c === card));
         try { await saveSettings({ theme: value }); } catch (err) { alert(err.message); }
       } },
-      h("span", { class: "theme-preview", "aria-hidden": "true" }, h("span", { class: "tp-bar" }), h("span", { class: "tp-side" }),
-        h("span", { class: "tp-main" }, h("span", { class: "tp-card" }), h("span", { class: "tp-card" }))),
-      h("span", { class: "theme-name", text: label }), note ? h("span", { class: "theme-note", text: note }) : null);
+      h("span", { class: "theme-swatch", "aria-hidden": "true" },
+        Array.from({ length: THEME_STRIPES }, (_, i) => h("span", { class: "theme-stripe", style: `background:var(--sw-${value}-${i + 1})` }))),
+      h("span", { class: "theme-label" }, h("span", { class: "theme-name", text: label }), h("span", { class: "theme-note", text: note }),
+        h("span", { class: "theme-tick", "aria-hidden": "true", text: "✓" })));
     return card;
   }));
 }
@@ -3908,7 +3914,7 @@ async function renderPreferences(section) {
     const q = search.value.trim().toLowerCase();
     if (q) {
       const hits = PREFS.filter((p) => `${p[2]} ${p[3]}`.toLowerCase().includes(q));
-      const theme = "theme light dark system colour color".includes(q);
+      const theme = "theme light dark mode colour color".includes(q);
       pane.replaceChildren(...[h("h2", { text: `Matching "${search.value.trim()}"` }),
         theme ? themeCards() : null,
         hits.length ? h("div", { class: "pref-grid" }, hits.map(prefCard)) : theme ? null : h("p", { class: "sub-text", text: "No preference matches." })].filter(Boolean));

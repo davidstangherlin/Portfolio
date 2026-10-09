@@ -8,8 +8,8 @@
     // Apply the saved theme before first paint so the page never flashes the wrong one.
     try {
       var saved = localStorage.getItem("sift-theme");
-      if (saved === "light" || saved === "dark") document.documentElement.setAttribute("data-theme", saved);
-    } catch (e) { /* storage unavailable: follow the system setting */ }
+      document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");  // dark unless light was chosen
+    } catch (e) { document.documentElement.setAttribute("data-theme", "dark"); }
   </script>
   <link rel="stylesheet" href="/static/style.css">
 </head>

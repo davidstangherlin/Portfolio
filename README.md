@@ -374,7 +374,7 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   safety), followed by the valuation model and its exact assumptions.
 - **You (avatar, top right):** Profile (your display name), Preferences and Keyboard shortcuts;
   admins also get Impersonate user, Users, Model and rules and What-if scenarios. Preferences
-  are saved to your account so they follow you to any browser: theme (Light, Dark or System),
+  are saved to your account so they follow you to any browser: theme (Dark, the default, or Light),
   compact spacing, wrapping long names, help tips, reduce motion, patterns and data tables for
   charts, always-visible buttons, keyboard shortcuts, start page, search scope and rows shown.
   Shortcuts: `/` search, `?` the list, `g` then a letter to go somewhere (`g s` Screener).

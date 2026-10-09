@@ -70,7 +70,7 @@ START_PAGES = {"dashboard": "Dashboard", "screener": "Screener", "etfs": "ETFs",
                "coattail": "Coattail"}
 # Each setting: its default and the values it can take (a bool, or one of a set).
 SETTINGS_SPEC = {
-    "theme": ("system", ("system", "light", "dark")),
+    "theme": ("dark", ("light", "dark")),  # dark unless chosen otherwise
     "compact": (False, bool),              # tighter spacing in cards and tables
     "wrap_text": (False, bool),            # long names wrap in tables instead of being cut off
     "help_tips": (True, bool),             # the "i" help buttons beside terms
@@ -97,8 +97,7 @@ def clean_settings(body) -> dict:
     out = {}
     for key, value in body.items():
         default, allowed = SETTINGS_SPEC[key]
-        ok = isinstance(value, bool) if allowed is bool else (value in allowed and type(value) is type(default))
-        if not ok:
+        if not _valid(key, value):
             choices = "true or false" if allowed is bool else ", ".join(map(str, allowed))
             raise PreferenceError(f"{key} must be {choices}")
         if value != default:
@@ -106,10 +105,21 @@ def clean_settings(body) -> dict:
     return out
 
 
+def _valid(key, value) -> bool:
+    default, allowed = SETTINGS_SPEC[key]
+    return isinstance(value, bool) if allowed is bool else (value in allowed and type(value) is type(default))
+
+
+def saved_settings(session) -> dict:
+    """The settings this person chose (valid ones only). A value Sift no
+    longer offers, such as the old "system" theme, counts as not chosen."""
+    saved = get_preference(session, USER_SETTINGS) or {}
+    return {k: v for k, v in saved.items() if k in SETTINGS_SPEC and _valid(k, v)}
+
+
 def user_settings(session) -> dict:
     """The current user's settings, defaults filled in."""
-    saved = get_preference(session, USER_SETTINGS) or {}
-    return SETTINGS_DEFAULTS | {k: v for k, v in saved.items() if k in SETTINGS_SPEC}
+    return SETTINGS_DEFAULTS | saved_settings(session)
 
 
 def save_settings(session, changes) -> dict:

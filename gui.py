@@ -734,6 +734,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
         return acting.info() | {
             "impersonated_by": user.info() if user.user_id != acting.user_id else None,
             "settings": preferences.user_settings(session),
+            "settings_chosen": sorted(preferences.saved_settings(session)),  # the rest are defaults
         }
 
     @app.get("/api/me")
