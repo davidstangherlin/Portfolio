@@ -1,9 +1,9 @@
 @echo off
-rem Sift console: double-click after a reboot to get a command window ready
+rem Sift console: double-click after a reboot to get a PowerShell window ready
 rem for Sift's scripts (README, "After a reboot").
 rem It checks PostgreSQL is running, gets the latest code, installs any new
-rem packages, brings the database up to date, then leaves you at a prompt
-rem with Sift's Python (.venv) switched on. Close the window when done.
+rem packages, brings the database up to date, then leaves you at a PowerShell
+rem prompt with Sift's Python (.venv) switched on. Close the window when done.
 title Sift console
 cd /d "%~dp0"
 
@@ -41,14 +41,18 @@ if errorlevel 1 (
     echo       Runbook: docs\kb\operations\rb-database-connection.md
 )
 
-call ".venv\Scripts\activate.bat"
+rem PowerShell 7 if installed, else Windows PowerShell. The execution policy
+rem is bypassed for this window only, so Activate.ps1 and Sift's .ps1 scripts
+rem run without changing the PC's setting.
+set "PS=powershell"
+where pwsh >nul 2>&1 && set "PS=pwsh"
 echo.
-echo Ready. Sift's Python is switched on in this window. Common commands:
+echo Ready. PowerShell, in %CD%, with Sift's Python switched on. Common commands:
 echo   python gui.py                      start Sift (or double-click start_sift.bat)
 echo   python screen_asx.py               the screener in this window
 echo   python -m src.search.reindex       rebuild search
 echo   python -m src.graph.export         write the graph files to data\graph
 echo   python -m pytest -q                run the tests (needs requirements-dev.txt)
-echo   powershell -ExecutionPolicy Bypass -File scripts\daily_refresh.ps1    run the nightly job now
+echo   .\scripts\daily_refresh.ps1        run the nightly job now
 echo.
-cmd /k
+%PS% -NoLogo -NoExit -ExecutionPolicy Bypass -Command "& '.\.venv\Scripts\Activate.ps1'"

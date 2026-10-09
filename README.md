@@ -258,8 +258,9 @@ nightly job runs first), so restarting it after a `git pull` is enough.
 
 **After a reboot**, double-click `sift_console.bat` for a command window ready to run Sift's
 scripts. It starts PostgreSQL if it's stopped (run it as administrator if that's refused),
-pulls the latest code, installs any new packages, brings the database up to date, then leaves
-you at a prompt with `.venv`'s Python switched on and a list of common commands.
+pulls the latest code, installs any new packages, brings the database up to date, then opens
+PowerShell (7 if installed) with `.venv`'s Python switched on and a list of common commands.
+The execution policy is bypassed for that window only, so `.\scripts\daily_refresh.ps1` runs too.
 
 **Accounts (multi-user Phase 1).** Sift keeps a `users` table, and your portfolios,
 watchlists, what-if scenarios and dashboard layout belong to the first admin account,
