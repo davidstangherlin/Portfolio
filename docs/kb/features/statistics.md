@@ -3,7 +3,7 @@ id: statistics
 title: Statistics: rule reliability, chances and likely ranges
 category: features
 summary: Whether each action beats the average share by more than luck (Track record), the chance of reaching the estimated value or analysts' target in 12 months, and the likely range for the year ahead, from nightly volatility.
-version: 1.3
+version: 1.4
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-10
 source: AS_BUILT change log, 2026-10-10
 related: [track-record, adr-016-statistics-libraries, adr-017-statistics-methods, nightly-run, ai-and-graph]
-code: [src/analytics/prices.py, src/analytics/rules.py, src/analytics/words.py, src/analytics/run.py, src/tracking/report.py, src/tracking/outcomes.py, gui.py, web/app.js, web/style.css, frontend/src/components/track.tsx, frontend/src/charts/edgeBar.ts]
+code: [src/analytics/prices.py, src/analytics/rules.py, src/analytics/words.py, src/analytics/run.py, src/tracking/report.py, src/tracking/outcomes.py, gui.py, web/app.js, web/style.css, frontend/src/components/track.tsx, frontend/src/charts/edgeBar.ts, frontend/src/pages/company/cards.tsx, frontend/src/charts/lineChart.ts]
 tables: [price_statistics, track_record_monthly, daily_prices]
 ---
 
@@ -44,7 +44,7 @@ Give everyday investors three answers with tested statistics, in plain words (as
 - `src/analytics/words.py`: chances and odds in words
 - `src/analytics/run.py`: the nightly step
 - `src/tracking/outcomes.py`, `src/tracking/report.py`: the summary's sum of squares; the test in the verdict
-- `web/app.js`: `chancesBlock()`, `chanceDots()`, `workedOut()`, `aheadRange()`, `lineChart({ ahead })`, `volumeChart({ until })`; the Track record verdicts are React (`frontend/src/components/track.tsx`, `frontend/src/charts/edgeBar.ts`)
+- `frontend/src/pages/company/cards.tsx` (`ChancesBlock`), `frontend/src/charts/lineChart.ts` (`aheadRange()`, `lineChart({ ahead })`), `frontend/src/charts/volumeChart.ts` (`volumeChart({ until })`): the company page, React since 2026-10-10; the Track record verdicts are React (`frontend/src/components/track.tsx`, `frontend/src/charts/edgeBar.ts`)
 
 ## Data
 

@@ -20,8 +20,22 @@ export function ChartSlot({ draw }: { draw: (width: number) => Node }) {
     paint(true);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const later = () => { clearTimeout(timer); timer = setTimeout(() => paint(), 150); };
+    // Printing redraws at the paper's width and in print colours, then back (web/app.js, printing).
+    const reprint = () => paint(true);
+    // Inside a closed twisty the chart can't be measured: draw it again when it opens.
+    const twisty = el.parentElement?.closest("details");
+    const opened = () => paint();
+    twisty?.addEventListener("toggle", opened);
     window.addEventListener("resize", later);
-    return () => { clearTimeout(timer); window.removeEventListener("resize", later); };
+    window.addEventListener("beforeprint", reprint);
+    window.addEventListener("afterprint", reprint);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", later);
+      window.removeEventListener("beforeprint", reprint);
+      window.removeEventListener("afterprint", reprint);
+      twisty?.removeEventListener("toggle", opened);
+    };
   }, [draw]);
   return <div className="chart-slot" ref={ref} />;
 }

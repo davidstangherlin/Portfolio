@@ -25,7 +25,16 @@ export interface SiftHost {
   /* The page a detail page's back link returns to. */
   previousPage(): string | null;
   noteVersion(res: Response): void;
+  /* The live value-test thresholds (margin of safety, ROE, debt/equity, yield). */
+  thresholds(): Thresholds;
+  /* The estimated value's explanation for a valuation method (DCF or DDM). */
+  estimatedValueHelp(method: string | null): string | null;
+  /* An ETF's or LIC's page address, if the code is a fund rather than a share. */
+  fundHref(code: string): string | null;
+  /* After adding to or removing from a watchlist: refresh the menus and cached lists. */
+  afterChange(): void;
 }
+export interface Thresholds { margin_of_safety: number; roe: number; debt_to_equity: number; yield: number }
 
 declare global {
   interface Window { SiftHost?: SiftHost }
@@ -39,5 +48,7 @@ const fallback: SiftHost = {
   helpEntry: () => null, openHelp: () => undefined, isAdmin: () => false,
   knowledge: () => ({ categories: [], entries: [] }), fieldHelp: () => null, fillThresholds: (t) => t,
   settings: () => DEFAULT_SETTINGS, previousPage: () => null, noteVersion: () => undefined,
+  thresholds: () => ({ margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 }),
+  estimatedValueHelp: () => null, fundHref: () => null, afterChange: () => undefined,
 };
 export const host = (): SiftHost => window.SiftHost ?? fallback;

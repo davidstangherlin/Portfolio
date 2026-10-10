@@ -3,7 +3,7 @@ id: financial-health
 title: Financial health: Piotroski F-Score and Altman Z-Score
 category: features
 summary: The Financial health card on each company page (Sift's first React card), the nightly F-Score and Z-Score behind it, and the distress caution added to the action's reason without changing the action.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-10
 source: AS_BUILT change log, 2026-10-10
 related: [screener-actions, statistics, ingestion, adr-018-react-typescript-pages, adr-017-statistics-methods]
-code: [src/analytics/health.py, src/analytics/run.py, src/screening/actions.py, src/ingestion/yahoo_client.py, src/ingestion/fundamentals_ingestion.py, src/ingestion/currency.py, src/models/financial_report.py, src/ai/tools.py, gui.py, screen_asx.py, frontend/src/islands/FinancialHealthCard.tsx, web/app.js, web/style.css]
+code: [src/analytics/health.py, src/analytics/run.py, src/screening/actions.py, src/ingestion/yahoo_client.py, src/ingestion/fundamentals_ingestion.py, src/ingestion/currency.py, src/models/financial_report.py, src/ai/tools.py, gui.py, screen_asx.py, frontend/src/islands/FinancialHealthCard.tsx, frontend/src/pages/company/CompanyPage.tsx, web/style.css]
 tables: [financial_health, financial_reports]
 ---
 
@@ -33,7 +33,7 @@ Separate cheap shares whose business is getting stronger from cheap shares that 
 
 **The distress caution.** In `suggest_action()` (`src/screening/actions.py`), a DISTRESS zone adds "; caution: possible financial distress (Altman Z-Score X, distress zone): check the balance sheet and latest results" to any reason except IGNORE's. It works like the short-selling caution: the action never changes, so the rules version doesn't either.
 
-**The card** (`frontend/src/islands/FinancialHealthCard.tsx`, Sift's first React card, [ADR-018](kb:adr-018-react-typescript-pages)). `app.js` mounts it on the company page with `island("FinancialHealthCard", {code, health})`, with data from `company_health()` in the company payload (`health`). It shows the answer first:
+**The card** (`frontend/src/islands/FinancialHealthCard.tsx`, Sift's first React card, [ADR-018](kb:adr-018-react-typescript-pages)). The company page (React since 2026-10-10, `frontend/src/pages/company/CompanyPage.tsx`) shows it with data from `company_health()` in the company payload (`health`). It shows the answer first:
 
 - the F-Score out of 9 with a pill (Strong, Middling, Weak, Not enough data yet) and the nine checks with ticks, crosses or "no data";
 - the Z-Score with its zone pill and a sentence on what it means;
@@ -51,7 +51,7 @@ Pills use the shared `vpill` classes (good, bad as amber, wait), so no new colou
 - `src/screening/actions.py`: adds the distress caution to the reason
 - `src/ingestion/yahoo_client.py`, `fundamentals_ingestion.py`, `currency.py`, `src/models/financial_report.py`: the new statement lines
 - `gui.py`: `health` in the company payload, and the screener fields
-- `frontend/src/islands/FinancialHealthCard.tsx` (+ `.test.tsx`), `web/app.js` (`island()`), `web/style.css` (`health-*`, `zone-scale`)
+- `frontend/src/islands/FinancialHealthCard.tsx` (+ `.test.tsx`), `frontend/src/pages/company/CompanyPage.tsx`, `web/style.css` (`health-*`, `zone-scale`)
 
 ## Data
 

@@ -47,3 +47,9 @@ export function TableView({ headers, rows }: { headers: string[]; rows: (string 
     </details>
   );
 }
+
+/* The legend above a chart or bar, as legend() in web/app.js: only for two or more items. */
+export function Legend({ items, rect = false }: { items: { name: string; color: string }[]; rect?: boolean }) {
+  if (items.length < 2) return null;
+  return <div className="legend">{items.map((sr) => <span key={sr.name}><span className={`key${rect ? " rect" : ""}`} style={{ background: `var(${sr.color})` }} />{sr.name}</span>)}</div>;
+}

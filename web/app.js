@@ -126,21 +126,6 @@ function withHelp(el, label, text = FIELD_HELP[label]) {
   el.append(info);
   return el;
 }
-
-/* The same for a label drawn inside an SVG chart, where an HTML button
-   can't go: the "i" for touch screens is an SVG circle at (ix, iy). */
-function svgLabelHelp(textEl, label, text, ix, iy) {
-  if (!text) return textEl;
-  const nodes = helpNodes(label, text);
-  textEl.classList.add("has-help");
-  const g = s("g", { tabindex: 0, "aria-label": `${label}: ${text(thresholds())}` }, textEl);
-  bindHelp(g, nodes);
-  const info = s("g", { class: "info-svg", role: "button", "aria-label": `What is ${label}?` },
-    s("circle", { cx: ix, cy: iy, r: 7.5 }), s("text", { x: ix, y: iy + 3.5, "text-anchor": "middle", text: "i" }));
-  info.addEventListener("click", (e) => { e.stopPropagation(); placeTipBelow(info, nodes()); });
-  g.append(info);
-  return g;
-}
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".info, .info-svg")) hideTip(); });
 
 /* ---------- data ---------- */
@@ -278,14 +263,13 @@ function tableView(headers, rows) {
    for the next 12 months, two years in three, after the last point
    (docs/kb/features/statistics.md). */
 const YEAR_MS = 365 * 86400000;
-const CHART_RIGHT_AHEAD = 58;  // room for the range's end labels; volumeChart matches it
+const CHART_RIGHT_AHEAD = 58;  // room for the range's end labels
 function aheadRange(ahead, t0) {  // weekly points, so the range's curve near today stays smooth
   return Array.from({ length: 53 }, (_, k) => {
     const spread = ahead.volatility * Math.sqrt(k / 52);
     return { t: t0 + (k * YEAR_MS) / 52, months: Math.round((k * 12) / 52), lo: ahead.price * Math.exp(-spread), hi: ahead.price * Math.exp(spread) };
   });
 }
-const pastYears = (y) => (y >= 2.5 ? "3 years" : y >= 1.5 ? "2 years" : "year");
 function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640, markers = [], ahead = null }) {
   const W = width, H = height, m = { l: 52, r: ahead ? CHART_RIGHT_AHEAD : 14, t: 10, b: 24 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
@@ -381,51 +365,6 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
   return h("div", {}, legend(series, false, extras), svg);
 }
 
-/* Daily volume as thin bars on the same time axis and margins as lineChart
-   (so it lines up under the price chart), with a 3-month average line. */
-const VOLUME_AVG_DAYS = 63;  // about three months of trading days
-function volumeChart({ points, height = 120, width = 640, label, until = null }) {
-  // `until`: the price chart's year ahead, so the bars stay lined up under it
-  const W = width, H = height, m = { l: 52, r: until ? CHART_RIGHT_AHEAD : 14, t: 8, b: 20 };
-  const pw = W - m.l - m.r, ph = H - m.t - m.b;
-  const xs = points.map((p) => toDate(p[0]).getTime());
-  const x0 = xs[0], x1 = until || (xs[xs.length - 1] === x0 ? x0 + 1 : xs[xs.length - 1]);
-  const avg = points.map((p, i) => {
-    const from = Math.max(0, i - VOLUME_AVG_DAYS + 1), win = points.slice(from, i + 1);
-    return win.length >= 20 ? sum(win.map((q) => q[1])) / win.length : null;
-  });
-  const { hi, ticks } = niceTicks(0, Math.max(1, ...points.map((p) => p[1])));
-  const X = (t) => m.l + ((t - x0) / (x1 - x0)) * pw;
-  const Y = (v) => m.t + ph - (v / hi) * ph;
-  const bw = Math.max(1, Math.min(6, pw / points.length - 1));
-  const shares = (v) => new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(v);
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart volume-chart", role: "img", "aria-label": label });
-  for (const t of ticks.filter((t) => t > 0)) {
-    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: "grid-line" }));
-    svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: shares(t) }));
-  }
-  svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(0), y2: Y(0), class: "base-line" }));
-  points.forEach((p, i) => svg.append(s("rect", { x: X(xs[i]) - bw / 2, y: Y(p[1]), width: bw, height: Math.max(0.5, Y(0) - Y(p[1])),
-    class: avg[i] && p[1] > 2 * avg[i] ? "vol-bar heavy" : "vol-bar" })));
-  const line = avg.map((a, i) => (a === null ? null : `${X(xs[i]).toFixed(1)},${Y(a).toFixed(1)}`)).filter(Boolean);
-  if (line.length > 1) svg.append(s("path", { d: "M" + line.join("L"), fill: "none", stroke: "var(--s2)", "stroke-width": 2, class: "series series-1" }));
-  const cross = s("line", { y1: m.t, y2: m.t + ph, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
-  svg.append(cross);
-  const hit = s("rect", { x: m.l, y: m.t, width: pw, height: ph, fill: "transparent" });
-  hit.addEventListener("pointermove", (e) => {
-    const box = svg.getBoundingClientRect();
-    const t = x0 + ((((e.clientX - box.left) / box.width) * W - m.l) / pw) * (x1 - x0);
-    let i = 0, best = Infinity;
-    xs.forEach((x, k) => { const dd = Math.abs(x - t); if (dd < best) { best = dd; i = k; } });
-    cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
-    showTip(e, [h("div", { class: "t-head", text: longDate(points[i][0]) }), tipRow(`${fmt(points[i][1], 0)} shares`, "Volume", "--s1"),
-      avg[i] ? tipRow(`${shares(avg[i])} (${fmt(points[i][1] / avg[i], 1)}x)`, "3-month average", "--s2") : null].filter(Boolean));
-  });
-  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
-  svg.append(hit);
-  return h("div", {}, legend([{ name: "Volume (shares traded)", color: "--s1" }, { name: "3-month average", color: "--s2" }], false), svg);
-}
-
 /* Column chart, one baseline at zero, 4px rounded data-ends. */
 function barPath(x, w, yBase, yVal, r = 4) {
   const hgt = Math.abs(yBase - yVal);
@@ -477,29 +416,6 @@ function columnChart({ categories, series, yFmt, height = 220, label, width = 64
     });
   });
   return h("div", {}, legend(series, true), svg);
-}
-
-/* Horizontal bars: share price against the two value estimates. */
-function valuationBars(items, width = 640) {
-  const shown = items.filter((it) => it.value !== null && it.value > 0);
-  const W = width, rowH = 40, labelW = 130, m = { t: 6, r: 70 };
-  const H = m.t * 2 + rowH * shown.length;
-  const max = Math.max(...shown.map((it) => it.value));
-  const X = (v) => labelW + (v / max) * (W - labelW - m.r);
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart", role: "img",
-    "aria-label": shown.map((it) => `${it.label} ${money(it.value)}`).join(", ") });
-  svg.append(s("line", { x1: labelW, x2: labelW, y1: m.t, y2: H - m.t, class: "base-line" }));
-  shown.forEach((it, i) => {
-    const y = m.t + i * rowH + (rowH - 20) / 2;
-    const w = X(it.value) - labelW;
-    const label = s("text", { x: labelW - 10, y: y + 14, "text-anchor": "end", style: "fill:var(--ink-2);font-size:12px", text: it.label });
-    svg.append(svgLabelHelp(label, it.label, it.help, 9, y + 10));
-    const r = Math.min(4, w / 2);
-    svg.append(s("path", { d: `M${labelW},${y}H${labelW + w - r}Q${labelW + w},${y} ${labelW + w},${y + r}V${y + 20 - r}Q${labelW + w},${y + 20} ${labelW + w - r},${y + 20}H${labelW}Z`,
-      fill: it.emphasis ? "var(--s1)" : "var(--muted)" }));
-    svg.append(s("text", { x: labelW + w + 8, y: y + 14, style: "fill:var(--ink);font-size:12px;font-weight:600", text: money(it.value) }));
-  });
-  return svg;
 }
 
 /* Charts are drawn at their real on-screen width so text stays at its
@@ -674,28 +590,6 @@ async function renderScreener() {
   refresh();
 }
 
-/* ---------- company page ---------- */
-function movingAverage(points, window = 200) {
-  const out = [];
-  let run = 0;
-  points.forEach((p, i) => {
-    run += p[1];
-    if (i >= window) run -= points[i - window][1];
-    if (i >= window - 1) out.push([p[0], run / window]);
-  });
-  return out;
-}
-
-/* "USD, converted to AUD at 1.5234 (30 Jun 2025)" for the latest report. */
-function accountsCurrency(c, reports) {
-  const latest = reports.length ? reports[reports.length - 1] : null;
-  const from = (latest && latest.reporting_currency) || c.financial_currency;
-  const to = c.trading_currency || "AUD";
-  if (!from) return NA;
-  if (from === to || !latest || !latest.fx_rate || latest.fx_rate === 1) return `${from} (no conversion needed)`;
-  return `${from}, converted to ${to} at ${fmt(latest.fx_rate, 4)} (${longDate(latest.report_date)})`;
-}
-
 /* One headline figure: label (with its explanation), value, small note. */
 function statTile(label, valueText, cls, note) {
   return h("div", { class: "stat" },
@@ -704,154 +598,8 @@ function statTile(label, valueText, cls, note) {
     note ? h("div", { class: "stat-note", text: note }) : null);
 }
 
-/* The four headline figures at the top of a company page. */
-function summaryStrip(c, model) {
-  const mos = c.margin_of_safety_percent;
-  const value = c.dcf_intrinsic_value;
-  const upside = value && value > 0 && c.current_price ? ((value - c.current_price) / c.current_price) * 100 : null;
-  const signed = (v, dp) => (v === null || v === undefined ? NA : `${v > 0 ? "+" : ""}${fmt(v, dp)}%`);
-  const tile = statTile;
-  return h("div", { class: "stats" },
-    tile("Share price", money(c.current_price), null, `as at ${longDate(c.as_of_date)}`),
-    tile("Estimated value", value && value > 0 ? money(value) : NA, "accent", model ? `${model.method} model` : "no model could run"),
-    tile("Margin of safety", signed(mos, 1), signClass(mos), valuationStatus(mos).label),
-    tile("Implied upside", signed(upside, 1), signClass(upside), "price to reach estimated value"));
-}
-function modelNote(model) {
-  if (!model) return null;
-  const name = model.method === "DDM" ? "Two-stage dividend discount model (used for banks, insurers and REITs)" : "Two-stage discounted cash flow model";
-  const base = model.method === "DDM" ? "average dividend per share" : "average free cash flow";
-  return h("p", { class: "model-note", text:
-    `${name}: ${base} over three years, grown ${fmt(model.growth_rate * 100, 0)}% a year for ${model.stage1_years} years, ` +
-    `then ${fmt(model.terminal_growth_rate * 100, 1)}% a year, discounted at ${fmt(model.discount_rate * 100, 0)}% a year.` });
-}
-
-function checklist(checks) {
-  return h("ul", { class: "checklist" }, checks.map((ch) => {
-    const cls = ch.passed === true ? "pass" : ch.passed === false ? "fail" : "na";
-    const mark = ch.passed === true ? "✓" : ch.passed === false ? "✕" : "–";
-    return h("li", {}, h("span", { class: `mark ${cls}`, "aria-hidden": "true", text: mark }),
-      h("span", { text: ch.label + (ch.passed === null ? " (no data)" : "") }));
-  }));
-}
-
 function card(title, hint, ...children) {
   return h("section", { class: "card" }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, children);
-}
-
-/* ---------- analyst ratings, price targets and holders (Yahoo Finance, §29) ---------- */
-const RATINGS = [
-  ["strong_buy", "Strong buy", "--r-sb"], ["buy", "Buy", "--r-b"], ["hold", "Hold", "--r-h"],
-  ["sell", "Sell", "--r-s"], ["strong_sell", "Strong sell", "--r-ss"]];
-const CONSENSUS = { strong_buy: "Strong buy", buy: "Buy", hold: "Hold", underperform: "Underperform", sell: "Sell" };
-const YAHOO_NOTE = "From Yahoo Finance, for context only: not used in Sift's estimated value, scores or signals.";
-const fetchedNote = (ins, help) => h("p", { class: "card-foot hint" },
-  `Yahoo Finance, fetched ${longDate(ins.fetched_at.slice(0, 10))}. Refreshed weekly. `, helpLink(help));
-
-function ratingRow(r) {
-  const total = sum(RATINGS.map(([k]) => r[k]));
-  const label = monthYear(r.rating_month);
-  const tipNodes = () => [h("div", { class: "t-title", text: `${label}: ${total} analyst${total === 1 ? "" : "s"}` }),
-    ...RATINGS.map(([k, name, color]) => tipRow(String(r[k]), name, color))];
-  const row = h("div", { class: "rating-row", tabindex: 0,
-    "aria-label": `${label}: ${RATINGS.map(([k, name]) => `${r[k]} ${name.toLowerCase()}`).join(", ")}` },
-    h("span", { class: "rating-month", text: label }),
-    h("div", { class: "rating-bar" }, RATINGS.filter(([k]) => r[k] > 0).map(([k, , color]) =>
-      h("span", { class: "rating-seg", style: `flex-grow:${r[k]};background:var(${color})` }))),
-    h("span", { class: "rating-total", text: String(total) }));
-  row.addEventListener("pointermove", (e) => showTip(e, tipNodes()));
-  row.addEventListener("pointerleave", hideTip);
-  row.addEventListener("focus", () => placeTipBelow(row, tipNodes()));
-  row.addEventListener("blur", hideTip);
-  return row;
-}
-
-function analystCard(ins) {
-  const title = "Analyst ratings";
-  if (!ins) return card(title, "Not fetched yet. Sift fetches analyst ratings and holders from Yahoo Finance weekly, so this fills in within a week.");
-  if (!ins.ratings.length) return card(title, "No analyst ratings on Yahoo Finance for this company.", fetchedNote(ins, "analyst-ratings"));
-  const latest = ins.ratings[ins.ratings.length - 1];
-  const total = sum(RATINGS.map(([k]) => latest[k]));
-  const consensus = CONSENSUS[ins.recommendation_key];
-  return card(title, YAHOO_NOTE,
-    h("p", { class: "consensus" }, consensus ? h("strong", { text: consensus }) : null,
-      consensus ? " consensus" : "Consensus not given",
-      ins.recommendation_mean ? ` (${fmt(ins.recommendation_mean, 1)} on a scale of 1 strong buy to 5 strong sell)` : "",
-      `, ${total} analyst${total === 1 ? "" : "s"} in ${monthYear(latest.rating_month)}.`),
-    legend(RATINGS.map(([, name, color]) => ({ name, color })), true),
-    h("div", { class: "rating-rows" }, ins.ratings.map(ratingRow)),
-    tableView(["Month", ...RATINGS.map(([, name]) => name)],
-      [...ins.ratings].reverse().map((r) => [monthYear(r.rating_month), ...RATINGS.map(([k]) => String(r[k]))])),
-    fetchedNote(ins, "analyst-ratings"));
-}
-
-function targetCard(ins, c) {
-  const title = "Analyst price targets";
-  if (!ins) return null;
-  if (ins.target_mean === null) return card(title, "No price targets on Yahoo Finance for this company.", fetchedNote(ins, "price-targets"));
-  const price = c.current_price, value = c.dcf_intrinsic_value > 0 ? c.dcf_intrinsic_value : null;
-  const vsPrice = (v) => (v && price ? ` (${signedPct(((v - price) / price) * 100)} vs price)` : "");
-  const points = [
-    { name: "Share price", color: "--s1", v: price },
-    { name: "Average target", color: "--s3", v: ins.target_mean },
-    { name: "Sift's estimated value", color: "--s2", v: value }].filter((p) => p.v);
-  const lo = Math.min(ins.target_low ?? ins.target_mean, ...points.map((p) => p.v));
-  const hi = Math.max(ins.target_high ?? ins.target_mean, ...points.map((p) => p.v));
-  const pad = (hi - lo) * 0.06 || hi * 0.05;
-  const at = (v) => `${((v - (lo - pad)) / (hi - lo + 2 * pad)) * 100}%`;
-  const strip = h("div", { class: "target-strip", role: "img", "aria-label":
-      `Targets from ${money(ins.target_low)} to ${money(ins.target_high)}. ${points.map((p) => `${p.name} ${money(p.v)}`).join(". ")}.` },
-    ins.target_low !== null && ins.target_high !== null
-      ? h("span", { class: "target-band", style: `left:${at(ins.target_low)};width:calc(${at(ins.target_high)} - ${at(ins.target_low)})` }) : null,
-    points.map((p) => {
-      const dot = h("span", { class: "target-dot", style: `left:${at(p.v)};background:var(${p.color})` });
-      dot.addEventListener("pointermove", (e) => showTip(e, [tipRow(money(p.v), p.name, p.color)]));
-      dot.addEventListener("pointerleave", hideTip);
-      return dot;
-    }),
-    h("span", { class: "target-end lo", text: money(ins.target_low) }),
-    h("span", { class: "target-end hi", text: money(ins.target_high) }));
-  return card(title, `${YAHOO_NOTE} The bar spans the lowest to highest target.`,
-    legend(points.map(({ name, color }) => ({ name, color })), true),
-    strip,
-    h("dl", { class: "kv" },
-      [["Average target", money(ins.target_mean) + vsPrice(ins.target_mean)], ["Median target", money(ins.target_median)],
-        ["Lowest target", money(ins.target_low)], ["Highest target", money(ins.target_high)],
-        ["Analysts", ins.analyst_count ?? NA], ["Sift's estimated value", value ? money(value) + vsPrice(value) : NA]]
-        .flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: String(v) })])),
-    fetchedNote(ins, "price-targets"));
-}
-
-function holderTable(rows) {
-  const heads = [["Holder"], ["Shares"], ["% held", "%"], ["Value now", "Value"], ["Change", "Chg"], ["Reported"]];
-  const optional = new Set([1, 5]);
-  return h("div", { class: "table-wrap" }, h("table", { class: "grid holders" },
-    h("thead", {}, h("tr", {}, heads.map(([x, short], i) => h("th", { class: [i ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, title: x },
-      short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x)))),
-    h("tbody", {}, rows.map((r) => h("tr", {},
-      h("td", { class: "holder-name", text: r.holder }),
-      h("td", { class: "num opt", text: fmt(r.shares, 0) }),
-      h("td", { class: "num", text: pct(r.percent_held, 2) }),
-      h("td", { class: "num", text: r.value_now === null ? NA : compact(r.value_now) }),
-      h("td", { class: `num ${signClass(r.percent_change) || ""}`.trim(), text: r.percent_change === null ? NA : signedPct(r.percent_change) }),
-      h("td", { class: "num opt", text: r.date_reported ? longDate(r.date_reported) : NA }))))));
-}
-
-function holdersCard(ins) {
-  if (!ins) return null;
-  const major = [["Insiders", pct(ins.insiders_percent, 1), "of shares"], ["Institutions", pct(ins.institutions_percent, 1), "of shares"],
-    ["Institutions (% of float)", pct(ins.institutions_float_percent, 1), "of shares that trade"],
-    ["Number of institutions", ins.institutions_count ?? NA, "holding shares"]];
-  const section = (label, rows) => [h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: label }), label)),
-    rows.length ? holderTable(rows) : h("p", { class: "hint", text: "None listed on Yahoo Finance." })];
-  const el = card("Holders", "From Yahoo Finance. Holder lists come mostly from overseas fund filings, so Australian super funds are often missing. Value now is the holding at today's price.",
-    h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: "Major holders" }), "Major holders")),
-    h("div", { class: "stats" }, major.map(([label, v, note]) => statTile(label, String(v), null, note))),
-    section("Top mutual fund holders", ins.funds),
-    section("Top institutional holders", ins.institutions),
-    fetchedNote(ins, "major-holders"));
-  el.classList.add("wide");
-  return el;
 }
 
 /* What the company does: the first two sentences of Yahoo's business
@@ -872,207 +620,6 @@ function aboutCompany(c) {
   return h("p", { class: "co-about" }, text, " ", toggle);
 }
 
-async function renderCompany(code) {
-  hideTip();
-  slots.length = 0;
-  app.replaceChildren(h("p", { class: "loading", text: `Loading ${code}...` }));
-  let d;
-  const fund = (cache.companies || []).find((x) => x.code === code && FUNDS[x.type]);
-  if (fund) { location.replace(fundHref(fund.type, code)); return; }
-  try {
-    d = await getJSON(`/api/company/${encodeURIComponent(code)}`);
-  } catch (err) {
-    app.replaceChildren(backLink(), h("p", { class: "error", text: err.message }));
-    return;
-  }
-  const c = d.company;
-  const scores = d.axes.map((a) => d.scores[a].score);
-  const total = sum(scores);
-
-  // Valuation headline
-  const mos = c.margin_of_safety_percent;
-  const method = c.valuation_method === "DDM" ? "dividend discount model" : c.valuation_method === "DCF" ? "discounted cash flow model" : null;
-  const valuation = card("Price against estimated value",
-    method ? `Estimated value from a ${method}. Graham Number shown for reference.` : "No intrinsic value estimate could be made for this company.",
-    chartSlot((w) => valuationBars([
-      { label: "Share price", value: c.current_price, emphasis: true, help: FIELD_HELP["Share price"] },
-      { label: "Estimated value", value: c.dcf_intrinsic_value, help: ESTIMATED_VALUE_HELP[c.valuation_method] },
-      { label: "Graham Number", value: c.graham_number, help: FIELD_HELP["Graham Number"] },
-    ], w)), chancesBlock(c, d.statistics));
-
-  const wheelCard = card("Score", `${total} of ${d.checks_per_axis * d.axes.length} checks passed. Hover a spoke to see its checks.`,
-    chartSlot((w) => wheel(scores, d.axes, d.checks_per_axis, { size: Math.min(300, w - 160), details: d.scores })));
-
-  // Each spoke collapses to one line that keeps its score; closed by default.
-  const axisBlocks = d.axes.map((a) => h("details", { class: "axis-block" },
-    h("summary", {},
-      h("span", { class: "twisty", "aria-hidden": "true" }),
-      h("span", { class: "axis-name", text: a }),
-      h("span", { class: "axis-score", text: `${d.scores[a].score} / ${d.checks_per_axis}` })),
-    checklist(d.scores[a].checks)));
-  const toggleAll = h("button", { type: "button", class: "link-btn", text: "Expand all" });
-  toggleAll.addEventListener("click", () => {
-    const open = !axisBlocks.every((b) => b.open);
-    axisBlocks.forEach((b) => { b.open = open; });
-  });
-  axisBlocks.forEach((b) => b.addEventListener("toggle", () => {
-    toggleAll.textContent = axisBlocks.every((x) => x.open) ? "Collapse all" : "Expand all";
-  }));
-  const breakdown = card("Score breakdown", "Six yes/no checks per spoke. No data never counts as a pass. Click a spoke to see its checks.",
-    toggleAll, axisBlocks);
-
-  const tests = card("Four value tests", "The core screen. All four must pass for an overall pass.",
-    checklist(d.tests.map((t) => ({ passed: t.passed,
-      label: `${t.name}: ${t.value === null ? NA : fmt(t.value, t.unit === "%" ? 1 : 2) + t.unit} (needs ${t.rule})` }))));
-
-  const markers = card("Quality and trend markers", null,
-    h("dl", { class: "kv" },
-      withHelp(h("dt", { tabindex: 0, text: "Earnings quality" }), "Earnings quality"), h("dd", { text: `${c.earnings_quality || NA}${c.cash_conversion !== null ? ` (cash flow ${fmt(c.cash_conversion, 0)}% of profit)` : ""}` }),
-      withHelp(h("dt", { tabindex: 0, text: "Price signal" }), "Price signal"), h("dd", { text: `${c.price_signal || NA}${c.price_vs_200d !== null ? ` (${fmt(c.price_vs_200d, 1)}% vs 200-day average)` : ""}` }),
-      withHelp(h("dt", { tabindex: 0, text: "Dividend trend" }), "Dividend trend"), h("dd", { text: c.dividend_trend || NA }),
-      withHelp(h("dt", { tabindex: 0, text: "Fundamentals trend" }), "Fundamentals trend"), h("dd", { text: c.fundamentals_trend || NA }),
-      withHelp(h("dt", { tabindex: 0, text: "Margin of safety trend" }), "Margin of safety trend"), h("dd", { text: c.margin_of_safety_trend === null ? "needs 30 days of history" : `${fmt(c.margin_of_safety_trend, 1)} points over 30 days` }),
-      withHelp(h("dt", { tabindex: 0, text: "Value-trap risk" }), "Value-trap risk"), h("dd", { text: c.trap_risk === "Y" ? "Yes" : "No" }),
-      withHelp(h("dt", { tabindex: 0, text: "Data confidence" }), "Data confidence"), h("dd", { text: c.data_confidence || NA })),
-    d.flags.length ? [h("p", { class: "hint", style: "margin-top:10px", text: "Red flags" }), h("ul", { class: "flags" }, d.flags.map((f) => h("li", { text: f })))] : null);
-
-  const ratios = card("Key ratios", null, h("dl", { class: "kv" },
-    [["P/E", fmt(c.pe_ratio, 1)], ["P/B", fmt(c.pb_ratio, 2)], ["Price to free cash flow", fmt(c.price_to_fcf, 1)],
-      ["EV/EBIT", fmt(c.ev_to_ebit, 1)], ["ROE", pct(c.roe)], ["ROIC", pct(c.roic)], ["Debt/equity", fmt(c.debt_to_equity, 2)],
-      ["Cash dividend yield", pct(c.uncapped_dividend_yield)], ["Grossed-up yield", pct(c.grossed_up_dividend_yield)],
-      ["Payout ratio", pct(c.payout_ratio, 0)], ["Country", c.country || NA], ["Accounts currency", accountsCurrency(c, d.reports)]]
-      .flatMap(([k, v]) => [withHelp(h("dt", { tabindex: 0, text: k }), k), h("dd", { text: v })])));
-
-  // Price chart
-  let priceCard;
-  if (d.prices.length >= 2) {
-    const ma = movingAverage(d.prices);
-    const series = [{ name: "Close", color: "--s1", points: d.prices }];
-    if (ma.length >= 2) series.push({ name: "200-day average", color: "--s2", points: ma });
-    const markers = dividendMarkers(d.prices, d.dividends || []);
-    // Data table: the last 30 trading days plus every ex-dividend day in the year.
-    const closeOn = new Map(d.prices.map((p) => [p[0], p[1]]));
-    const divOn = new Map(markers.map((mk) => [mk.date, mk]));
-    const volOn = new Map((d.volumes || []).map((p) => [p[0], p[1]]));
-    const rowDates = [...new Set([...d.prices.slice(-30).map((p) => p[0]), ...markers.map((mk) => mk.date)])].sort().reverse();
-    // The year ahead: the likely range from the nightly statistics (docs/kb/features/statistics.md)
-    const st = d.statistics, lastClose = d.prices[d.prices.length - 1];
-    const ahead = st && st.volatility_percent !== null ? { price: lastClose[1], volatility: st.volatility_percent / 100 } : null;
-    const until = ahead ? toDate(lastClose[0]).getTime() + YEAR_MS : null;
-    const yearRange = ahead ? aheadRange(ahead, 0)[52] : null;
-    priceCard = card(ahead ? "Share price, last 12 months and the year ahead" : "Share price, last 12 months",
-      ma.length >= 2 ? null : `200-day average appears once 200 days of prices are stored (${d.prices.length} so far).`,
-      ahead ? h("p", { class: "range-says" }, `In a typical year, ${c.asx_code} would end between `, h("strong", { text: money(yearRange.lo) }),
-        " and ", h("strong", { text: money(yearRange.hi) }), " (two years in three). A guide to how much it moves, not a forecast.") : null,
-      chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price` + (ahead ? `, and its likely range for the year ahead: ${money(yearRange.lo)} to ${money(yearRange.hi)}` : ""),
-        width: w, height: 260, markers, ahead })),
-      (d.volumes || []).length >= 2 ? chartSlot((w) => volumeChart({ points: d.volumes, label: `${c.asx_code} daily volume`, width: w, until })) : null,
-      (d.volumes || []).length >= 2 ? h("p", { class: "hint" }, "Volume is the number of shares traded each day. A darker bar traded more than twice its 3-month average: news, results or a big holder buying or selling. ", helpLink("volume")) : null,
-      tableView(["Date", "Close", "Volume", "Dividend (ex-date)"], rowDates.map((dt) => [longDate(dt), money(closeOn.get(dt)),
-        volOn.has(dt) ? fmt(volOn.get(dt), 0) : "", divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])),
-      ahead ? workedOut([
-        `The shaded range widens with time, because the further ahead you look the less certain it is. It comes from how much ${c.asx_code}'s price has moved over the past ${pastYears(st.years_of_prices)} (about ${fmt(st.volatility_percent, 0)}% a year), and assumes no trend: it doesn't know about results, dividends or news.`,
-        "One year in six the price would end above the range, and one year in six below it.",
-      ], "likely-range") : null);
-  } else {
-    priceCard = card("Share price, last 12 months", "Not enough price history yet.");
-  }
-  priceCard.classList.add("wide");
-
-  const mosCard = d.mos_history.length >= 2
-    ? card("Margin of safety over time", "The pink line is 0%, where the price equals estimated value. Above it: trading below estimated value.",
-      chartSlot((w) => lineChart({ series: [{ name: "Margin of safety", color: "--s1", points: d.mos_history }], yFmt: (v) => fmt(v, 0) + "%", zeroLine: true, label: "Margin of safety history", width: w })),
-      tableView(["Date", "Margin of safety"], d.mos_history.slice(-30).reverse().map((p) => [longDate(p[0]), pct(p[1])])))
-    : card("Margin of safety over time", "Builds up as the nightly job records a valuation each day.");
-
-  const fy = d.reports.map((r) => `FY${String(r.fiscal_year).slice(-2)}`);
-  const finCard = d.reports.length
-    ? card("Revenue and net profit", "Annual reports, oldest to newest.",
-      chartSlot((w) => columnChart({ categories: fy, yFmt: compact, label: "Revenue and net profit by year", width: w, series: [
-        { name: "Revenue", color: "--s1", values: d.reports.map((r) => r.revenue) },
-        { name: "Net profit after tax", color: "--s2", values: d.reports.map((r) => r.net_profit_after_tax) }] })),
-      tableView(["Year", "Revenue", "Net profit", "Free cash flow"], d.reports.map((r, i) => [fy[i], compact(r.revenue), compact(r.net_profit_after_tax), compact(r.free_cash_flow)])))
-    : card("Revenue and net profit", "No annual reports stored.");
-  const abnormal = d.reports.map((r, i) => [fy[i], r.abnormal_distributions_per_share]).filter(([, v]) => v > 0);
-  const abnormalNote = abnormal.length ? h("p", { class: "hint note", text:
-    `Excluded from every dividend figure: ${abnormal.map(([y, v]) => `${money(v, 3)} in ${y}`).join(", ")}. ` +
-    "A one-off payment more than twice the usual annual dividend, such as a capital return or large special dividend." }) : null;
-  const divCard = d.reports.some((r) => r.dividends_per_share)
-    ? card("Dividends per share", "Ordinary cash dividends per financial year, before franking credits.",
-      abnormalNote,
-      chartSlot((w) => columnChart({ categories: fy, yFmt: (v) => money(v), label: "Dividends per share by year", width: w,
-        series: [{ name: "Dividend per share", color: "--s1", values: d.reports.map((r) => r.dividends_per_share) }] })),
-      tableView(["Year", "Dividend per share", "Excluded one-off"], d.reports.map((r, i) =>
-        [fy[i], money(r.dividends_per_share, 3), r.abnormal_distributions_per_share ? money(r.abnormal_distributions_per_share, 3) : "none"])))
-    : card("Dividends per share", "No dividends recorded.", abnormalNote);
-
-  const drpCard = dividendReinvestCard(d.drp);
-  const shortCard = shortSellingCard(c, d);
-  const healthCard = island("FinancialHealthCard", { code: c.asx_code, health: d.health || null }, "Financial health");
-  const registryCard = shareRegistryCard(c.asx_code, d.registry);
-
-  const held = d.position ? h("p", { class: "hint", text:
-    `You hold ${fmt(d.position.units, 0)} units, cost base ${money(d.position.cost_base)}.` +
-    (d.position.next_discount_date ? ` ${fmt(d.position.units_pending_discount, 0)} units qualify for the CGT discount from ${longDate(d.position.next_discount_date)}.` : "") }) : null;
-
-  app.replaceChildren(...[
-    backLink(),
-    h("div", { class: "co-head" },
-      h("h1", { text: c.company_name || c.asx_code }),
-      h("span", { class: "ticker mono", text: c.asx_code }),
-      valuationPill(mos, true),
-      badge(c.action),
-      cautionTag(d.short_caution && d.short_caution.level),
-      watchButton(c.asx_code, d.watchlists)),
-    h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
-    aboutCompany(c),
-    h("p", { class: "reason", text: c.action_reason }),
-    c.statements_issue ? h("p", { class: "hint note", text: `The latest statements couldn't be stored: ${c.statements_issue.replace(/^statements can't be converted: /, "")}. ` +
-      "Sift keeps the figures it had, sets data confidence to low (so this can't be a BUY) and tries again each night. Check the company's reports before relying on these numbers." }) : null,
-    summaryStrip(c, d.model),
-    modelNote(d.model),
-    held,
-    watchNote(d.watchlists),
-    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, drpCard, registryCard,
-      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), healthCard, shortCard, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
-  ].filter(Boolean)); // native replaceChildren would print a null as "null"
-  drawSlots();
-  window.scrollTo(0, 0);
-}
-
-/* ---------- statistics (docs/kb/features/statistics.md) ---------- */
-/* "How this is worked out": the method behind a statistic, closed by default. */
-function workedOut(paragraphs, helpId, extra = null) {
-  return h("details", { class: "worked-out" }, h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), "How this is worked out"),
-    h("div", { class: "inner" }, paragraphs.map((t) => h("p", { text: t })), extra, helpId ? h("p", {}, helpLink(helpId)) : null));
-}
-/* Ten dots, filled for the chance in 10 ("about 4 in 10"). */
-function chanceDots(n) {
-  return h("span", { class: "chance-dots", role: "img", "aria-label": `${n} in 10` },
-    Array.from({ length: 10 }, (_, i) => h("span", { class: `cdot${i < n ? " on" : ""}` })));
-}
-const CHANCE_SCALE = ["Very unlikely: less than 1 in 10", "Unlikely: 1 to 2 in 10", "Possible: 3 to 4 in 10", "About even: 5 in 10",
-  "Likely: 6 to 7 in 10", "Very likely: 8 or more in 10"];
-/* The chance of reaching Sift's estimated value and the analysts' target
-   within 12 months, under the price against estimated value bars. */
-function chancesBlock(c, st) {
-  if (!st || !st.chances.length) return null;
-  const admin = me && me.user && me.user.admin;
-  const row = (x) => h("div", { class: "chance" },
-    h("span", { class: "label" }, x.label, h("small", { text: `${money(x.level)}, ${fmt(Math.abs(x.above_today_percent), 0)}% ${x.above_today_percent >= 0 ? "above" : "below"} today` })),
-    x.already_reached ? h("span", { class: "words", text: "Already reached: today's price is at or above it." })
-      : x.words ? [chanceDots(x.words.in_ten), h("span", { class: "words" }, h("strong", { text: `${x.words.word}: ` }), x.words.text)]
-      : h("span", { class: "words hint", text: "Needs a year of prices." }));
-  return h("div", { class: "chances-block" },
-    h("p", { class: "mini-head" }, withHelpLink("Chance of reaching it within 12 months", "chance-of-reaching")),
-    h("div", { class: "chances" }, st.chances.map(row)),
-    h("p", { class: "hint", text: `Based on how much ${c.asx_code}'s price has moved over the past ${pastYears(st.years_of_prices)}. It doesn't know about future news or results.` }),
-    workedOut([`Sift measures how much the price usually moves in a year (for ${c.asx_code}, about ${fmt(st.volatility_percent, 0)}%) and works out how often a price moving like that touches the level at least once within 12 months, assuming no trend either way.`,
-      "The same words mean the same chance everywhere in Sift:"], "chance-of-reaching",
-      [h("ul", { class: "scale-words" }, CHANCE_SCALE.map((t) => h("li", { text: t }))),
-        admin ? h("p", { class: "hint", text: "Admin: " + st.chances.filter((x) => x.chance !== null).map((x) => `${x.label} ${fmt(x.chance * 100, 0)}%`).join("; ") + `; volatility ${fmt(st.volatility_percent, 1)}% a year from ${fmt(st.observations, 0)} daily returns; beta ${st.beta === null ? NA : fmt(st.beta, 2)}${st.market_code ? ` against ${st.market_code}` : ""}.` }) : null]));
-}
-
 /* ---------- short selling (ASIC, docs/kb/features/volume-and-short-selling.md) ---------- */
 /* A shorted share can still be bought, with care: an amber caution beside
    the action, never a change to it (src/screening/short_caution.py). */
@@ -1083,67 +630,6 @@ function cautionTag(level, iconOnly = false, held = false) {
     (held ? ". Not a reason to sell on its own: open the company for what it means." : "");
   return h("span", { class: `caution-tag${level === "HIGH" ? " high" : ""}`, title: words, "aria-label": words, role: "img" },
     h("span", { "aria-hidden": "true", text: "!" }), iconOnly ? null : h("span", { text: CAUTION_WORDS[level] }));
-}
-/* The company page's short selling card, written for everyday investors:
-   a plain verdict first, then where the share sits, why it might be shorted
-   and what it means for you; the figures and chart wait under a twisty.
-   The verdict and "why" come from the server (src/screening/short_caution.py),
-   so the AI tools say the same thing. */
-function shortSellingCard(c, d) {
-  const x = d.short_interest, caution = d.short_caution, read = d.short_read, lv = d.short_levels;
-  if (!x) return card("Short selling", "No ASIC short position report for this company yet: they load nightly, about four business days behind.", helpLink("short-selling"));
-  const held = Boolean(d.position && d.position.units > 0);
-  const s = x.short_percent, days = c.days_to_cover, ch = x.change_points;
-  const known = (v) => v !== null && v !== undefined;
-
-  const bands = [["Normal", `under ${fmt(lv.watch, 0)}%`, 0, lv.watch], ["Watch", `${fmt(lv.watch, 0)} to ${fmt(lv.elevated, 0)}%`, lv.watch, lv.elevated],
-    ["Elevated", `${fmt(lv.elevated, 0)} to ${fmt(lv.high, 0)}%`, lv.elevated, lv.high], ["High", `${fmt(lv.high, 0)}% or more`, lv.high, Infinity]];
-  const band = bands.find(([, , lo, hi]) => s >= lo && s < hi);
-  const scale = h("ol", { class: "short-scale", "aria-label": `Where ${c.asx_code} sits: ${pct(s, 1)} sold short, ${band[0]}` },
-    bands.map(([name, range, lo, hi]) => {
-      const here = s >= lo && s < hi;
-      return h("li", { class: here ? (caution ? "here" : "here calm") : null, "aria-current": here ? "true" : null },
-        h("span", { class: "band-name", text: name }), h("span", { class: "band-range", text: range }),
-        here ? h("span", { class: "band-here", text: `${c.asx_code} ${pct(s, 1)}` }) : null);
-    }));
-  const levelName = caution && (caution.level === "HIGH" ? "High" : "Elevated");
-  const lifted = caution && band[0] !== levelName ? h("p", { class: "hint", text: `Sift rates it ${levelName}, not ${band[0]}, because ` +
-    (known(days) && days >= 5 ? `short sellers would need about ${fmt(days, 0)} days of trading to buy back.` : `shorting rose ${fmt(ch, 1)} points in a month.`) }) : null;
-
-  const headline = caution
-    ? h("p", { class: "short-headline" }, cautionTag(caution.level), ` ${pct(s, 1)} of ${c.asx_code}'s shares are sold short: professional investors are betting the price will fall.`)
-    : h("p", { class: "short-headline", text: `${pct(s, 1)} of ${c.asx_code}'s shares are sold short. ` +
-        (s < lv.watch ? "That's normal for the ASX: nothing to worry about." : "That's above normal, but not enough for a caution.") });
-
-  const why = caution && read ? [
-    h("h3", { class: "info-head", text: "Why might they be short?" }),
-    h("p", { class: `short-read ${read.kind.toLowerCase()}` }, h("strong", { text: `${read.label}. ` }), read.summary),
-    read.reasons.length ? h("ul", { class: "info-steps reasons" }, read.reasons.map((t) => h("li", { text: t }))) : null] : null;
-
-  const steps = !caution ? null : held
-    ? ["It isn't a reason to sell on its own.", "Expect bigger price moves than usual, up and down.", "Check the latest announcements for anything new."]
-    : ["Expect bigger price moves than usual, up and down.", "Read the latest results and announcements first.",
-      caution.level === "HIGH" ? "If you buy, keep the amount small." : "Set a watchlist trigger to see if shorting keeps growing."];
-  const forYou = steps ? [h("h3", { class: "info-head", text: held ? "What it means for you" : "If you're thinking of buying" }),
-    h("ul", { class: "info-steps" }, steps.map((t) => h("li", { text: t })))] : null;
-
-  const details = h("details", { class: "short-details", ontoggle: () => drawSlots() },
-    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), "Details and chart"),
-    h("div", { class: "stats fit" },
-      statTile("Sold short", pct(x.short_percent, 2), caution ? "caution-text" : null, `${fmt(x.short_positions, 0)} shares`),
-      statTile("Days to cover", known(days) ? fmt(days, 1) : NA, null, "shares short / average daily volume"),
-      statTile("Change over a month", known(ch) ? `${ch > 0 ? "+" : ""}${fmt(ch, 2)} pts` : NA, null,
-        !known(ch) ? "needs a month of reports" : ch > 0 ? "more shorted" : ch < 0 ? "less shorted" : "unchanged")),
-    x.history.length >= 2 ? chartSlot((w) => lineChart({ series: [{ name: "% of shares sold short", color: "--s1", points: x.history }],
-      yFmt: (v) => fmt(v, 1) + "%", label: `${c.asx_code} short interest`, width: w, height: 180 })) : null,
-    h("p", { class: "hint", text: "Why heavily shorted shares swing: bad news lands on a crowded bet against the company, so the price can fall fast; " +
-      "good news can force short sellers to buy back at once, so it can jump (a short squeeze). Days to cover is how many days of normal trading " +
-      `they'd need to buy back: the more days, the sharper a squeeze can be. ASIC report of ${longDate(x.report_date)}, published about four business days later.` }));
-
-  const el = card("Short selling", null, headline, scale, lifted, why, forYou, details,
-    h("p", { class: "hint" }, "A prompt for your own research, not financial advice. ", helpLink("short-selling")));
-  el.classList.add("wide", "short-info");
-  return el;
 }
 
 /* Coattail, Most shorted: the bearish side of the smart money. */
@@ -1168,64 +654,6 @@ async function renderShorts() {
       (() => { const c = card("Most shorted", "The largest share of the company sold short.", table(d.most, empty)); c.classList.add("wide"); return c; })(),
       (() => { const c = card("Shorts rising fastest", "The biggest rise in % sold short over about a month.", table(d.rising, empty)); c.classList.add("wide"); return c; })()));
   window.scrollTo(0, 0);
-}
-
-/* ---------- dividend reinvestment and the share registry (docs/kb/features/drp-and-registry.md) ---------- */
-const cents = (v) => (v < 1 ? `${fmt(v * 100, v * 100 % 1 ? 1 : 0)}c` : money(v));
-/* How many shares it takes for the dividends to buy a whole new share at
-   today's price. Only for companies paying an ordinary dividend now. */
-function dividendReinvestCard(x) {
-  if (!x) return null;
-  const tile = (label, need, note) => statTile(label, need ? plural(need.shares, "share") : NA, null, need ? `worth ${money(need.value, 0)}; ${note}` : note);
-  const lp = x.last_payment;
-  const yours = x.yours ? h("p", {}, `Your ${fmt(x.yours.units, 0)} shares: each payment buys about ${fmt(x.yours.per_payment, 1)} new ${x.yours.per_payment === 1 ? "share" : "shares"}`,
-    x.yours.per_year !== null ? `, a year about ${fmt(x.yours.per_year, 1)}.` : ".") : null;
-  return card("Dividend reinvestment (DRP)", `Shares you'd need to hold for the dividends to buy a whole new share at today's price of ${money(x.price)}.`,
-    h("div", { class: "stats drp-stats" },
-      tile("1 new share each payment", x.per_payment, `on the latest dividend of ${cents(lp.amount)} (ex ${longDate(lp.ex_date)})`),
-      tile("1 new share a year", x.per_year, x.year_total ? `on ${cents(x.year_total)} paid in the last 12 months (${plural(x.payments_in_year, "payment")})` : "no dividend in the last 12 months")),
-    yours,
-    h("p", { class: "drp-join" }, h("strong", { text: "It isn't automatic. " }),
-      "Dividends are paid in cash unless you join the DRP through the company's share registry (see the Share registry card). " +
-      "To count for a dividend, your choice usually has to reach the registry by the day after the record date. ", helpLink("drp")));
-}
-
-function shareRegistryCard(code, info) {
-  if (!info) return null;
-  const body = h("div");
-  const admin = me && me.user && me.user.admin;
-  function draw(x) {
-    const r = x.registry;
-    const source = x.source === "admin" ? "Set by an admin." : x.source === "asx" && x.checked_at ? `From ASX's company details, checked ${longDate(x.checked_at.slice(0, 10))}.` : null;
-    body.replaceChildren(
-      r ? h("p", { class: "registry-name strong", text: r.name }) : h("p", { class: "hint", text: "Not known yet: Sift reads it from ASX's company details about once a month." }),
-      r && r.portal ? h("p", {}, h("a", { href: r.portal, target: "_blank", rel: "noopener noreferrer", text: `Log in to ${r.name.split(" (")[0]}'s investor portal ↗` })) : null,
-      r && r.website && r.website !== r.portal ? h("p", {}, h("a", { href: r.website, target: "_blank", rel: "noopener noreferrer", text: "Registry website ↗" })) : null,
-      h("p", { class: "hint" }, "The registry keeps the company's register of shareholders. Log in to see your holding, choose whether dividends are paid in cash or reinvested (DRP), and how leftover cash is handled. ", helpLink("drp")),
-      source ? h("p", { class: "hint", text: source }) : null,
-      admin ? editor(x) : null);
-  }
-  function editor(x) {
-    const pick = h("select", { "aria-label": "Registry" },
-      h("option", { value: "", text: "Use what ASX says" }),
-      x.choices.map((o) => h("option", { value: o.registry_id, text: o.name, selected: x.registry && x.registry.registry_id === o.registry_id })),
-      h("option", { value: "other", text: "Another registry...", selected: !!(x.registry && !x.registry.registry_id) }));
-    const name = h("input", { type: "text", maxlength: 160, placeholder: "Registry name", "aria-label": "Registry name",
-      value: x.registry && !x.registry.registry_id ? x.registry.name : "", hidden: pick.value !== "other" });
-    pick.addEventListener("change", () => { name.hidden = pick.value !== "other"; });
-    const msg = h("span", { class: "form-msg", role: "status" });
-    const form = h("form", { class: "registry-edit", onsubmit: async (e) => {
-      e.preventDefault();
-      try {
-        const out = await send("PUT", `/api/admin/company/${code}/registry`,
-          pick.value === "other" ? { name: name.value } : { registry_id: pick.value || null });
-        draw(out);
-      } catch (err) { showMessage(msg, err.message, false); }
-    } }, pick, name, h("button", { type: "submit", class: "btn small", text: "Save" }), msg);
-    return h("details", { class: "registry-admin" }, h("summary", { text: "Change (admin)" }), form);
-  }
-  draw(info);
-  return card("Share registry", null, body);
 }
 
 /* ---------- page furniture ---------- */
@@ -2248,12 +1676,6 @@ function noticeLine(n) {
       n.in_sift === false ? h("span", { class: "code", text: n.asx_code }) : h("a", { class: "code", href: `#/company/${n.asx_code}`, text: n.asx_code }),
       h("div", { class: "notice-what", text: unread ? `Details not read: ${n.read_note || "open the notice"}` : what })),
     h("div", { class: "side" }, h("span", { class: "hint", text: noticeDay(n.released_at) }), " ", noticeLink(n)));
-}
-function companyNoticesCard(list) {
-  const el = card("Director and substantial holder notices", "From ASX announcements over the last year: directors trading their own company's shares (Appendix 3Y) and holders of 5% or more. On-market buys with the director's own money say the most.",
-    list && list.length ? h("ul", { class: "items notice-list" }, list.map(noticeLine)) : h("p", { class: "hint", text: "None in the last year." }), helpLink("director-trades"));
-  el.classList.add("wide");
-  return el;
 }
 function noticesDashCard(list) {
   return card("Director and holder notices", "On the companies you hold or watch, from ASX in the last week.",
@@ -3801,6 +3223,10 @@ window.SiftHost = {
   settings: () => me.settings,
   previousPage: () => previousPage,
   noteVersion: (res) => noteVersion(res),
+  thresholds: () => thresholds(),
+  estimatedValueHelp: (method) => (ESTIMATED_VALUE_HELP[method] ? ESTIMATED_VALUE_HELP[method](thresholds()) : null),
+  fundHref: (code) => { const f = (cache.companies || []).find((x) => x.code === code && FUNDS[x.type]); return f ? fundHref(f.type, code) : null; },
+  afterChange: () => afterChange(),
 };
 /* A React component as one more card on a page this file built. The wrapper
    takes no space of its own (display: contents), so the card sits in the
@@ -3834,17 +3260,6 @@ function settingText(meta, value) {
   if (meta.unit === "days") return plural(v, "day");
   if (meta.unit === "calls") return plural(v, "call");
   return fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0);
-}
-/* A workings figure: big dollar amounts compact, per-share amounts to the cent. */
-function stepValue(v, unit) {
-  if (v === null || v === undefined) return NA;
-  if (typeof v === "string") return v;
-  if (unit === "$") return Math.abs(v) >= 100000 ? compact(v) : money(v, Math.abs(v) < 10 ? 3 : 2);
-  if (unit === "%") return pct(v, 1);
-  if (unit === "x") return fmt(v, 2);
-  if (unit === "points") return `${fmt(v, 1)} points`;
-  if (Number.isInteger(Number(v)) && Math.abs(v) < 100000) return fmt(v, 0);
-  return Math.abs(v) >= 100000 ? new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 2 }).format(v) : fmt(v, 2);
 }
 
 function adminTabs(current) {
@@ -4068,85 +3483,6 @@ async function renderScenario(id) {
   if (cache.flash) { showMessage(msg, cache.flash, true); cache.flash = null; }
   window.scrollTo(0, 0);
   if (id) run();
-}
-
-/* ---------- company page: show workings and sensitivity ---------- */
-function workingsCard(code) {
-  const body = h("div", { class: "workings" });
-  let loaded = false, scenario = "";
-  const load = async () => {
-    body.replaceChildren(h("p", { class: "loading", text: "Working it out..." }));
-    try {
-      const d = await getJSON(`/api/company/${encodeURIComponent(code)}/workings${scenario ? `?scenario=${scenario}` : ""}`);
-      body.replaceChildren(...workingsBody(d, (x) => { scenario = x; load(); }));
-    } catch (err) { body.replaceChildren(h("p", { class: "error", text: err.message })); }
-  };
-  const det = h("details", { class: "axis-block workings-toggle" },
-    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: "Show workings" })), body);
-  det.addEventListener("toggle", () => { if (det.open && !loaded) { loaded = true; load(); } });
-  const c = card("Workings and what-if", "Every step of the valuation, with this company's numbers.", det, h("p", { class: "hint", style: "margin-top:8px" }, "Settings behind these steps: ",
-    h("a", { href: "#/admin", text: "Model and rules" }), ". ", helpLink("show-workings")));
-  c.classList.add("wide");
-  return c;
-}
-
-function stepList(steps) {
-  return h("ol", { class: "steps" }, steps.map((st) => h("li", {},
-    h("div", { class: "step-head" }, h("span", { class: "step-title" }, withHelpLink(st.title, st.help_id)),
-      h("span", { class: "step-result", text: stepValue(st.result, st.unit) })),
-    h("div", { class: "step-formula", text: st.formula }),
-    st.inputs.length ? h("div", { class: "step-inputs" }, st.inputs.map((i) => h("span", {}, `${i.label} `, h("strong", { text: stepValue(i.value, i.unit) })))) : null,
-    st.note ? h("div", { class: "hint", text: st.note }) : null)));
-}
-
-function workingsBody(d, choose) {
-  const v = d.valuation;
-  const picker = h("select", { "aria-label": "Settings", class: "inline-select", onchange: (e) => choose(e.target.value) },
-    h("option", { value: "", text: "Live settings" }),
-    d.scenarios.map((x) => h("option", { value: x.scenario_id, selected: x.name === d.scenario, text: `Scenario: ${x.name}` })));
-  const head = h("div", { class: "workings-head" }, picker,
-    h("span", {}, d.scenario ? `Under ${d.scenario}: ` : "", "estimated value ", h("strong", { text: money(d.estimated_value) }),
-      ", margin of safety ", h("strong", { text: pct(d.margin_of_safety, 1) }), ", ", valuationPill(d.margin_of_safety), " ", badge(d.action.action)));
-  const sections = [];
-  const sec = (title, help, ...kids) => h("section", { class: "work-sec" }, h("h3", {}, withHelpLink(title, help)), kids);
-  const base = v.base;
-  sections.push(sec(`Estimated value (${v.method})`, v.help_id,
-    h("p", { class: "hint", text: v.why }),
-    h("div", { class: "step-inputs" }, v.assumptions.map((a) => h("span", {}, `${a.label} `, h("strong", { text: pct(a.value, a.value % 1 ? 1 : 0) })))),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, h("th", { text: "Base year" }), h("th", { class: "num", text: base.label }))),
-      h("tbody", {}, base.years.map((y) => h("tr", { class: "static" }, h("td", { text: `FY${y.year}` }), h("td", { class: "num", text: stepValue(y.value, "$") }))),
-        h("tr", { class: "static total" }, h("td", { text: "Average (the base)" }), h("td", { class: "num strong", text: stepValue(base.average, "$") }))))),
-    v.unavailable ? h("p", { class: "empty", text: v.unavailable }) : [
-      h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-        h("thead", {}, h("tr", {}, ["Year", "Cash flow", "Discount factor", "Present value"].map((x, i) => h("th", { class: i ? "num" : null, text: x })))),
-        h("tbody", {}, v.years.map((y) => h("tr", { class: "static" }, h("td", { text: String(y.year) }), h("td", { class: "num", text: stepValue(y.flow, "$") }),
-          h("td", { class: "num", text: fmt(y.factor, 4) }), h("td", { class: "num", text: stepValue(y.present_value, "$") })))))),
-      stepList(v.steps)]));
-  sections.push(sec("Ratios", "roe", h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-    h("thead", {}, h("tr", {}, ["Ratio", "Formula", "Inputs", "Result"].map((x, i) => h("th", { class: [i === 3 ? "num" : "", i === 2 ? "opt" : ""].join(" ").trim() || null, text: x })))),
-    h("tbody", {}, d.ratios.map((st) => h("tr", { class: "static" }, h("td", {}, withHelpLink(st.title, st.help_id)), h("td", { class: "formula", text: st.formula }),
-      h("td", { class: "opt hint" }, st.inputs.map((i, k) => [k ? ", " : "", `${i.label} ${stepValue(i.value, i.unit)}`])),
-      h("td", { class: "num strong", text: stepValue(st.result, st.unit) }))))))));
-  sections.push(sec("The four value tests", "four-value-tests", h("ul", { class: "checklist" }, d.tests.map((t) => h("li", {},
-    h("span", { class: `mark ${t.passed ? "pass" : "fail"}`, "aria-hidden": "true", text: t.passed ? "✓" : "✕" }),
-    h("span", {}, withHelpLink(`${t.name}: ${t.value === null ? NA : t.unit === "%" ? pct(t.value, 1) : fmt(t.value, 2)} (needs ${t.rule})`, t.help_id)))))));
-  sections.push(sec("Markers", "earnings-quality", stepList(d.markers)));
-  sections.push(sec("Suggested action", d.action.help_id, h("p", {}, badge(d.action.action), " ", d.action.reason),
-    d.action.flags.length ? h("ul", { class: "flags" }, d.action.flags.map((f) => h("li", { text: f }))) : h("p", { class: "hint", text: "No red flags." }),
-    h("p", { class: "hint" }, `Score ${d.score.total} of 30. `, helpLink(d.score.help_id))));
-  if (d.sensitivity) {
-    const sv = d.sensitivity;
-    sections.push(sec(`Sensitivity: estimated value at other rates (${sv.method})`, "sensitivity-grid",
-      h("p", { class: "hint", text: `Rows: growth rate. Columns: discount rate. Each cell: estimated value and margin of safety at today's price of ${money(sv.price)}. The outlined cell is the setting in use.` }),
-      h("div", { class: "table-wrap" }, h("table", { class: "grid compact sens" },
-        h("thead", {}, h("tr", {}, h("th", { text: "Growth \\ discount" }), sv.discount_rates.map((r) => h("th", { class: "num", text: pct(r, 0) })))),
-        h("tbody", {}, sv.rows.map((row) => h("tr", { class: "static" }, h("th", { scope: "row", text: pct(row.growth, 1) }),
-          row.cells.map((c) => h("td", { class: `num${c && c.current ? " current" : ""}` },
-            !c || c.value === null ? NA : [h("div", { class: "strong", text: money(c.value) }),
-              h("span", { class: `pill ${({ Undervalued: "under", "Fair value": "fair", Overvalued: "over" })[c.status] || "none"}`, text: pct(c.mos, 0) })])))))))));
-  }
-  return [head, ...sections];
 }
 
 /* ---------- printing (Print or save as PDF, avatar menu; also Ctrl+P) ----------
@@ -4677,7 +4013,7 @@ async function renderAdminUsers() {
 
 /* ---------- routing ---------- */
 const ROUTES = [
-  [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => renderCompany(m[1].toUpperCase())],
+  [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => reactPage("CompanyPage", { code: m[1].toUpperCase() })],
   [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
   [/^#\/etfs(?:\?(.*))?$/, "etfs", (m) => { presetEtfs(m[1]); return renderEtfs(); }],
   [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => renderFund("ETF", m[1].toUpperCase(), m[2])],
