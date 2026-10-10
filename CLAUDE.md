@@ -1,6 +1,6 @@
 # Sift: working notes for Claude
 
-Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL, plain JavaScript pages in `web/`. How each part is designed and works is in the developer knowledge base, `docs/kb/` (shown to admins in Sift at Admin, Developer); read the feature article and its decision records before changing a feature. `docs/AS_BUILT.md` keeps the change log and the original design record.
+Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL, pages in `web/` (plain JavaScript in `web/app.js`, moving to React and TypeScript: see below). How each part is designed and works is in the developer knowledge base, `docs/kb/` (shown to admins in Sift at Admin, Developer); read the feature article and its decision records before changing a feature. `docs/AS_BUILT.md` keeps the change log and the original design record.
 
 ## Conventions
 
@@ -11,6 +11,7 @@ Sift is an ASX value-investing tool: Python 3.11, FastAPI (`gui.py`), PostgreSQL
 - Releases: bump `src/version.py` and add `docs/kb/releases/release-<version>.md` (the test checks they match).
 - Screening rule changes (thresholds, actions, scores, valuation models): bump `RULES_VERSION` (`src/tracking/signals.py`) and add what changed to `HISTORY` in `src/tracking/rules_versions.py` (a test checks it); admins see it as the next "Version N".
 - Personal data stays out of git: `allords.txt` and other ticker files, `.env`, `logs/`, `data/asx_reports/`. Never ask for the database password in chat.
+- **New pages and cards: React and TypeScript** (owner's decision, 2026-10-10, ADR-018 `docs/kb/decisions/adr-018-react-typescript-pages.md`). Every new page, and every new card or panel on an existing page, is a React component in TypeScript, mounted inside the current app (same menu, sign-in, search and router) and styled with Sift's tokens and classes from `web/style.css`. Build with Vite and commit the built files (the owner's PC has no Node.js); pin library versions exactly; test components with Vitest. An existing plain JavaScript page is rebuilt in React when it next gets a significant change, not for a small fix. All other conventions here apply unchanged. Nothing is a separate site or portal: new pages are pages inside Sift.
 - UI colour: every action button is pink (`--action`: `.btn`, `.btn.primary` for the main one, `.icon-btn`), links are blue (`--accent`), deleting is red (`.btn.danger`). Use the classes or tokens, never raw colours (`web/style.css`, "Action colour").
 - Schema changes go in `db/schema.sql` and must be idempotent (`IF NOT EXISTS`); they apply on start-up and at the start of the nightly run.
 

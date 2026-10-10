@@ -3,20 +3,20 @@ id: adr-002-fastapi-plain-js
 title: Decision: FastAPI and plain JavaScript pages
 category: decisions
 summary: Why Sift's pages are one plain JavaScript file over a JSON API rather than a front-end framework.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-04-09
-decision_status: accepted
-related: [web-gui, architecture]
+decision_status: superseded
+related: [web-gui, architecture, adr-018-react-typescript-pages]
 code: [gui.py, web/app.js]
 ---
 
 ## Status
 
-Accepted, 2026-10-05.
+Accepted, 2026-10-05. The plain JavaScript half was superseded on 2026-10-10 by [ADR-018](kb:adr-018-react-typescript-pages): new pages and cards are built in React and TypeScript, and existing pages move over when next redesigned. The FastAPI JSON API stands.
 
 ## Context
 

@@ -3,14 +3,14 @@ id: web-gui
 title: Sift web app: pages, dashboard and layout
 category: features
 summary: How the FastAPI server and the plain JavaScript pages fit together: routes, the dashboard and its arrangeable widgets, company pages, charts, phone layout and the house UI rules.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §20
-related: [architecture, profile-preferences-impersonation, table-filters, adr-002-fastapi-plain-js]
+related: [architecture, profile-preferences-impersonation, table-filters, adr-002-fastapi-plain-js, adr-018-react-typescript-pages]
 code: [gui.py, web/index.html, web/app.js, web/style.css, web/dashlayout.js, web/tablefilter.js]
 tables: [ui_preferences]
 ---
@@ -20,6 +20,8 @@ tables: [ui_preferences]
 Sift's pages are how people use everything else. The server returns JSON; one JavaScript file builds every page, so there is no build step and nothing loads from other sites.
 
 ## How it works
+
+**Moving to React and TypeScript** (2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). New pages and new cards are React components in TypeScript, mounted inside this app and styled with the same tokens; existing pages below move over when they are next redesigned. Until then, everything described here applies.
 
 **Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Writes only portfolios and trades ([§19.1](kb:portfolios-cgt)).
 
