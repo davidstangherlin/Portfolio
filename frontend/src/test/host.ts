@@ -10,7 +10,7 @@ export function fakeHost(over: Partial<SiftHost> = {}, knowledge: Knowledge = { 
       chart_tables: false, show_hover_buttons: false, keyboard_shortcuts: true, start_page: "dashboard", search_scope: "auto", rows_shown: 100 }),
     previousPage: () => null, noteVersion: () => undefined,
     thresholds: () => ({ margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 }),
-    estimatedValueHelp: () => null, fundHref: () => null, afterChange: () => undefined, ...over,
+    estimatedValueHelp: () => null, fundHref: () => null, afterChange: () => undefined, setThresholds: () => undefined, ...over,
   };
   window.SiftHost = host;
   return host;

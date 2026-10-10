@@ -68,7 +68,7 @@ function ModelNote({ model }: { model: CompanyData["model"] }) {
 }
 
 /* What the company does: the first two sentences of Yahoo's business summary, with "more" to read the rest. */
-function AboutCompany({ c }: { c: Company }) {
+export function AboutCompany({ c }: { c: Pick<Company, "business_summary" | "business_summary_short"> }) {
   const [open, setOpen] = useState(false);
   if (!c.business_summary) return null;
   const short = c.business_summary_short || c.business_summary;

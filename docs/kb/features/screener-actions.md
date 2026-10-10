@@ -3,7 +3,7 @@ id: screener-actions
 title: Screener, value tests, score wheel and suggested actions
 category: features
 summary: How every valued company is tested against the four value tests, scored on the 30-check wheel and given a suggested action (Recommendation) with its reason.
-version: 1.2
+version: 1.3
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §9, §9.1
 related: [valuation-models, trends-markers, track-record, web-gui, volume-and-short-selling, financial-health]
-code: [screen_asx.py, src/screening/actions.py, src/screening/scores.py, src/screening/enriched.py, src/screening/movers.py]
+code: [screen_asx.py, src/screening/actions.py, src/screening/scores.py, src/screening/enriched.py, src/screening/movers.py, frontend/src/pages/ScreenerPage.tsx]
 tables: [valuation_metrics, daily_prices]
 ---
 
@@ -93,6 +93,8 @@ User request: *"add a field with variables advise on possible actions? for examp
 
 **Found in end-to-end testing:** the first version didn't append red flags to `WATCH` reasons, so a company with ~45% cash conversion read "quality passes, wait for a better price" - a cleaner bill of health than the data supported. Fixed (red flags now appended to every non-`IGNORE` reason) with a regression test, and the wording changed from "quality passes" to "ROE, debt and yield pass" to say exactly which tests passed.
 
+
+**The screener page** (ASX Stocks, React since 2026-10-10: `frontend/src/pages/ScreenerPage.tsx`). The same columns, action chips, sector, watchlist, Passes all four tests and Held only filters, table filters and sorting as before; its answer is kept between visits (`lib/cache.ts`) and dropped after a trade or watchlist change (`SiftUI.invalidate()`). Links such as `#/screener?action=BUY,INVESTIGATE` still open it with just that filter.
 ## Code map
 
 - `screen_asx.py`: the row loader (load_annotated_rows, annotate_row) and the command-line screener

@@ -1,7 +1,8 @@
 // Watchlists on the company page: the "Add to watchlist" button with its
 // picker, and the line saying which lists it's on (watchButton(),
 // watchPicker() and watchNote() in web/app.js).
-import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { send } from "../lib/api";
 import { showMessage } from "../lib/forms";
 import { host } from "../lib/host";
@@ -82,3 +83,67 @@ export function WatchButton({ code, lists, onChange }: { code: string; lists: Wa
     </div>
   );
 }
+
+/* ---------- list pages (screener, ETFs, LICs): a star on the left of each row ----------
+   ☆ adds it to a watchlist, ★ shows it's on one; either opens the same picker as
+   the company page, floating under the star (watchCell() in web/app.js). */
+export interface ListRow { asx_code: string; watchlists: string[] }
+export interface PageList { watchlist_id: string; name: string }
+
+let closeOpenPop: ((refocus?: boolean) => void) | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && closeOpenPop) closeOpenPop(true); });
+  window.addEventListener("hashchange", () => closeOpenPop && closeOpenPop());
+}
+
+function WatchPop({ anchor, r, lists, onClose, onChanged }: { anchor: HTMLElement; r: ListRow; lists: PageList[]; onClose: (refocus?: boolean) => void; onChanged: (entries: WatchEntry[]) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [entries, setEntries] = useState<WatchEntry[]>(() => lists.map((w) => ({ ...w, member: r.watchlists.includes(w.name) })));
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (!matchMedia("(max-width: 560px)").matches) {  // phones: a fixed panel near the top (style.css)
+      const a = anchor.getBoundingClientRect(), box = el.getBoundingClientRect();
+      const below = a.bottom + 6 + box.height <= innerHeight - 8;
+      el.style.left = `${scrollX + Math.max(8, Math.min(a.left, innerWidth - box.width - 8))}px`;
+      el.style.top = `${scrollY + (below ? a.bottom + 6 : Math.max(8, a.top - 6 - box.height))}px`;
+    }
+    ((el.querySelector("input") as HTMLElement | null) || el).focus();
+    const outside = (e: MouseEvent) => { if (!el.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose(); };
+    document.addEventListener("click", outside);
+    return () => document.removeEventListener("click", outside);
+  }, []);
+  return createPortal(
+    <div className="watch-panel watch-pop" role="dialog" aria-label={`Watchlists for ${r.asx_code}`} ref={ref} tabIndex={-1} onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") onClose(true); }}>
+      <WatchPicker code={r.asx_code} lists={entries} changed={(next) => { setEntries(next); onChanged(next); }} />
+    </div>, document.body);
+}
+
+export function WatchCell({ r, lists, onChange }: { r: ListRow; lists: PageList[]; onChange: () => void }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const on = r.watchlists;
+  const close = (refocus = false) => { setOpen(false); closeOpenPop = null; if (refocus) btn.current?.focus(); };
+  return (
+    <td className="watch-cell">
+      <button ref={btn} type="button" className={`watch-toggle${on.length ? " on" : ""}`} aria-haspopup="dialog" aria-expanded={open}
+        title={on.length ? `On watchlist: ${on.join(", ")}. Click to change.` : "Add to a watchlist"}
+        aria-label={on.length ? `${r.asx_code} is on watchlist ${on.join(", ")}: change` : `Add ${r.asx_code} to a watchlist`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (open) { close(); return; }  // a second click on the same star closes it
+          if (closeOpenPop) closeOpenPop();
+          closeOpenPop = close; setOpen(true);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}>{on.length ? "★" : "☆"}</button>
+      {open && btn.current ? <WatchPop anchor={btn.current} r={r} lists={lists} onClose={(refocus) => close(refocus)} onChanged={(entries) => {
+        for (const w of entries) if (!lists.some((l) => l.watchlist_id === w.watchlist_id)) lists.push({ watchlist_id: w.watchlist_id, name: w.name });
+        r.watchlists = entries.filter((w) => w.member).map((w) => w.name);
+        host().afterChange();
+        onChange();
+      }} /> : null}
+    </td>
+  );
+}
+export const WatchHead = () => <th className="watch-cell" scope="col" title="Watchlist"><span className="sr-only">Watchlist</span></th>;

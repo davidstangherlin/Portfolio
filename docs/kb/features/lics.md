@@ -3,15 +3,15 @@ id: lics
 title: LICs: listed investment companies and trusts
 category: features
 summary: How LICs are judged on share price against net tangible assets (NTA) rather than valued as companies.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §27
 related: [etfs-collection, etfs-presentation]
-code: [src/etf/views.py, src/etf/asx_report.py]
+code: [src/etf/views.py, src/etf/asx_report.py, frontend/src/pages/funds/FundPage.tsx]
 tables: [etf_monthly]
 ---
 

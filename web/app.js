@@ -55,7 +55,6 @@ function compact(v) {
 }
 const toDate = (iso) => new Date(iso + "T00:00:00");
 const dayMonth = (iso) => toDate(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
-const monthYear = (iso) => toDate(iso).toLocaleDateString("en-AU", { month: "short", year: "2-digit" });
 const longDate = (iso) => toDate(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
@@ -165,14 +164,6 @@ const signClass = (v) => (v === null || v === undefined || v === 0 ? null : v > 
 function badge(action) {
   return h("span", { class: `badge ${ACTION_STATUS[action] || "neutral"}`, text: action });
 }
-function ynMarks(row) {
-  const tests = [["mos_ok", "Margin of safety"], ["roe_ok", "ROE"], ["de_ok", "Debt/equity"], ["yield_ok", "Yield"]];
-  return h("span", { class: "tests" }, tests.map(([k, label]) => {
-    const pass = row[k] === "Y";
-    return h("span", { class: `yn ${pass ? "y" : "n"}`, title: `${label}: ${pass ? "pass" : "fail"}`,
-      "aria-label": `${label} ${pass ? "passes" : "fails"}`, text: pass ? "✓" : "✕" });
-  }));
-}
 
 /* Score wheel: five spokes, each a count of six yes/no checks. */
 function wheel(scores, axes, max, { size = 300, labels = true, details = null } = {}) {
@@ -240,129 +231,11 @@ function legend(series, rect = false, extras = []) {
       : h("span", { class: `dkey${x.outline ? " outline" : ""}`, "aria-hidden": "true", text: x.symbol }), x.name)));
 }
 
-/* Ex-dividend dates on the price chart: each lands on the first trading
-   day on or after it (ex-dates can fall on a non-trading day). */
-function dividendMarkers(prices, dividends) {
-  return dividends.map((dv) => {
-    const at = prices.find((p) => p[0] >= dv.ex_date) || prices[prices.length - 1];
-    return { ...dv, date: at[0] };
-  }).filter((dv) => dv.ex_date >= prices[0][0]);
-}
-const dividendText = (dv) => `${money(dv.amount, 3)} per ${dv.per || "share"}${dv.abnormal ? ", one-off (excluded from dividend figures)" : ""}`;
-const markerKind = (mk) => mk.kind || "Dividend";
-
 function tableView(headers, rows) {
   return h("details", { class: "table-view", open: me.settings.chart_tables }, h("summary", { text: "Show data table" }),
     h("div", { class: "table-wrap" }, h("table", { class: "grid" },
       h("thead", {}, h("tr", {}, headers.map((x, i) => h("th", { class: i ? "num" : null, text: x })))),
       h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: i ? "num" : null, text: v }))))))));
-}
-
-/* Line chart with crosshair tooltip. series: [{name, color, points:[[iso, value]]}] */
-/* `ahead` ({ price, volatility }, a fraction a year) adds the likely range
-   for the next 12 months, two years in three, after the last point
-   (docs/kb/features/statistics.md). */
-const YEAR_MS = 365 * 86400000;
-const CHART_RIGHT_AHEAD = 58;  // room for the range's end labels
-function aheadRange(ahead, t0) {  // weekly points, so the range's curve near today stays smooth
-  return Array.from({ length: 53 }, (_, k) => {
-    const spread = ahead.volatility * Math.sqrt(k / 52);
-    return { t: t0 + (k * YEAR_MS) / 52, months: Math.round((k * 12) / 52), lo: ahead.price * Math.exp(-spread), hi: ahead.price * Math.exp(spread) };
-  });
-}
-function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640, markers = [], ahead = null }) {
-  const W = width, H = height, m = { l: 52, r: ahead ? CHART_RIGHT_AHEAD : 14, t: 10, b: 24 };
-  const pw = W - m.l - m.r, ph = H - m.t - m.b;
-  const base = series[0].points;
-  const xs = base.map((p) => toDate(p[0]).getTime());
-  const lastT = xs[xs.length - 1];
-  const fan = ahead ? aheadRange(ahead, lastT) : null;
-  const x0 = xs[0], x1 = fan ? lastT + YEAR_MS : lastT === x0 ? x0 + 1 : lastT;
-  const values = series.flatMap((sr) => sr.points.map((p) => p[1]));
-  if (fan) values.push(fan[52].lo, fan[52].hi);
-  if (zeroLine) values.push(0);
-  const { lo, hi, ticks } = niceTicks(Math.min(...values), Math.max(...values));
-  const X = (t) => m.l + ((t - x0) / (x1 - x0)) * pw;
-  const Y = (v) => m.t + ph - ((v - lo) / (hi - lo)) * ph;
-
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart", role: "img", "aria-label": label });
-  for (const t of ticks) {
-    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 && zeroLine ? "zero-line" : "grid-line" }));
-    svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: yFmt(t) }));
-  }
-  if (fan) {
-    // Past and year ahead: start, middle, Today, middle, end (start, Today, end when narrow).
-    const at = W < 520 ? [x0, lastT, x1] : [x0, (x0 + lastT) / 2, lastT, (lastT + x1) / 2, x1];
-    at.forEach((t, k) => svg.append(s("text", { x: X(t), y: H - 6, "text-anchor": k === 0 ? "start" : k === at.length - 1 ? "end" : "middle",
-      class: t === lastT ? "strong" : null, text: t === lastT ? "Today" : monthYear(new Date(t).toISOString().slice(0, 10)) })));
-    const edge = (side) => fan.map((f) => `${X(f.t).toFixed(1)},${Y(f[side]).toFixed(1)}`);
-    svg.append(s("polygon", { points: [...edge("hi"), ...edge("lo").reverse()].join(" "), class: "ahead-band" }));
-    svg.append(s("polyline", { points: edge("hi").join(" "), class: "ahead-edge" }));
-    svg.append(s("polyline", { points: edge("lo").join(" "), class: "ahead-edge" }));
-    svg.append(s("line", { x1: X(lastT), x2: X(x1), y1: Y(ahead.price), y2: Y(ahead.price), class: "ahead-mid" }));
-    svg.append(s("line", { x1: X(lastT), x2: X(lastT), y1: m.t, y2: m.t + ph, class: "ahead-today" }));
-    [[fan[52].hi, true], [ahead.price, false], [fan[52].lo, true]].forEach(([v, strong]) =>
-      svg.append(s("text", { x: W - m.r + 6, y: Y(v) + 4, class: strong ? "strong" : null, text: yFmt(v) })));
-  } else {
-    const nLabels = Math.min(5, base.length);
-    for (let k = 0; k < nLabels; k++) {
-      const idx = Math.round((k * (base.length - 1)) / Math.max(1, nLabels - 1));
-      svg.append(s("text", { x: X(xs[idx]), y: H - 6, "text-anchor": k === 0 ? "start" : k === nLabels - 1 ? "end" : "middle",
-        text: base.length > 60 ? monthYear(base[idx][0]) : dayMonth(base[idx][0]) }));
-    }
-  }
-  const lookups = series.map((sr) => new Map(sr.points.map((p) => [p[0], p[1]])));
-  series.forEach((sr, k) => {
-    if (!sr.points.length) return;
-    const d = sr.points.map((p, i) => `${i ? "L" : "M"}${X(toDate(p[0]).getTime()).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
-    svg.append(s("path", { d, fill: "none", stroke: `var(${sr.color})`, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
-      class: `series series-${k}` }));  // series-1 and on are dashed with the chart_patterns preference
-    const last = sr.points[sr.points.length - 1];
-    svg.append(s("circle", { cx: X(toDate(last[0]).getTime()), cy: Y(last[1]), r: 4, fill: `var(${sr.color})`, stroke: "var(--surface)", "stroke-width": 2 }));
-  });
-  const cross = s("line", { y1: m.t, y2: m.t + ph, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
-  svg.append(cross);
-  const hit = s("rect", { x: m.l, y: m.t, width: pw, height: ph, fill: "transparent" });
-  hit.addEventListener("pointermove", (e) => {
-    const box = svg.getBoundingClientRect();
-    const t = x0 + ((((e.clientX - box.left) / box.width) * W - m.l) / pw) * (x1 - x0);
-    if (fan && t > lastT) {
-      const k = Math.max(1, Math.min(52, Math.round(((t - lastT) / YEAR_MS) * 52))), f = fan[k];
-      cross.setAttribute("x1", X(f.t)); cross.setAttribute("x2", X(f.t)); cross.setAttribute("visibility", "visible");
-      showTip(e, [h("div", { class: "t-head", text: `${longDate(new Date(f.t).toISOString().slice(0, 10))}, ${k < 9 ? plural(k, "week") : plural(f.months, "month")} ahead` }),
-        h("div", { text: `Likely ${yFmt(f.lo)} to ${yFmt(f.hi)}` }), h("div", { class: "t-note", text: "Two years in three" })]);
-      return;
-    }
-    let i = 0, best = Infinity;
-    xs.forEach((x, k) => { const dd = Math.abs(x - t); if (dd < best) { best = dd; i = k; } });
-    const iso = base[i][0];
-    cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
-    showTip(e, [h("div", { class: "t-head", text: longDate(iso) }),
-      ...series.map((sr, k) => lookups[k].has(iso) ? tipRow(yFmt(lookups[k].get(iso)), sr.name, sr.color) : null).filter(Boolean),
-      ...markers.filter((mk) => mk.date === iso).map((mk) => h("div", { class: "t-row" }, h("span", { class: "dkey sm", text: "D" }), h("span", { text: `${markerKind(mk)} ${dividendText(mk)}` })))]);
-  });
-  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
-  svg.append(hit);
-  // Dividend markers sit on the first series' line, above the hover layer so they can be hovered themselves.
-  for (const mk of markers) {
-    if (!lookups[0].has(mk.date)) continue;
-    const cx = X(toDate(mk.date).getTime()), cy = Y(lookups[0].get(mk.date));
-    const g = s("g", { class: `div-marker${mk.abnormal ? " abnormal" : ""}`, tabindex: 0,
-      "aria-label": `${markerKind(mk)}, ex-date ${longDate(mk.ex_date)}: ${dividendText(mk)}` },
-      s("circle", { cx, cy, r: 13, fill: "transparent" }),
-      s("circle", { class: "dot", cx, cy, r: 8 }),
-      s("text", { x: cx, y: cy + 3.5, "text-anchor": "middle", text: "D" }));
-    const nodes = () => [h("div", { class: "t-title", text: markerKind(mk) }), h("div", { text: `Ex-${markerKind(mk).toLowerCase()} date ${longDate(mk.ex_date)}` }), h("div", { text: dividendText(mk) })];
-    g.addEventListener("pointermove", (e) => showTip(e, nodes()));
-    g.addEventListener("pointerleave", hideTip);
-    g.addEventListener("focus", () => placeTipBelow(g, nodes()));
-    g.addEventListener("blur", hideTip);
-    svg.append(g);
-  }
-  const extras = markers.length ? [{ symbol: "D", name: `${markerKind(markers[0])} (ex-${markerKind(markers[0]).toLowerCase()} date)` }] : [];
-  if (fan) extras.push({ band: true, name: "Likely range for the year ahead (two years in three)" });
-  if (markers.some((mk) => mk.abnormal)) extras.push({ symbol: "D", name: "One-off, excluded from dividend figures", outline: true });
-  return h("div", {}, legend(series, false, extras), svg);
 }
 
 /* Column chart, one baseline at zero, 4px rounded data-ends. */
@@ -437,158 +310,9 @@ function drawSlots() {
 }
 let resizeTimer;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawSlots, 150); });
-
-/* ---------- screener ---------- */
-const COLUMNS = [
-  { key: "score", label: "Score", value: (r) => sum(r.scores) },
-  { key: "asx_code", label: "Company", value: (r) => r.asx_code },
-  { key: "sector", label: "Sector", opt: true, opt3: true, value: (r) => r.sector },
-  { key: "current_price", label: "Price", num: true, narrowHide: true, value: (r) => r.current_price },
-  { key: "margin_of_safety_percent", label: "Margin of safety", num: true, value: (r) => r.margin_of_safety_percent },
-  { key: "valuation", label: "Valuation", narrowHide: true, opt4: true, value: (r) => r.margin_of_safety_percent },
-  { key: "roe", label: "ROE", num: true, opt: true, value: (r) => r.roe },
-  { key: "debt_to_equity", label: "Debt/equity", num: true, opt: true, value: (r) => r.debt_to_equity },
-  { key: "grossed_up_dividend_yield", label: "Yield (grossed up)", num: true, opt: true, value: (r) => r.grossed_up_dividend_yield },
-  { key: "short_percent", label: "% short", num: true, opt: true, value: (r) => r.short_percent },
-  { key: "tests", label: "Value tests", opt: true, opt4: true, value: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
-  { key: "action", label: "Action", value: (r) => cache.screener.actions.indexOf(r.action) },
-];
-
-/* Each column as a filter field (web/tablefilter.js): its value, and its text as shown. */
-const SCREENER_FIELDS = {
-  score: { label: "Score", type: "num", get: (r) => sum(r.scores) },
-  asx_code: { label: "Company", type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` },
-  sector: { label: "Sector", type: "text", get: (r) => r.sector },
-  current_price: { label: "Price", type: "num", get: (r) => r.current_price, text: (r) => money(r.current_price) },
-  margin_of_safety_percent: { label: "Margin of safety", type: "num", get: (r) => r.margin_of_safety_percent, text: (r) => pct(r.margin_of_safety_percent, 0) },
-  valuation: { label: "Valuation", type: "text", get: (r) => valuationStatus(r.margin_of_safety_percent).label },
-  roe: { label: "ROE", type: "num", get: (r) => r.roe, text: (r) => pct(r.roe, 1) },
-  debt_to_equity: { label: "Debt/equity", type: "num", get: (r) => r.debt_to_equity, text: (r) => fmt(r.debt_to_equity, 2) },
-  grossed_up_dividend_yield: { label: "Yield (grossed up)", type: "num", get: (r) => r.grossed_up_dividend_yield, text: (r) => pct(r.grossed_up_dividend_yield, 1) },
-  short_percent: { label: "% short", type: "num", get: (r) => r.short_percent, text: (r) => pct(r.short_percent, 1) },
-  tests: { label: "Value tests", type: "num", get: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
-  action: { label: "Action", type: "text", get: (r) => r.action },
-};
-
-function filteredRows() {
-  return cache.screener.rows.filter((r) =>
-    (!state.sector || r.sector === state.sector) &&
-    (state.actions.size === 0 || state.actions.has(r.action)) &&
-    (!state.passing || r.overall === "Y") &&
-    (!state.held || r.held !== null) &&
-    (!state.watchlist || (state.watchlist === "*" ? r.watchlists.length > 0 : r.watchlists.includes(state.watchlist))));
-}
 /* A star after the code for companies on a watchlist, naming the lists. */
 const watchStar = (lists) => (lists && lists.length
   ? h("span", { class: "watch-star", title: `On watchlist: ${lists.join(", ")}`, "aria-label": `On watchlist ${lists.join(", ")}`, text: "★" }) : null);
-
-function sortedRows(rows) {
-  const col = COLUMNS.find((c) => c.key === state.sort.key);
-  const dir = state.sort.dir === "asc" ? 1 : -1;
-  const mos = (r) => r.margin_of_safety_percent ?? -Infinity;
-  return [...rows].sort((a, b) => {
-    const va = col.value(a), vb = col.value(b);
-    if (va === null || va === undefined) return vb === null || vb === undefined ? mos(b) - mos(a) : 1;
-    if (vb === null || vb === undefined) return -1;
-    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
-    return cmp ? cmp * dir : mos(b) - mos(a); // ties: highest margin of safety first
-  });
-}
-
-function screenerRow(r) {
-  const open = () => { location.hash = `#/company/${r.asx_code}`; };
-  const d = cache.screener;
-  return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } },
-    watchCell(r, d.watchlists),
-    h("td", {}, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
-    h("td", {}, h("span", { class: "code", text: r.asx_code }), r.held !== null ? h("span", { class: "held-tag", text: "HELD" }) : null,
-      h("div", { class: "name", text: r.company_name || "" })),
-    h("td", { class: "opt opt3", text: r.sector || NA }),
-    h("td", { class: "num opt2", text: money(r.current_price) }),
-    h("td", { class: `num ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
-    h("td", { class: "opt2 opt4" }, valuationPill(r.margin_of_safety_percent)),
-    h("td", { class: "num opt", text: pct(r.roe, 1) }),
-    h("td", { class: "num opt", text: fmt(r.debt_to_equity, 2) }),
-    h("td", { class: "num opt", text: pct(r.grossed_up_dividend_yield, 1) }),
-    h("td", { class: `num opt${r.short_caution ? " caution-text" : ""}`, text: r.short_percent === null || r.short_percent === undefined ? "" : pct(r.short_percent, 1) }),
-    h("td", { class: "opt opt4" }, ynMarks(r)),
-    h("td", {}, badge(r.action), cautionTag(r.short_caution, true)));
-}
-
-async function renderScreener() {
-  if (!cache.screener) {
-    app.replaceChildren(h("p", { class: "loading", text: "Loading companies..." }));
-    cache.screener = await getJSON("/api/screener");
-  }
-  const d = cache.screener;
-
-  const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by action" });
-  const tbody = h("tbody");
-  const count = h("span", { class: "count" });
-  const more = h("button", { class: "more", type: "button" });
-  const headRow = h("tr");
-  let shownRows = [];
-  const tf = tableFilter("screener", SCREENER_FIELDS, () => d.rows, () => { state.shown = PAGE_SIZE; refresh(); },
-    { placeholder: "Search any column" });
-
-  function refresh() {
-    const rows = sortedRows(tf.apply(filteredRows()));
-    shownRows = rows.slice(0, state.shown);
-    tbody.replaceChildren(...shownRows.map(screenerRow));
-    count.textContent = `${rows.length} shown`;
-    more.hidden = rows.length <= state.shown;
-    more.textContent = `Show more (${rows.length - state.shown} remaining)`;
-    for (const th of headRow.children) {
-      if (!th.dataset.sort) continue;
-      th.setAttribute("aria-sort", th.dataset.sort === state.sort.key ? (state.sort.dir === "asc" ? "ascending" : "descending") : "none");
-    }
-    for (const chip of chips.children) chip.setAttribute("aria-pressed", state.actions.has(chip.dataset.action));
-  }
-
-  for (const action of d.actions) {
-    const n = d.rows.filter((r) => r.action === action).length;
-    if (!n) continue;
-    chips.append(h("button", { class: "chip", type: "button", "data-action": action, onclick: () => {
-      state.actions.has(action) ? state.actions.delete(action) : state.actions.add(action);
-      state.shown = PAGE_SIZE; refresh();
-    } }, badge(action), h("span", { class: "n", text: n })));
-  }
-
-  headRow.append(watchHead());
-  for (const col of COLUMNS) {
-    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.opt3 ? "opt3" : "", col.opt4 ? "opt4" : "", col.narrowHide ? "opt2" : ""].join(" ").trim() || null, "data-sort": col.key,
-      scope: "col", tabindex: 0, text: col.label,
-      onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } }), col.label));
-  }
-  function sortBy(col) {
-    state.sort = state.sort.key === col.key
-      ? { key: col.key, dir: state.sort.dir === "asc" ? "desc" : "asc" }
-      : { key: col.key, dir: col.key === "action" || col.key === "asx_code" || col.key === "sector" ? "asc" : "desc" };
-    refresh();
-  }
-
-  const sector = h("select", { "aria-label": "Sector", onchange: (e) => { state.sector = e.target.value; state.shown = PAGE_SIZE; refresh(); } },
-    h("option", { value: "", text: "All sectors" }), d.sectors.map((sc) => h("option", { value: sc, selected: sc === state.sector, text: sc })));
-  const toggle = (key, text) => h("label", {}, h("input", { type: "checkbox", checked: state[key],
-    onchange: (e) => { state[key] = e.target.checked; state.shown = PAGE_SIZE; refresh(); } }), text);
-  more.addEventListener("click", () => { state.shown += PAGE_SIZE; refresh(); });
-  if (state.watchlist && state.watchlist !== "*" && !d.watchlists.some((w) => w.name === state.watchlist)) state.watchlist = "";
-  const watchFilter = d.watchlists.length ? h("select", { "aria-label": "Watchlist",
-    onchange: (e) => { state.watchlist = e.target.value; state.shown = PAGE_SIZE; refresh(); } },
-    h("option", { value: "", text: "All companies" }), h("option", { value: "*", selected: state.watchlist === "*", text: "On any watchlist" }),
-    d.watchlists.map((w) => h("option", { value: w.name, selected: w.name === state.watchlist, text: `Watchlist: ${w.name}` }))) : null;
-
-  const table = h("table", { class: "grid" }, h("thead", {}, headRow), tbody);
-  app.replaceChildren(
-    pageHead("ASX Stocks", `Screener: ${d.rows.length} companies${d.as_of ? ", valuations as at " + longDate(d.as_of) : ""}`),
-    chips,
-    h("div", { class: "controls" }, tf.search, tf.toggle, sector, watchFilter, toggle("passing", "Passes all four tests"), toggle("held", "Held only"), count),
-    tf.chips, tf.builder,
-    h("div", { class: "table-wrap" }, table),
-    more);
-  tf.attachMenu(table, [null, ...COLUMNS.map((c) => c.key)], () => shownRows);
-  refresh();
-}
 
 /* One headline figure: label (with its explanation), value, small note. */
 function statTile(label, valueText, cls, note) {
@@ -600,24 +324,6 @@ function statTile(label, valueText, cls, note) {
 
 function card(title, hint, ...children) {
   return h("section", { class: "card" }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, children);
-}
-
-/* What the company does: the first two sentences of Yahoo's business
-   summary, with "more" to read the rest. */
-function aboutCompany(c) {
-  if (!c.business_summary) return null;
-  const short = c.business_summary_short || c.business_summary;
-  const text = h("span", { text: short });
-  if (short === c.business_summary) return h("p", { class: "co-about" }, text);
-  let open = false;
-  const toggle = h("button", { type: "button", class: "link-btn", text: "more", "aria-expanded": "false",
-    onclick: () => {
-      open = !open;
-      text.textContent = open ? c.business_summary : short;
-      toggle.textContent = open ? "less" : "more";
-      toggle.setAttribute("aria-expanded", String(open));
-    } });
-  return h("p", { class: "co-about" }, text, " ", toggle);
 }
 
 /* ---------- short selling (ASIC, docs/kb/features/volume-and-short-selling.md) ---------- */
@@ -659,23 +365,6 @@ async function renderShorts() {
 /* ---------- page furniture ---------- */
 function pageHead(title, sub, ...extra) {
   return h("div", { class: "page-head" }, h("h1", { text: title }), sub ? h("span", { class: "sub", text: sub }) : null, extra);
-}
-const BACK_LABELS = [[/^#\/?$/, "Dashboard"], [/^#\/screener/, "ASX Stocks"], [/^#\/etfs/, "ETFs"], [/^#\/etf\//, "ETF"], [/^#\/lics/, "LICs"], [/^#\/lic\//, "LIC"], [/^#\/portfolios/, "Portfolios"], [/^#\/portfolio\//, "Portfolio"],
-  [/^#\/track-record/, "Track record"], [/^#\/coattail/, "Coattail"], [/^#\/watchlists/, "Watchlists"], [/^#\/watchlist\//, "Watchlist"], [/^#\/help/, "Help"]];
-function backLink(fallback = "#/screener") {
-  const target = previousPage || fallback;
-  const label = (BACK_LABELS.find(([re]) => re.test(target)) || [null, "ASX Stocks"])[1];
-  return h("a", { class: "back", href: target, text: `← ${label}` });
-}
-/* A link such as #/screener?action=BUY,INVESTIGATE opens the screener with
-   just that filter; a plain #/screener keeps whatever was set last. */
-function presetScreener(query) {
-  if (query === undefined) return;
-  const params = new URLSearchParams(query);
-  Object.assign(state, { q: "", sector: "", passing: false, held: params.get("held") === "1", shown: PAGE_SIZE,
-    watchlist: params.get("watchlist") || "",
-    actions: new Set((params.get("action") || "").split(",").filter(Boolean)) });
-  delete TF_STATES.screener;  // and none of the table filters, so the link shows what it says
 }
 const signed = (v, fmtFn) => (v === null || v === undefined ? NA : (v > 0 ? "+" : v < 0 ? "-" : "") + fmtFn(Math.abs(v)));
 const dateTime = (iso) => new Date(iso).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -1137,7 +826,7 @@ async function send(method, url, body) {
   return data;
 }
 /* After a trade, held flags and actions change: refetch the screener and the menu next time. */
-function afterChange() { cache.screener = null; loadPortfolioMenu(); loadWatchlistMenu(); }
+function afterChange() { cache.screener = null; if (window.SiftUI) window.SiftUI.invalidate(); loadPortfolioMenu(); loadWatchlistMenu(); }
 
 const discountText = (rate) => (rate > 0 ? `${fmt(rate * 100, rate * 100 % 1 ? 1 : 0)}% CGT discount` : "no CGT discount");
 const taxTag = (p) => h("span", { class: "tag", text: `${p.tax_type_label}, ${discountText(p.discount_rate)}` });
@@ -2227,131 +1916,6 @@ function triggerList(triggers) {
     h("span", { class: "mark", "aria-hidden": "true", text: t.met ? "✓" : "–" }), t.label)));
 }
 
-/* Company page: which watchlists it's on, with a menu to change that. */
-function watchNote(lists) {
-  const on = lists.filter((l) => l.member);
-  const el = h("p", { class: "hint watch-note", id: "watch-note" });
-  if (!on.length) { el.hidden = true; return el; }
-  add(el, ["On ", on.map((l, i) => [i ? ", " : "", h("a", { href: watchlistHref(l), text: l.name }),
-    l.triggered ? " (trigger met)" : l.triggers && l.triggers.length ? " (triggers set)" : ""]), "."]);
-  return el;
-}
-/* The watchlist tick boxes and "new watchlist" form, drawn into `panel`.
-   `lists` is every watchlist with `member` set; `changed()` runs after each change. */
-function watchPicker(panel, code, lists, changed) {
-  const msg = formMessage();
-  const draw = () => {
-    const name = h("input", { maxlength: 60, placeholder: "New watchlist name", autocomplete: "off", "aria-label": "New watchlist name" });
-    const create = h("form", { class: "watch-new" }, name, h("button", { type: "submit", class: "btn small", text: "Add" }));
-    create.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      try {
-        const w = await send("POST", "/api/watchlists", { name: name.value, asx_code: code });
-        lists.push({ ...w, member: true });
-        changed(); draw();
-      } catch (err) { showMessage(msg, err.message, false); }
-    });
-    panel.replaceChildren(h("h3", { text: "Watchlists" }),
-      lists.length ? h("div", { class: "watch-options" }, lists.map((l) => {
-        const box = h("input", { type: "checkbox", checked: l.member });
-        box.addEventListener("change", async () => {
-          try {
-            if (box.checked) {
-              await send("PUT", `/api/watchlists/${l.watchlist_id}/items/${code}`, {});
-              Object.assign(l, { member: true, triggers: [], triggered: false, note: null });
-            } else {
-              await send("DELETE", `/api/watchlists/${l.watchlist_id}/items/${code}`);
-              l.member = false;
-            }
-            changed();
-          } catch (err) { box.checked = !box.checked; showMessage(msg, err.message, false); }
-        });
-        return h("label", {}, box, l.name);
-      })) : h("p", { class: "hint", text: "No watchlists yet. Name one to start it with this company." }),
-      create, msg,
-      h("p", { class: "hint", style: "margin:8px 0 0" }, "Notes and triggers: open the list from ", h("a", { href: "#/watchlists", text: "Watchlists" }), "."));
-  };
-  draw();
-}
-function watchButton(code, lists) {
-  const wrap = h("div", { class: "watch-wrap" });
-  const btn = h("button", { type: "button", class: "btn small watch-btn", "aria-haspopup": "true", "aria-expanded": "false" });
-  const panel = h("div", { class: "watch-panel", role: "dialog", "aria-label": "Watchlists" });
-  panel.hidden = true;
-  const paint = () => {
-    const on = lists.filter((l) => l.member).length;
-    btn.textContent = on ? "★ On watchlist" : "☆ Add to watchlist";
-    btn.classList.toggle("on", on > 0);
-    const note = document.getElementById("watch-note");
-    if (note) note.replaceWith(watchNote(lists));
-  };
-  const setOpen = (open) => { panel.hidden = !open; btn.setAttribute("aria-expanded", open); };
-  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(panel.hidden); });
-  panel.addEventListener("click", (e) => e.stopPropagation());
-  document.addEventListener("click", () => setOpen(false));
-  watchPicker(panel, code, lists, () => { afterChange(); paint(); });
-  paint();
-  add(wrap, [btn, panel]);
-  return wrap;
-}
-
-/* List pages (screener, ETFs, LICs): a star on the left of each row. ☆ adds
-   it to a watchlist, ★ shows it's on one; either opens the same picker as the
-   company page, floating under the star. `lists` is the page's watchlists
-   ({watchlist_id, name}); `r.watchlists` the names of the ones the row is on. */
-let watchPop = null;
-function closeWatchPop(refocus) {
-  if (!watchPop) return;
-  const { el, btn } = watchPop;
-  watchPop = null;
-  el.remove();
-  btn.setAttribute("aria-expanded", "false");
-  if (refocus) btn.focus();
-}
-document.addEventListener("click", (e) => { if (watchPop && !watchPop.el.contains(e.target)) closeWatchPop(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWatchPop(true); });
-window.addEventListener("hashchange", () => closeWatchPop());
-
-function openWatchPop(btn, r, lists, changed) {
-  const again = watchPop && watchPop.btn === btn;
-  closeWatchPop();
-  if (again) return;  // a second click on the same star closes it
-  const entries = lists.map((w) => ({ ...w, member: r.watchlists.includes(w.name) }));
-  const el = h("div", { class: "watch-panel watch-pop", role: "dialog", "aria-label": `Watchlists for ${r.asx_code}` });
-  el.addEventListener("click", (e) => e.stopPropagation());
-  watchPicker(el, r.asx_code, entries, () => {
-    for (const w of entries) if (!lists.some((l) => l.watchlist_id === w.watchlist_id)) lists.push({ watchlist_id: w.watchlist_id, name: w.name });
-    r.watchlists = entries.filter((w) => w.member).map((w) => w.name);
-    loadWatchlistMenu();
-    changed();
-  });
-  document.body.append(el);
-  if (!matchMedia("(max-width: 560px)").matches) {  // phones: a fixed panel near the top (style.css)
-    const a = btn.getBoundingClientRect(), box = el.getBoundingClientRect();
-    const below = a.bottom + 6 + box.height <= innerHeight - 8;
-    el.style.left = `${scrollX + Math.max(8, Math.min(a.left, innerWidth - box.width - 8))}px`;
-    el.style.top = `${scrollY + (below ? a.bottom + 6 : Math.max(8, a.top - 6 - box.height))}px`;
-  }
-  watchPop = { el, btn };
-  btn.setAttribute("aria-expanded", "true");
-  (el.querySelector("input") || el).focus();
-}
-function watchCell(r, lists) {
-  const btn = h("button", { type: "button", class: "watch-toggle", "aria-haspopup": "dialog", "aria-expanded": "false" });
-  const paint = () => {
-    const on = r.watchlists;
-    btn.textContent = on.length ? "★" : "☆";
-    btn.classList.toggle("on", on.length > 0);
-    btn.title = on.length ? `On watchlist: ${on.join(", ")}. Click to change.` : "Add to a watchlist";
-    btn.setAttribute("aria-label", on.length ? `${r.asx_code} is on watchlist ${on.join(", ")}: change` : `Add ${r.asx_code} to a watchlist`);
-  };
-  btn.addEventListener("click", (e) => { e.stopPropagation(); openWatchPop(btn, r, lists, paint); });
-  btn.addEventListener("keydown", (e) => e.stopPropagation());  // Enter on the star doesn't open the row
-  paint();
-  return h("td", { class: "watch-cell" }, btn);
-}
-const watchHead = () => h("th", { class: "watch-cell", scope: "col", title: "Watchlist" }, h("span", { class: "sr-only", text: "Watchlist" }));
-
 async function renderWatchlists(query) {
   app.replaceChildren(h("p", { class: "loading", text: "Loading watchlists..." }));
   const d = await getJSON("/api/watchlists");
@@ -2545,14 +2109,8 @@ const FUNDS = {
     intro: "Listed investment companies and trusts, kept apart from shares and ETFs: judged on the share price against net tangible assets (NTA), fee, dividends and total return.",
     sort: { key: "premium_now", dir: "asc" } },
 };
-const ETF_PERIODS = [["return_1m", "1 month"], ["return_3m", "3 months"], ["return_6m", "6 months"], ["return_1y", "1 year"],
-  ["return_3y", "3 years"], ["return_5y", "5 years"], ["return_10y", "10 years"], ["return_since_inception", "Since first price"]];
 const fundHref = (kind, code) => `#/${FUNDS[kind].path}/${code}`;
-const etfHref = (code) => fundHref("ETF", code);
-const fundSize = (v) => compact(v);
 const kindTag = (kind) => h("span", { class: "tag sm etf-tag", text: kind });
-const etfTag = () => kindTag("ETF");
-const monthName = (iso) => toDate(iso).toLocaleDateString("en-AU", { month: "long", year: "numeric" });
 /* A table row that opens a page, like clickableRow but to any address. */
 function rowTo(href, ...cells) {
   const open = () => { location.hash = href; };
@@ -2566,493 +2124,9 @@ const premCell = (v, cls = "") => h("td", { class: `num ${cls}`.trim() },
 const nameCell = (r, kind, star = true) => h("td", {}, h("span", { class: "code", text: r.asx_code }), star ? watchStar(r.watchlists) : null,
   r.held !== null && r.held !== false ? h("span", { class: "held-tag", text: "HELD" }) : null,
   kind === "LIC" && r.product_type === "LIT" ? kindTag("LIT") : null, h("div", { class: "name", text: r.company_name || "" }));
-
-const FUND_COLUMNS = {
-  ETF: [
-    { key: "asx_code", label: "ETF", cell: (r) => nameCell(r, "ETF", false) },
-    { key: "category", label: "Category", cls: "opt3", cell: (r) => h("td", { class: "opt3" }, h("div", { class: "clip", title: r.category, text: r.category })) },
-    { key: "issuer", label: "Issuer", cls: "opt4", cell: (r) => h("td", { class: "opt4" }, h("div", { class: "clip", title: r.issuer || "", text: r.issuer || NA })) },
-    { key: "mer_percent", label: "Fee", num: true, cell: (r) => h("td", { class: "num", text: pct(r.mer_percent, 2) }) },
-    { key: "fum_aud", label: "Fund size", num: true, cls: "opt2", cell: (r) => h("td", { class: "num opt2", text: fundSize(r.fum_aud) }) },
-    { key: "return_1y", label: "1-year return", short: "1 yr", num: true, cell: (r) => retCell(r.return_1y) },
-    { key: "return_3y", label: "3-year return", num: true, cls: "opt3", cell: (r) => retCell(r.return_3y, "opt3") },
-    { key: "return_5y", label: "5-year return", num: true, cls: "opt2", cell: (r) => retCell(r.return_5y, "opt2") },
-    { key: "return_10y", label: "10-year return", num: true, cls: "opt3", cell: (r) => retCell(r.return_10y, "opt3") },
-    { key: "distribution_yield_12m", label: "Yield (12 months)", short: "Yield", num: true, cell: (r) => h("td", { class: "num", text: pct(r.distribution_yield_12m, 1) }) },
-    { key: "avg_spread_percent", label: "Spread", num: true, cls: "opt", cell: (r) => h("td", { class: "num opt", text: pct(r.avg_spread_percent, 2) }) },
-  ],
-  LIC: [
-    { key: "asx_code", label: "LIC", cell: (r) => nameCell(r, "LIC", false) },
-    { key: "category", label: "Category", cls: "opt3", cell: (r) => h("td", { class: "opt3" }, h("div", { class: "clip", title: r.category, text: r.category })) },
-    { key: "premium_now", label: "Premium/discount to NTA", short: "vs NTA", num: true, cell: (r) => premCell(r.premium_now) },
-    { key: "mer_percent", label: "Fee", num: true, cell: (r) => h("td", { class: "num", text: pct(r.mer_percent, 2) }) },
-    { key: "performance_fee", label: "Performance fee", cls: "opt", cell: (r) => h("td", { class: "opt", text: r.performance_fee || NA }) },
-    { key: "fum_aud", label: "Market cap", num: true, cls: "opt2", cell: (r) => h("td", { class: "num opt2", text: fundSize(r.fum_aud) }) },
-    { key: "return_1y", label: "1-year return", short: "1 yr", num: true, cell: (r) => retCell(r.return_1y) },
-    { key: "return_3y", label: "3-year return", num: true, cls: "opt3", cell: (r) => retCell(r.return_3y, "opt3") },
-    { key: "return_5y", label: "5-year return", num: true, cls: "opt2", cell: (r) => retCell(r.return_5y, "opt2") },
-    { key: "distribution_yield_12m", label: "Yield (12 months)", short: "Yield", num: true, cell: (r) => h("td", { class: "num", text: pct(r.distribution_yield_12m, 1) }) },
-  ],
-};
-const fundState = Object.fromEntries(Object.keys(FUNDS).map((k) => [k,
-  { q: "", category: "", issuer: "", watchlist: "", held: false, sort: { ...FUNDS[k].sort }, shown: PAGE_SIZE }]));
-
-/* Each column as a filter field (web/tablefilter.js), with its text as shown. */
-const FUND_TEXT = { mer_percent: (v) => pct(v, 2), fum_aud: fundSize, distribution_yield_12m: (v) => pct(v, 1),
-  avg_spread_percent: (v) => pct(v, 2), premium_now: premText, day_change_percent: signedPct, price: (v) => money(v) };
-function fundField(key, label, num) {
-  const show = FUND_TEXT[key] || (key.startsWith("return_") ? signedPct : (v) => fmt(v, 2));
-  if (key === "asx_code") return { label, type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` };
-  return num ? { label, type: "num", get: (r) => r[key], text: (r) => show(r[key]) } : { label, type: "text", get: (r) => r[key] };
-}
-const fundFields = (kind) => Object.fromEntries(FUND_COLUMNS[kind].map((c) => [c.key, fundField(c.key, c.label, c.num)]));
-
-function fundFiltered(kind, d) {
-  const st = fundState[kind];
-  return d.rows.filter((r) =>
-    (!st.category || r.category === st.category) &&
-    (!st.issuer || r.issuer === st.issuer) &&
-    (!st.held || r.held !== null) &&
-    (!st.watchlist || (st.watchlist === "*" ? r.watchlists.length > 0 : r.watchlists.includes(st.watchlist))));
-}
-function fundSorted(kind, rows) {
-  const st = fundState[kind], dir = st.sort.dir === "asc" ? 1 : -1;
-  const size = (r) => r.fum_aud ?? -Infinity;
-  const val = (r) => r[st.sort.key];
-  return [...rows].sort((a, b) => {
-    const va = val(a), vb = val(b);
-    if (va === null || va === undefined) return vb === null || vb === undefined ? size(b) - size(a) : 1;
-    if (vb === null || vb === undefined) return -1;
-    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
-    return cmp ? cmp * dir : size(b) - size(a);
-  });
-}
-
-function presetFunds(kind, query) {
-  if (query === undefined) return;
-  const params = new URLSearchParams(query);
-  Object.assign(fundState[kind], { q: "", issuer: "", shown: PAGE_SIZE, held: params.get("held") === "1",
-    category: params.get("category") || "", watchlist: params.get("watchlist") || "" });
-  delete TF_STATES[kind];
-}
-const presetEtfs = (query) => presetFunds("ETF", query);
-
-async function renderFunds(kind) {
-  const F = FUNDS[kind], st = fundState[kind], columns = FUND_COLUMNS[kind];
-  app.replaceChildren(h("p", { class: "loading", text: `Loading ${F.nouns}...` }));
-  const d = await getJSON(`/api/${F.api}s`);
-  if (!d.rows.length) {
-    app.replaceChildren(pageHead(F.nouns, null), h("p", { class: "empty" },
-      `No ${F.nouns} yet. They come from the ASX's monthly report: save it in the data\\asx_reports folder and run `,
-      h("code", { text: "python -m src.etf.run_etfs" }), " (or wait for tonight's run). ",
-      h("a", { href: "#/help/asx-etf-report", text: "How the list is loaded" }), "."));
-    return;
-  }
-  const tbody = h("tbody"), count = h("span", { class: "count" }), headRow = h("tr");
-  const more = h("button", { class: "more", type: "button" });
-  let shownRows = [];
-  const tf = tableFilter(kind, fundFields(kind), () => d.rows, () => { st.shown = PAGE_SIZE; refresh(); },
-    { placeholder: "Search any column",
-      extraSearch: (r) => [r.benchmark, r.issuer].filter(Boolean).join(" ") });
-  function refresh() {
-    const rows = fundSorted(kind, tf.apply(fundFiltered(kind, d)));
-    shownRows = rows.slice(0, st.shown);
-    tbody.replaceChildren(...shownRows.map((r) => rowTo(fundHref(kind, r.asx_code), watchCell(r, d.watchlists), ...columns.map((c) => c.cell(r)))));
-    count.textContent = `${rows.length} shown`;
-    more.hidden = rows.length <= st.shown;
-    more.textContent = `Show more (${rows.length - st.shown} remaining)`;
-    for (const th of headRow.children) {
-      if (!th.dataset.sort) continue;
-      th.setAttribute("aria-sort", th.dataset.sort === st.sort.key ? (st.sort.dir === "asc" ? "ascending" : "descending") : "none");
-    }
-  }
-  function sortBy(col) {
-    st.sort = st.sort.key === col.key
-      ? { key: col.key, dir: st.sort.dir === "asc" ? "desc" : "asc" }
-      : { key: col.key, dir: ["asx_code", "category", "issuer", "mer_percent", "avg_spread_percent", "premium_now", "performance_fee"].includes(col.key) ? "asc" : "desc" };
-    refresh();
-  }
-  headRow.append(watchHead());
-  for (const col of columns) {
-    headRow.append(withHelp(h("th", { class: [col.num ? "num" : "", col.cls || ""].join(" ").trim() || null, "data-sort": col.key,
-      scope: "col", tabindex: 0, onclick: () => sortBy(col), onkeydown: (e) => { if (e.key === "Enter") sortBy(col); } },
-    col.short ? [h("span", { class: "long", text: col.label }), h("span", { class: "short", text: col.short })] : col.label), col.label));
-  }
-  const reset = () => { st.shown = PAGE_SIZE; refresh(); };
-  const select = (label, key, options, all) => h("select", { "aria-label": label, onchange: (e) => { st[key] = e.target.value; reset(); } },
-    h("option", { value: "", text: all }), options.map(([v, t]) => h("option", { value: v, selected: v === st[key], text: t })));
-  const counts = (key, v) => d.rows.filter((r) => r[key] === v).length;
-  const held = h("label", {}, h("input", { type: "checkbox", checked: st.held, onchange: (e) => { st.held = e.target.checked; reset(); } }), "Held only");
-  more.addEventListener("click", () => { st.shown += PAGE_SIZE; refresh(); });
-  const table = h("table", { class: "grid etf-table" }, h("thead", {}, headRow), tbody);
-  const sub = [plural(d.rows.length, F.noun), d.as_of ? `performance as at ${longDate(d.as_of)}` : null,
-    d.report_month ? `${kind === "LIC" ? "NTA and facts" : "fund facts"} from the ASX report for ${monthName(d.report_month)}` : null].filter(Boolean).join(", ");
-  app.replaceChildren(
-    pageHead(F.nouns, sub),
-    h("p", { class: "hint page-note" }, F.intro, " ", helpLink(F.help)),
-    h("div", { class: "controls" }, tf.search, tf.toggle,
-      select("Category", "category", d.categories.map((c) => [c, `${c} (${counts("category", c)})`]), "All categories"),
-      d.issuers.length ? select("Issuer", "issuer", d.issuers.map((i) => [i, i]), "All issuers") : null,
-      d.watchlists.length ? select("Watchlist", "watchlist", [["*", "On any watchlist"], ...d.watchlists.map((w) => [w.name, `Watchlist: ${w.name}`])], `All ${F.nouns}`) : null,
-      held, count),
-    tf.chips, tf.builder,
-    h("div", { class: "table-wrap" }, table),
-    more);
-  tf.attachMenu(table, [null, ...columns.map((c) => c.key)], () => shownRows);
-  refresh();
-  window.scrollTo(0, 0);
-}
-const renderEtfs = () => renderFunds("ETF");
-
-/* ---------- one ETF or LIC ---------- */
-const GROWTH_PERIODS = [["1y", "1 year", 12], ["3y", "3 years", 36], ["5y", "5 years", 60], ["10y", "10 years", 120], ["max", "All", null]];
-const etfView = { period: "5y" };
 function monthsBefore(iso, months) {
   const d = toDate(iso); d.setMonth(d.getMonth() - months);
   return d.toISOString().slice(0, 10);
-}
-/* Each series from the first date both have, rebased to $10,000. */
-function growthSeries(g, ref, period) {
-  const months = GROWTH_PERIODS.find((p) => p[0] === period)[2];
-  const end = g.etf.length ? g.etf[g.etf.length - 1][0] : null;
-  if (!end) return null;
-  let start = months ? monthsBefore(end, months) : g.etf[0][0];
-  if (start < g.etf[0][0]) start = g.etf[0][0];
-  const refPts = ref && g.reference.length ? g.reference : null;
-  let limitedBy = start > (months ? monthsBefore(end, months) : g.etf[0][0]) ? "etf" : null;
-  if (refPts && refPts[0][0] > start) { start = refPts[0][0]; limitedBy = "reference"; }
-  const cut = (pts) => {
-    const inside = pts.filter((p) => p[0] >= start && p[0] <= end);
-    if (inside.length < 2) return null;
-    const base = inside[0][1];
-    return inside.map((p) => [p[0], (p[1] / base) * 10000]);
-  };
-  return { start, limitedBy, etf: cut(g.etf), reference: refPts ? cut(refPts) : null };
-}
-
-function etfFacts(e, d) {
-  const lic = d.kind === "LIC";
-  const items = lic
-    ? [["Type", e.product_type === "LIT" ? "Listed investment trust (LIT)" : "Listed investment company (LIC)"], ["Category", e.category],
-      ["NTA (pre-tax)", e.nta_pre_tax !== null ? `${money(e.nta_pre_tax, 3)}${e.nta_date ? ` at ${longDate(e.nta_date)}` : ""}` : null],
-      ["Premium/discount to NTA", e.nta_premium_percent !== null ? `${premText(e.nta_premium_percent)} at the NTA date; ${premText(e.premium_now)} at the latest price` : null],
-      ["Performance fee", e.performance_fee], ["Market cap", e.fum_aud !== null ? fundSize(e.fum_aud) : null],
-      ["Value traded (month)", e.value_traded_aud !== null ? fundSize(e.value_traded_aud) : null],
-      ["Prices from", e.first_price_date ? longDate(e.first_price_date) : null]]
-    : [["Issuer", e.issuer], ["Product type", e.product_type], ["Category", e.category], ["Sub-category", e.sub_category],
-      ["Benchmark", e.benchmark], ["Listed", e.listing_date ? longDate(e.listing_date) : null],
-      ["Distribution frequency", e.distribution_frequency], ["Spread", e.avg_spread_percent !== null ? pct(e.avg_spread_percent, 2) : null],
-      ["Value traded (month)", e.value_traded_aud !== null ? fundSize(e.value_traded_aud) : null],
-      ["Net flows", e.net_flows_aud !== null ? (e.net_flows_aud > 0 ? "+" : "") + compact(e.net_flows_aud) : null],
-      ["Prices from", e.first_price_date ? longDate(e.first_price_date) : null]];
-  return card(lic ? "Company facts" : "Fund facts", e.report_month ? `From the ASX report for ${monthName(e.report_month)}, except prices.` : "Prices only: no ASX report loaded yet.",
-    h("dl", { class: "kv" }, items.filter(([, v]) => v).flatMap(([k, v]) => [FIELD_HELP[k] ? withHelp(h("dt", { tabindex: 0, text: k }), k) : h("dt", { text: k }), h("dd", { text: v })])));
-}
-
-/* Performance (§26.1): the chart shows only yearly rates (1 to 10 years),
-   so every bar is the same unit; recent returns (not annualised) and
-   since-first-price (each fund from its own start date) are in the table.
-   A figure that fails the check against the ASX report, or spans a jump in
-   the price history, is marked ⚠ with the reason and left off the chart. */
-const PERF_YEARLY = [["return_1y", "1 year"], ["return_3y", "3 years"], ["return_5y", "5 years"], ["return_10y", "10 years"]];
-const PERF_RECENT = [["return_1m", "1 month"], ["return_3m", "3 months"], ["return_6m", "6 months"]];
-const flagOf = (row, k) => (row && row.report_flags ? row.report_flags[k] : null);
-const sinceDate = (iso) => toDate(iso).toLocaleDateString("en-AU", { month: "short", year: "numeric" });
-
-function perfCell(row, k, note) {
-  const v = row ? row[k] : null, flag = flagOf(row, k);
-  return h("td", { class: `num ${flag ? "flagged" : signClass(v) || ""}`.trim(), title: flag ? `Check: ${flag}.` : null },
-    signedPct(v), flag ? h("span", { class: "flag", "aria-label": `check: ${flag}`, text: " ⚠" }) : null,
-    note ? h("div", { class: "cell-note", text: note }) : null);
-}
-
-/* Where the rank sits, by the share of the other funds that did better; none for under five funds. */
-const rankBand = (rank, of) => {
-  if (of < 5) return "";
-  const f = (rank - 1) / (of - 1);
-  return f <= 0.1 ? "top 10%" : f <= 0.25 ? "top quarter" : f <= 0.5 ? "top half" : f <= 0.75 ? "bottom half" : "bottom quarter";
-};
-function rankCell(p) {
-  if (!p || !p.rank) return h("td", { class: "num muted", text: NA });
-  return h("td", { class: "num" }, h("span", { class: "long" }, `${p.ordinal} of ${p.of}`, rankBand(p.rank, p.of) ? h("div", { class: "cell-note", text: rankBand(p.rank, p.of) }) : null),
-    h("span", { class: "short", text: `${p.ordinal}/${p.of}` }));
-}
-
-/* The fund against its market index, both from the ASX report (§26.2). */
-function indexTable(d) {
-  const x = d.index, code = d.etf.asx_code;
-  if (!x) return null;
-  const label = (k) => [...PERF_YEARLY, ...PERF_RECENT].find(([key]) => key === k)[1];
-  return h("div", { class: "index-block" },
-    h("h3", { class: "holders-head" }, withHelp(h("span", { tabindex: 0, text: "Against its index" }), "Against its index"),
-      h("span", { class: "hint", text: ` to the end of ${monthName(x.month)}, both from the ASX report and both counting franking credits` })),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
-      h("thead", {}, h("tr", {}, [[code], [x.name, "Index"], ["Difference", "Diff"]].reduce((cells, [t, short]) =>
-        cells.concat(h("th", { class: "num" }, short ? [h("span", { class: "long", text: t }), h("span", { class: "short", text: short })] : t)),
-      [h("th", { text: "Period" })]))),
-      h("tbody", {}, x.periods.map((p) => {
-        const yearly = /_(3y|5y|10y)$/.test(p.key), diff = signedPct(p.difference).replace("%", "");
-        return h("tr", { class: "static" },
-          h("td", {}, h("span", { class: "long", text: label(p.key) + (yearly ? " (a year)" : "") }),
-            h("span", { class: "short", text: label(p.key).replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y") })),
-          retCell(p.fund), retCell(p.index),
-          h("td", { class: `num ${signClass(p.difference) || ""}`.trim() }, h("span", { class: "long", text: `${diff} points` }), h("span", { class: "short", text: diff })));
-      })))));
-}
-
-function performanceCard(d, compareSelect) {
-  const F = FUNDS[d.kind], e = d.etf, peers = d.peers || {}, ref = d.reference;
-  const flaggedHere = (k) => flagOf(e, k) || flagOf(ref, k);
-  const cats = PERF_YEARLY.map(([k, label]) => (flaggedHere(k) ? `${label} ⚠` : label));
-  const yearly = (row) => PERF_YEARLY.map(([k]) => (row && !flagOf(row, k) ? row[k] : null));
-  const median = (k) => (peers[k] ? peers[k].median : null);
-  const series = [{ name: e.asx_code, color: "--s1", values: yearly(e) },
-    { name: `${e.category} median`, color: "--s2", values: PERF_YEARLY.map(([k]) => median(k)) }];
-  if (ref) series.push({ name: ref.asx_code, color: "--s3", values: yearly(ref) });
-
-  const heads = ["Period", e.asx_code, ref ? ref.asx_code : "Reference fund", "Category median", "Rank in category"];
-  const group = (text) => h("tr", { class: "static group-row" }, h("td", { colspan: 5, text }));
-  const shortName = (label) => label.replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y");
-  const line = (k, label) => h("tr", { class: "static" },
-    h("td", {}, h("span", { class: "long", text: label }), h("span", { class: "short", text: shortName(label) })),
-    perfCell(e, k), perfCell(ref, k), retCell(median(k), "ph-hide"), rankCell(peers[k]));
-  const since = "return_since_inception";
-  const table = h("div", { class: "table-wrap" }, h("table", { class: "grid compact perf-table" },
-    h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const short = { "Category median": "Median", "Rank in category": "Rank" }[x];
-      const th = h("th", { class: [i ? "num" : "", i === 3 ? "ph-hide" : ""].join(" ").trim() || null, tabindex: 0 }, short ? [h("span", { class: "long", text: x }), h("span", { class: "short", text: short })] : x);
-      return i === 2 ? withHelp(th, "Reference fund") : i >= 3 ? withHelp(th, x) : th;
-    }))),
-    h("tbody", {},
-      group("A year (yearly rate)"), PERF_YEARLY.map(([k, label]) => line(k, label)),
-      group("Recent (not annualised)"), PERF_RECENT.map(([k, label]) => line(k, label)),
-      group("Since first price (a year)"),
-      h("tr", { class: "static" },
-        h("td", {}, h("span", { class: "long", text: "Since first price" }), h("span", { class: "short", text: "Start" })),
-        perfCell(e, since, e.first_price_date ? `from ${sinceDate(e.first_price_date)}` : null),
-        perfCell(ref, since, ref && ref.first_price_date ? `from ${sinceDate(ref.first_price_date)}` : null),
-        h("td", { class: "num muted ph-hide", title: "Not compared: funds in a category start on different dates.", text: NA }),
-        h("td", { class: "num muted", text: NA })))));
-
-  const recent = h("p", { class: "recent-row" }, h("span", { class: "recent-label", text: "Recent performance, not annualised:" }),
-    PERF_RECENT.map(([k, label]) => h("span", { class: "recent-item" }, `${label} `,
-      h("strong", { class: signClass(e[k]) || null, text: signedPct(e[k]) }), flagOf(e, k) ? " ⚠" : "")));
-  const checks = [[e, e.asx_code], [ref, ref && ref.asx_code]].flatMap(([row, code]) => row && row.report_flags
-    ? [...PERF_YEARLY, ...PERF_RECENT, [since, "Since first price"]].filter(([k]) => row.report_flags[k])
-      .map(([k, label]) => `${code} ${label.toLowerCase()}: ${row.report_flags[k]}.`) : []);
-  const checked = e.report_checks && Object.keys(e.report_checks).length;
-  const checkLine = checks.length
-    ? h("div", { class: "hint note" }, h("strong", { text: "⚠ Figures to check. " }),
-      `Left off the chart and the category median and rank. ${d.kind === "LIC" ? "" : "The ASX counts franking credits, so a franked Australian fund's ASX figure runs a little higher. "}`,
-      h("ul", { class: "check-list" }, checks.map((t) => h("li", { text: t }))), helpLink("asx-report-check"))
-    : checked ? h("p", { class: "check-ok" }, h("span", { class: "tick", "aria-hidden": "true", text: "✓ " }),
-      `${e.asx_code}'s figures match the ASX report to the end of ${monthName(e.check_month)}. `, helpLink("asx-report-check")) : null;
-
-  const c = card("Performance", `Total return with ${F.payouts.toLowerCase()} reinvested, as a yearly rate.`,
-    h("div", { class: "compare-row" }, h("label", { text: "Compare with " }), compareSelect, " ", helpLink("reference-fund")),
-    checkLine,
-    series.some((sr) => sr.values.some((v) => v !== null && v !== undefined))
-      ? chartSlot((w) => columnChart({ categories: cats, series, yFmt: (v) => fmt(v, Number.isInteger(v) ? 0 : 1) + "%", label: `${e.asx_code} total return, % a year`, width: w }))
-      : h("p", { class: "empty", text: `No yearly figures to chart for ${e.asx_code}${ref ? ` or ${ref.asx_code}` : ""}: they're too new or need checking (see the table).` }),
-    recent,
-    table,
-    peers.return_1y ? h("p", { class: "hint", text: `Rank and median: among the ${F.nouns} in ${e.category} with a figure for each period that passed its checks. ` }, helpLink("category-average")) : null,
-    indexTable(d));
-  c.classList.add("wide");
-  return c;
-}
-
-function growthCard(d) {
-  const F = FUNDS[d.kind], e = d.etf, ref = d.reference;
-  const body = h("div");
-  const seg = h("div", { class: "segmented periods", role: "group", "aria-label": "Period" });
-  const draw = () => {
-    for (const b of seg.children) b.setAttribute("aria-pressed", b.dataset.period === etfView.period);
-    const g = growthSeries(d.growth, ref, etfView.period);
-    if (!g || !g.etf) { body.replaceChildren(h("p", { class: "empty", text: "Not enough price history for this period." })); return; }
-    const series = [{ name: e.asx_code, color: "--s1", points: g.etf }];
-    if (g.reference) series.push({ name: ref.asx_code, color: "--s3", points: g.reference });
-    const last = (pts) => pts[pts.length - 1][1];
-    const why = g.limitedBy === "reference" ? ` (when ${ref.asx_code}'s prices start; pick another to compare over longer)`
-      : g.limitedBy === "etf" && etfView.period !== "max" ? ` (when ${e.asx_code}'s prices start)` : "";
-    body.replaceChildren(
-      h("p", { class: "hint", text: `$10,000 invested ${longDate(g.start)}${why}, ${F.payouts.toLowerCase()} reinvested: ${e.asx_code} now ${money(last(g.etf), 0)}` +
-        (g.reference ? `, ${ref.asx_code} ${money(last(g.reference), 0)}.` : ".") }),
-      chartSlot((w) => lineChart({ series, yFmt: (v) => compact(v), label: `Growth of $10,000 in ${e.asx_code}`, width: w, height: 240 })),
-      tableView(["Date", e.asx_code, ref ? ref.asx_code : ""], g.etf.filter((_, i) => i % 13 === 0 || i === g.etf.length - 1).reverse()
-        .map((p) => [longDate(p[0]), money(p[1], 0), g.reference ? money((g.reference.find((q) => q[0] === p[0]) || [null, null])[1], 0) : ""])));
-    drawSlots();
-  };
-  for (const [key, label] of GROWTH_PERIODS) {
-    seg.append(h("button", { type: "button", "data-period": key, text: label, onclick: () => { etfView.period = key; draw(); } }));
-  }
-  draw();
-  const c = card("Growth of $10,000", null, seg, body);
-  c.classList.add("wide");
-  return c;
-}
-
-function etfPriceCard(d) {
-  const F = FUNDS[d.kind], e = d.etf, title = `${F.price}, last 12 months`;
-  if (d.prices.length < 2) return card(title, "Not enough price history yet.");
-  const dists = d.distributions.map(([ex, amount]) => ({ ex_date: ex, amount, kind: F.payout, per: F.per }));
-  const markers = dividendMarkers(d.prices, dists);
-  const c = card(title, `D marks each ${F.payout.toLowerCase()}'s ex-date, when the price drops by roughly the amount paid.`,
-    chartSlot((w) => lineChart({ series: [{ name: "Close", color: "--s1", points: d.prices }], yFmt: (v) => money(v), label: `${e.asx_code} closing price`, width: w, height: 240, markers })),
-    tableView(["Date", "Close"], d.prices.slice(-30).reverse().map((p) => [longDate(p[0]), money(p[1])])));
-  c.classList.add("wide");
-  return c;
-}
-
-function distributionsCard(d) {
-  const F = FUNDS[d.kind], years = d.distributions_by_year;
-  if (!years.length || !years.some((y) => y.amount)) return card(F.payouts, `No ${F.payouts.toLowerCase()} recorded.`);
-  return card(`${F.payouts} per ${F.per}`, `Cash paid per ${F.per} in each financial year (July to June), before franking. The current year is so far.`,
-    chartSlot((w) => columnChart({ categories: years.map((y) => y.financial_year + (y.partial ? "*" : "")), yFmt: (v) => money(v),
-      label: `${F.payouts} per ${F.per} by financial year`, width: w, series: [{ name: `${F.payout} per ${F.per}`, color: "--s1", values: years.map((y) => y.amount) }] })),
-    tableView(["Ex-date", `Amount per ${F.per}`], d.recent_distributions.map((x) => [longDate(x.ex_date), money(x.amount, 4)])));
-}
-
-/* LICs: the share price against NTA at each month's NTA date. */
-function ntaCard(d) {
-  const pts = d.monthly.filter((m) => m.nta_premium_percent !== null).map((m) => [m.nta_date || m.report_month, m.nta_premium_percent]);
-  const e = d.etf;
-  if (pts.length < 2) {
-    return card("Premium/discount to NTA over time", null, h("p", { class: "hint", text:
-      `${premText(e.nta_premium_percent)} at the last NTA date${e.nta_date ? ` (${longDate(e.nta_date)})` : ""}. ` +
-      "The history builds as each month's ASX report is loaded." }));
-  }
-  return card("Premium/discount to NTA over time", "At each month's NTA date. The pink line is 0%, where the price equals NTA; below it, a discount.",
-    chartSlot((w) => lineChart({ series: [{ name: "Premium/discount", color: "--s1", points: pts }], yFmt: (v) => fmt(v, 0) + "%", zeroLine: true, label: "Premium or discount to NTA by month", width: w })),
-    tableView(["NTA date", "NTA", "Premium/discount"], d.monthly.slice().reverse().map((m) => [m.nta_date ? longDate(m.nta_date) : monthYear(m.report_month), money(m.nta_pre_tax, 3), premText(m.nta_premium_percent)])));
-}
-
-function sizeCard(d) {
-  const F = FUNDS[d.kind], pts = d.monthly.filter((m) => m.fum_aud !== null).map((m) => [m.report_month, m.fum_aud]);
-  if (pts.length < 2) return null;
-  return card(`${F.size} over time`, `${d.kind === "LIC" ? "Market capitalisation" : "Funds under management"} at each month end, from the ASX report.`,
-    chartSlot((w) => lineChart({ series: [{ name: F.size, color: "--s1", points: pts }], yFmt: (v) => compact(v), label: `${F.size} by month`, width: w })),
-    tableView(["Month", F.size, "Fee"], d.monthly.slice().reverse().map((m) => [monthYear(m.report_month), fundSize(m.fum_aud), pct(m.mer_percent, 2)])));
-}
-
-async function renderFund(kind, code, query) {
-  const F = FUNDS[kind];
-  hideTip();
-  slots.length = 0;
-  const compare = new URLSearchParams(query || "").get("compare");
-  if (!query) app.replaceChildren(h("p", { class: "loading", text: `Loading ${code}...` }));
-  let d;
-  try {
-    d = await getJSON(`/api/${F.api}/${encodeURIComponent(code)}${compare ? `?compare=${encodeURIComponent(compare)}` : ""}`);
-  } catch (err) {
-    app.replaceChildren(backLink(F.list), h("p", { class: "error", text: err.message }));
-    return;
-  }
-  d.kind = kind;
-  const e = d.etf;
-  const compareSelect = h("select", { "aria-label": "Reference fund", onchange: (ev) => { location.hash = `${fundHref(kind, e.asx_code)}?compare=${ev.target.value}`; } },
-    (() => {
-      const same = d.reference_options.filter((o) => o.category === e.category), other = d.reference_options.filter((o) => o.category !== e.category);
-      const opt = (o) => h("option", { value: o.asx_code, selected: d.reference && o.asx_code === d.reference.asx_code, text: `${o.asx_code} ${o.company_name || ""}` });
-      return [same.length ? h("optgroup", { label: e.category }, same.map(opt)) : null, other.length ? h("optgroup", { label: `Other ${F.nouns}` }, other.map(opt)) : null];
-    })());
-  const held = d.position ? h("p", { class: "hint", text: `You hold ${fmt(d.position.units, 0)} ${kind === "LIC" ? "shares" : "units"}, cost base ${money(d.position.cost_base)}` +
-    (e.current_price ? `, worth ${money(d.position.units * e.current_price, 0)}.` : ".") }) : null;
-  const yieldNote = e.distributions_12m !== null ? `${money(e.distributions_12m, 3)} per ${F.per} in 12 months` : `no ${F.payouts.toLowerCase()} in 12 months`;
-  const priceTile = statTile(F.price, money(e.current_price), null, e.price_date ? `as at ${longDate(e.price_date)}${e.day_change_percent !== null ? `, ${signedPct(e.day_change_percent, 2)} on the day` : ""}` : null);
-  const feeTile = statTile("Fee", pct(e.mer_percent, 2), null, kind === "LIC" && e.performance_fee
-    ? `performance fee: ${e.performance_fee.toLowerCase()}` : e.mer_percent !== null ? `${money(e.mer_percent * 100, 0)} a year on $10,000` : "not in the ASX report");
-  const yieldTile = statTile("Yield (12 months)", pct(e.distribution_yield_12m, 1), null, yieldNote);
-  const tiles = kind === "LIC"
-    ? [priceTile, statTile("Premium/discount to NTA", premText(e.premium_now), null,
-        e.nta_pre_tax !== null ? `against NTA ${money(e.nta_pre_tax, 3)}${e.nta_date ? ` at ${longDate(e.nta_date)}` : ""}` : "no NTA in the ASX report"), feeTile, yieldTile]
-    : [priceTile, feeTile, statTile("Fund size", fundSize(e.fum_aud), null, e.net_flows_aud !== null ? `${e.net_flows_aud > 0 ? "+" : ""}${compact(e.net_flows_aud)} net flows last month` : null), yieldTile];
-  const sub = kind === "LIC"
-    ? [e.product_type === "LIT" ? "Listed investment trust" : "Listed investment company", e.fum_aud !== null ? `market cap ${fundSize(e.fum_aud)}` : null]
-    : ["ETF", e.issuer, e.product_type !== "ETF" ? e.product_type : null, e.benchmark ? `tracks ${e.benchmark}` : null, e.fund_of_funds ? "invests in other ETFs" : null];
-  app.replaceChildren(...[
-    backLink(F.list),
-    h("div", { class: "co-head" },
-      h("h1", { text: e.company_name || e.asx_code }),
-      h("span", { class: "ticker mono", text: e.asx_code }),
-      h("span", { class: "tag", text: e.category }),
-      watchButton(e.asx_code, d.watchlists)),
-    h("p", { class: "co-sub", text: sub.filter(Boolean).join("  |  ") }),
-    d.profile && d.profile.description ? aboutCompany({ business_summary: d.profile.description, business_summary_short: d.profile.description_short }) : null,
-    h("div", { class: "stats" }, tiles),
-    held,
-    watchNote(d.watchlists),
-    h("div", { class: "cards" }, performanceCard(d, compareSelect), fundHoldingsCard(d), growthCard(d), etfPriceCard(d),
-      kind === "LIC" ? ntaCard(d) : null, distributionsCard(d), etfFacts(e, d), sizeCard(d)),
-  ].filter(Boolean));
-  drawSlots();
-  if (!query) window.scrollTo(0, 0);
-}
-const renderEtf = (code, query) => renderFund("ETF", code, query);
-
-/* ---------- what a fund holds (§26.3): Yahoo Finance's fund data ---------- */
-const SECTOR_NAMES = { realestate: "Real estate", consumer_cyclical: "Consumer cyclical", basic_materials: "Basic materials",
-  consumer_defensive: "Consumer defensive", technology: "Technology", communication_services: "Communication services",
-  financial_services: "Financial services", utilities: "Utilities", industrials: "Industrials", energy: "Energy", healthcare: "Health care" };
-const RATING_ORDER = [["us_government", "Government"], ["aaa", "AAA"], ["aa", "AA"], ["a", "A"], ["bbb", "BBB"], ["bb", "BB"],
-  ["b", "B"], ["below_b", "Below B"], ["other", "Not rated / other"]];
-const sectorName = (k) => SECTOR_NAMES[k] || (k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "));
-
-/* Horizontal bars, one hue, value labels beside each (magnitude, not identity). */
-function barList(items, max) {
-  const top = max || Math.max(...items.map(([, v]) => v), 1);
-  return h("div", { class: "bar-list" }, items.map(([label, v]) => h("div", { class: "bar-row", title: `${label}: ${fmt(v, 1)}%` },
-    h("span", { class: "bar-label", text: label }),
-    h("span", { class: "bar-track" }, h("span", { class: "bar-fill", style: `width:${Math.max(0.5, (v / top) * 100)}%` })),
-    h("span", { class: "bar-value", text: pct(v, 1) }))));
-}
-
-function assetMix(p) {
-  const parts = [["Shares", p.stock_percent, "--s1"], ["Bonds", p.bond_percent, "--s2"], ["Cash", p.cash_percent, "--s3"], ["Other", p.other_percent, "--neutral"]]
-    .filter(([, v]) => v > 0);
-  if (!parts.length) return null;
-  return h("div", { class: "asset-mix" },
-    h("div", { class: "mix-bar", role: "img", "aria-label": parts.map(([n, v]) => `${n} ${fmt(v, 1)}%`).join(", ") },
-      parts.map(([n, v, c]) => h("span", { class: "mix-seg", style: `flex-grow:${v};background:var(${c})`, title: `${n}: ${fmt(v, 1)}%` }))),
-    h("div", { class: "legend" }, parts.map(([n, v, c]) => h("span", {}, h("span", { class: "key rect", style: `background:var(${c})` }), `${n} ${pct(v, 1)}`))));
-}
-
-function fundHoldingsCard(d) {
-  const p = d.profile, lic = d.kind === "LIC", title = "What it holds";
-  if (!p) return card(title, "Not fetched yet. Sift fetches each fund's holdings and sectors from Yahoo Finance weekly, so this fills in within a week.");
-  const holdings = p.holdings || [], sectors = Object.entries(p.sector_weightings || {}).sort((a, b) => b[1] - a[1]), ratings = p.bond_ratings || {};
-  const note = h("p", { class: "card-foot hint" }, `Yahoo Finance (Morningstar data), fetched ${longDate(p.fetched_at.slice(0, 10))}. Refreshed weekly. `, helpLink("fund-holdings"));
-  if (!holdings.length && !sectors.length && !p.stock_percent && !p.bond_percent) {
-    return card(title, lic
-      ? "Yahoo Finance lists LICs as companies, so it has no holdings or sector breakdown for them. Each LIC names its top holdings in its monthly NTA report, on its own website or the ASX announcements page."
-      : "Yahoo Finance has no holdings or sector breakdown for this fund.", note);
-  }
-  const ratingRows = RATING_ORDER.filter(([k]) => ratings[k] > 0).map(([k, label]) => [label, ratings[k]]);
-  const bondStats = [p.duration_years !== null ? `Duration ${fmt(p.duration_years, 1)} years` : null,
-    p.maturity_years !== null ? `average maturity ${fmt(p.maturity_years, 1)} years` : null].filter(Boolean);
-  const via = p.look_through_symbol ? h("p", { class: "hint note", text:
-    `${d.etf.asx_code} puts ${pct(p.look_through_percent, 2)} of its money into ${p.look_through_name} (${p.look_through_symbol}), ` +
-    "so these are that fund's largest holdings and sectors, shown as a share of this one." }) : null;
-  const holdingsTable = holdings.length ? h("div", {},
-    h("h3", { class: "holders-head", text: "Top 10 holdings" }),
-    h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, h("th", { text: "Holding" }), h("th", { class: "opt", text: "Code" }), h("th", { class: "num", text: "% of fund" }))),
-      h("tbody", {}, holdings.map((x) => h("tr", { class: "static" },
-        h("td", { class: "holder-name", text: x.name }), h("td", { class: "opt mono", text: x.symbol || "" }),
-        h("td", { class: "num", text: pct(x.weight_percent, 2) })))))),
-    p.top10_percent !== null ? h("p", { class: "hint", text: `The top 10 are ${pct(p.top10_percent, 1)} of the fund.` }) : null) : null;
-  const sectorBlock = sectors.length ? h("div", {}, h("h3", { class: "holders-head", text: "Sectors" }),
-    barList(sectors.map(([k, v]) => [sectorName(k), v]))) : null;
-  const bondBlock = ratingRows.length || bondStats.length ? h("div", {}, h("h3", { class: "holders-head", text: "Bonds" }),
-    bondStats.length ? h("p", { class: "hint", text: bondStats.join(", ") + "." }) : null,
-    ratingRows.length ? barList(ratingRows, 100) : null) : null;
-  const el = card(title, null,
-    assetMix(p) ? [h("h3", { class: "holders-head", text: "Asset mix" }), assetMix(p)] : null,
-    via,
-    h("div", { class: "holdings-grid" }, holdingsTable, sectorBlock || bondBlock, sectorBlock ? bondBlock : null),
-    note);
-  el.classList.add("wide");
-  return el;
 }
 
 /* ---------- ETFs and LICs on the dashboard, in portfolios and in watchlists ---------- */
@@ -3227,14 +2301,19 @@ window.SiftHost = {
   estimatedValueHelp: (method) => (ESTIMATED_VALUE_HELP[method] ? ESTIMATED_VALUE_HELP[method](thresholds()) : null),
   fundHref: (code) => { const f = (cache.companies || []).find((x) => x.code === code && FUNDS[x.type]); return f ? fundHref(f.type, code) : null; },
   afterChange: () => afterChange(),
+  setThresholds: (t) => { cache.thresholds = t; },
 };
 /* A React component as one more card on a page this file built. The wrapper
    takes no space of its own (display: contents), so the card sits in the
    grid like any other. Islands on a page that has gone are unmounted by
    SiftUI.sweep() after each route change. */
 /* A whole page built in React: replaces the page and mounts it (the router
-   sweeps away the previous page's islands afterwards). */
-function reactPage(name, props) {
+   sweeps away the previous page's islands afterwards). With `keep`, the same
+   page already on screen gets the new props instead, staying where it is
+   (a fund compared with another). */
+function reactPage(name, props, keep = false) {
+  const current = app.firstElementChild;
+  if (keep && current && current.dataset.page === name && app.children.length === 1 && window.SiftUI && window.SiftUI.update(current, props)) return Promise.resolve();
   const el = h("div", { class: "island", "data-page": name });
   app.replaceChildren(el);
   if (!(window.SiftUI && window.SiftUI.mount(name, el, props))) {
@@ -4014,11 +3093,11 @@ async function renderAdminUsers() {
 /* ---------- routing ---------- */
 const ROUTES = [
   [/^#\/company\/([A-Za-z0-9.]+)$/, "company", (m) => reactPage("CompanyPage", { code: m[1].toUpperCase() })],
-  [/^#\/screener(?:\?(.*))?$/, "screener", (m) => { presetScreener(m[1]); return renderScreener(); }],
-  [/^#\/etfs(?:\?(.*))?$/, "etfs", (m) => { presetEtfs(m[1]); return renderEtfs(); }],
-  [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => renderFund("ETF", m[1].toUpperCase(), m[2])],
-  [/^#\/lics(?:\?(.*))?$/, "lics", (m) => { presetFunds("LIC", m[1]); return renderFunds("LIC"); }],
-  [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
+  [/^#\/screener(?:\?(.*))?$/, "screener", (m) => reactPage("ScreenerPage", { query: m[1] })],
+  [/^#\/etfs(?:\?(.*))?$/, "etfs", (m) => reactPage("FundsPage", { kind: "ETF", query: m[1] })],
+  [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => reactPage("FundPage", { kind: "ETF", code: m[1].toUpperCase(), query: m[2] }, m[2] !== undefined)],
+  [/^#\/lics(?:\?(.*))?$/, "lics", (m) => reactPage("FundsPage", { kind: "LIC", query: m[1] })],
+  [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => reactPage("FundPage", { kind: "LIC", code: m[1].toUpperCase(), query: m[2] }, m[2] !== undefined)],
   [/^#\/track-record(?:\?(.*))?$/, "track-record", (m) => reactPage("TrackRecordPage", { version: new URLSearchParams(m[1] || "").get("version") || "" })],
   [/^#\/coattail(?:\?(.*))?$/, "coattail", (m) => renderCoattail(m[1])],
   [/^#\/coattail\/([a-z0-9-]+)$/, "coattail", (m) => renderCoattailHolder(m[1])],

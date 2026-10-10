@@ -3,15 +3,15 @@ id: etfs-presentation
 title: ETFs: screener, fund pages and holdings
 category: features
 summary: How ETFs are shown apart from shares: the ETF screener, fund pages with performance, rank, comparison fund and index, and what each fund holds.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §26, §26.1, §26.2, §26.3
 related: [etfs-collection, lics, coattail]
-code: [src/etf/views.py, src/etf/profiles.py]
+code: [src/etf/views.py, src/etf/profiles.py, frontend/src/pages/funds/FundsPage.tsx, frontend/src/pages/funds/FundPage.tsx, frontend/src/pages/funds/holdings.tsx, frontend/src/pages/funds/common.tsx]
 tables: [fund_profiles, fund_holdings]
 ---
 
@@ -95,6 +95,8 @@ Each ETF and LIC page shows the fund's description under its heading (first two 
 - **Card:** asset mix as one stacked bar with a labelled legend (shares, bonds, cash, other); top 10 holdings with their share of the fund and the top 10's total; sectors as single-hue bars with the value beside each; for bond funds, ratings in rating order and duration and maturity. LICs and funds Yahoo has nothing for say so; before the first fetch the card says it fills in within a week.
 - Help: "What a fund holds" (`fund-holdings`).
 
+
+**Pages in React** (since 2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). The ETF and LIC lists are `FundsPage` and each fund's page `FundPage` (`frontend/src/pages/funds/`), with `FUNDS[kind]` in `common.tsx` setting up the two kinds and `holdings.tsx` drawing What it holds. Choosing a fund to compare with changes the address (`?compare=`) and updates the page in place (`reactPage(..., keep)` in `app.js`), so it no longer jumps up the page.
 ## Code map
 
 - `src/etf/views.py`: ETF and LIC rows, ranks, comparisons
