@@ -974,7 +974,239 @@
    "articles": [
     "statistics"
    ],
-   "notes": "The owner plans a screen for it (Portfolios, Crash test). Beta and volatility are already worked out nightly into price_statistics; consider fat tails and stressed correlations (ADR-017)."
+   "notes": "The owner plans a screen for it (Portfolios, Crash test). Beta and volatility are already worked out nightly into price_statistics; consider fat tails and stressed correlations (ADR-017). Roadmap (2026-10-10): built from IMP-071 (historical scenarios), IMP-072 (Expected Shortfall), IMP-073 (fat tails), IMP-074 (crisis correlations); a page under Portfolios, in React and TypeScript (ADR-018)."
+  },
+  {
+   "id": "IMP-068",
+   "title": "Piotroski F-Score: a Financial health card",
+   "type": "idea",
+   "priority": "P1",
+   "status": "planned",
+   "impact": "A proven 9-point health check that separates cheap shares that recover from cheap shares that keep falling: Sift's value-trap problem.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "screener-actions",
+    "statistics"
+   ],
+   "notes": "Where: company page, new Financial health card; also a screener column. Effort: low (uses existing statements). Theory: Piotroski (2000), Journal of Accounting Research. Compare with the 30-check score wheel before deciding whether it changes any action (that would need a rules version). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-069",
+   "title": "Altman Z-Score: bankruptcy-risk caution",
+   "type": "idea",
+   "priority": "P1",
+   "status": "planned",
+   "impact": "Flags companies at risk of financial distress, as a red flag or caution like short selling.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "screener-actions"
+   ],
+   "notes": "Where: company page, beside the action (caution) and in the reason. Effort: low. Not for banks and insurers (excluded). Theory: Altman (1968), Journal of Finance. A red flag changes actions and needs a rules version; a caution doesn't. Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-070",
+   "title": "Multiple-testing correction for track record verdicts",
+   "type": "idea",
+   "priority": "P1",
+   "status": "planned",
+   "impact": "Sift tests many actions over four periods, so some will pass by chance; correcting keeps the verdicts credible.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics",
+    "track-record"
+   ],
+   "notes": "Where: Track record, inside the existing verdicts (no new screen). Effort: low. Theory: Benjamini and Hochberg (1995); Harvey, Liu and Zhu (2016). A fixed method, so it joins Fixed by design on Admin, Model and rules (ADR-017)."
+  },
+  {
+   "id": "IMP-071",
+   "title": "Crash test: historical stress scenarios",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Replays 2008, the 2020 COVID fall and the 1987 crash against current holdings, in plain words.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics",
+    "portfolios-cgt"
+   ],
+   "notes": "Part of the crash test simulator (IMP-067). Where: Portfolios, Crash test page, and a button on each portfolio. Effort: medium. Needs index history for each scenario and each holding's beta (already worked out nightly). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-072",
+   "title": "Crash test: Expected Shortfall",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Shows the average loss in the worst 1 year in 20, clearer than Value at Risk and the standard banks moved to.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics",
+    "portfolios-cgt"
+   ],
+   "notes": "Part of IMP-067. Effort: medium. Theory: Rockafellar and Uryasev (2000). Shown as dollars for the portfolio, with a twisty for the method. Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-073",
+   "title": "Crash test: fat tails and volatility clustering",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Crashes are more frequent and clustered than the simple random walk allows; this makes the crash test realistic.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics"
+   ],
+   "notes": "Part of IMP-067; the upgrade ADR-017 anticipates. Effort: medium. Theory: Engle (1982), Bollerslev (1986) for GARCH; Student's t for fat tails. Keep the company-page ranges simple unless users misread them."
+  },
+  {
+   "id": "IMP-074",
+   "title": "Crash test: correlations rise in crises",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Diversification works less well in a crash; without this the crash test understates losses.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics",
+    "portfolios-cgt"
+   ],
+   "notes": "Part of IMP-067. Effort: medium. Theory: Longin and Solnik (2001). Use stressed correlations in the scenarios rather than calm-period ones."
+  },
+  {
+   "id": "IMP-075",
+   "title": "Fama-French attribution of the track record",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Tests whether BUY calls beat the average because of Sift's judgement or because they lean to small or cheap shares: the key credibility test.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics",
+    "track-record"
+   ],
+   "notes": "Where: Track record, a new card. Effort: medium to high (Australian size and value factors built from the screened universe). Start once there are about 12 months of results. Theory: Fama and French (1993, 2015). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-076",
+   "title": "Diversification check for portfolios",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Plain checks such as \"your top 3 holdings are 62% of your money\" and \"4 of your 8 shares move together\".",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "portfolios-cgt",
+    "statistics"
+   ],
+   "notes": "Where: portfolio page, a new card. Effort: medium. Theory: Markowitz (1952); concentration measured simply. No advice on what to buy: show the facts and a help link. Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-077",
+   "title": "Value and momentum evidence for the Momentum spoke",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Checks how much weight the score wheel's Momentum spoke deserves alongside cheapness.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "screener-actions",
+    "track-record"
+   ],
+   "notes": "Where: track record analysis first, then the score wheel if justified (a rules version). Effort: medium. Theory: Jegadeesh and Titman (1993); Asness, Moskowitz and Pedersen (2013)."
+  },
+  {
+   "id": "IMP-078",
+   "title": "Disposition effect: a gentle portfolio insight",
+   "type": "idea",
+   "priority": "P4",
+   "status": "open",
+   "impact": "Investors tend to sell winners too early and hold losers too long; Sift could show the pattern from a person's own sales.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "portfolios-cgt"
+   ],
+   "notes": "Where: portfolio page. Effort: medium. Needs careful, non-judgemental wording and no advice. Theory: Shefrin and Statman (1985); Odean (1998). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-079",
+   "title": "Beneish M-Score: possible earnings manipulation",
+   "type": "idea",
+   "priority": "P4",
+   "status": "open",
+   "impact": "Flags accounts that look manipulated.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "screener-actions"
+   ],
+   "notes": "Effort: medium to high: needs receivables, depreciation and other accounts detail Sift doesn't store yet. Theory: Beneish (1999)."
+  },
+  {
+   "id": "IMP-080",
+   "title": "Magic Formula comparison screen",
+   "type": "idea",
+   "priority": "P4",
+   "status": "open",
+   "impact": "A simple, widely known value ranking (return on capital and earnings yield) to compare with Sift's results.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "screener-actions"
+   ],
+   "notes": "Where: a screener view, not a replacement for Sift's rules. Effort: low to medium. Theory: Greenblatt (2005). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+  },
+  {
+   "id": "IMP-081",
+   "title": "Kelly criterion position sizing",
+   "type": "idea",
+   "priority": "P4",
+   "status": "wont",
+   "impact": "Would tell people how much to put in.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics"
+   ],
+   "notes": "Won't do (owner's roadmap review, 2026-10-10): reads as personal advice and can encourage oversized positions."
+  },
+  {
+   "id": "IMP-082",
+   "title": "Technical chart patterns",
+   "type": "idea",
+   "priority": "P4",
+   "status": "wont",
+   "impact": "Pattern signals on price charts.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics"
+   ],
+   "notes": "Won't do (2026-10-10): weak evidence, and they conflict with Sift's long-term value approach."
+  },
+  {
+   "id": "IMP-083",
+   "title": "Machine learning to predict prices",
+   "type": "idea",
+   "priority": "P4",
+   "status": "wont",
+   "impact": "A model forecasting prices.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics"
+   ],
+   "notes": "Won't do (2026-10-10): hard to explain, easily overfitted, and against Sift's show-the-reasons design (ADR-017)."
   }
  ]
 }
