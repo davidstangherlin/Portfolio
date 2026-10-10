@@ -1104,7 +1104,9 @@ function dividendReinvestCard(x) {
       tile("1 new share each payment", x.per_payment, `on the latest dividend of ${cents(lp.amount)} (ex ${longDate(lp.ex_date)})`),
       tile("1 new share a year", x.per_year, x.year_total ? `on ${cents(x.year_total)} paid in the last 12 months (${plural(x.payments_in_year, "payment")})` : "no dividend in the last 12 months")),
     yours,
-    h("p", { class: "hint" }, "Franking credits are a tax credit, not cash, so they don't count. DRP prices are usually an average over a few days, sometimes at a small discount, so treat these as close guides. Leftover cash is usually carried forward to the next dividend. ", helpLink("drp")));
+    h("p", { class: "drp-join" }, h("strong", { text: "It isn't automatic. " }),
+      "Dividends are paid in cash unless you join the DRP through the company's share registry (see the Share registry card). " +
+      "To count for a dividend, your choice usually has to reach the registry by the day after the record date. ", helpLink("drp")));
 }
 
 function shareRegistryCard(code, info) {

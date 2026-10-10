@@ -670,6 +670,7 @@
    "hover": "How many shares you'd need to hold for the dividends to buy a whole new share at today's price: the price divided by the latest dividend (each payment) or by the last 12 months of dividends (a year), rounded up.",
    "body": [
     "How it works: you join a company's DRP through its share registry. On each dividend, the registry divides your cash dividend by the DRP price (usually an average of the share price over a few days around the payment, sometimes less a small discount, such as 1.5%) and issues that many whole new shares.",
+    "It isn't automatic: unless you join, every dividend is paid in cash. Join (or change or leave) through the registry's investor portal or a form. To apply to a dividend, your choice usually has to reach the registry by the DRP election date, often the business day after the record date; later choices apply from the next dividend. Joining once covers future dividends until you change it.",
     "When your dividend isn't enough for a whole share, what happens depends on the company's DRP rules and your registry:",
     "Carry forward (most common): the leftover cash isn't lost. It's held as a residual balance and added to your next dividend, until together they buy at least one whole share.",
     "Cash instead: some DRPs pay small leftover amounts to your nominated bank account, or pay the whole dividend in cash if your holding is below the plan's minimum.",

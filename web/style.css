@@ -1152,6 +1152,8 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 .registry-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .registry-edit select, .registry-edit input { min-width: 0; max-width: 100%; }
 .stats.drp-stats, .stats.fit { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.drp-join { margin: 12px 0 0; font-size: 13px; color: var(--ink-2); }
+.drp-join strong { color: var(--ink); }
 
 /* Importing a broker's export (docs/kb/features/broker-import.md) */
 .import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; margin-top: 8px; }
