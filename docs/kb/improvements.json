@@ -1237,6 +1237,21 @@
     "financial-health"
    ],
    "notes": "The screener rows already carry f_score, f_level, z_score and z_zone; add optional columns and a ! beside the action for distress, when the screener page moves to React (IMP-084)."
+  },
+  {
+   "id": "IMP-086",
+   "title": "Richer company price chart: event dots, linked crosshair, longer periods",
+   "type": "idea",
+   "priority": "P2",
+   "status": "planned",
+   "impact": "Explains price moves in context (results, director trades, substantial holders) and lets long-term investors see a full cycle, without adding trading tools.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "web-gui",
+    "volume-and-short-selling"
+   ],
+   "notes": "Owner agreed 2026-10-10, to start after the React migration (IMP-084). Scope: (1) clickable event dots for results dates, director trades and substantial holder notices, with an inline summary; (2) one crosshair across the price, volume and margin of safety charts; (3) 1Y, 3Y and 5Y period buttons, with the company payload sending up to 5 years of prices; (4) an Overlays toggle for the existing 200-day average and volume, off by default. Built in Sift's own React and SVG charts (ADR-018), Sift's colours, keyboard and screen-reader support. Not doing: RSI or other technical indicators (chart patterns are Won't do), intraday prices (no live feed), news (no source), new chart, icon or animation libraries."
   }
  ]
 }
