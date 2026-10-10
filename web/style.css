@@ -233,8 +233,16 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .caution-tag > span[aria-hidden] { font-weight: 800; }
 .caution-tag.high { font-weight: 700; }
 .caution-text { color: var(--warning-text); font-weight: 600; }
-.caution-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warning-bg); color: var(--ink); font-size: 13px; }
-.caution-note .caution-tag { margin-left: 0; }
+.short-headline { margin: 4px 0 10px; font-size: 15px; }
+.short-headline .caution-tag { margin-left: 0; }
+.short-read { margin: 0 0 4px; }
+.short-read.backed strong { color: var(--warning-text); }
+.info-steps.reasons { color: var(--ink-2); font-size: 13px; }
+details.short-details { margin: 12px 0 4px; }
+details.short-details > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--ink-2); font-weight: 600; }
+details.short-details > summary::-webkit-details-marker { display: none; }
+details.short-details[open] > summary .twisty { transform: rotate(90deg); }
+details.short-details[open] > summary { margin-bottom: 10px; }
 /* The short-selling information card: a four-band scale, the share's band highlighted */
 .info-head { font-size: 13px; font-weight: 650; margin: 14px 0 4px; }
 .short-info p, .short-info .info-steps { max-width: 80ch; }
@@ -248,6 +256,8 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .short-scale .band-name { font-weight: 650; color: var(--ink); }
 .short-scale li.here { background: var(--warning-bg); box-shadow: inset 0 0 0 1px var(--warning); }
 .short-scale .band-here { font-weight: 700; color: var(--warning-text); }
+.short-scale li.here.calm { background: var(--surface); box-shadow: inset 0 0 0 1px var(--ink-2); }
+.short-scale li.here.calm .band-here { color: var(--ink); }
 @media (max-width: 520px) { .short-scale { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .short-scale li { border-radius: 0 !important; } }
 .more { display: block; margin: 12px auto; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }

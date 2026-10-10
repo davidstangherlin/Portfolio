@@ -74,3 +74,66 @@ def caution(row: dict, settings: ModelSettings = LIVE) -> dict | None:
         facts.append(f"up {Decimal(str(change)):.1f} points in a month")
     word = "heavily shorted" if found == "HIGH" else "shorted"
     return {"level": found, "advice": ADVICE[found], "text": f"{word} ({', '.join(facts)}): {ADVICE[found]}"}
+
+
+# ---------- why might they be short? ----------
+# The short sellers' case checked against the business's own figures, read
+# for a buyer or holder (not for shorting): do the figures back the short
+# sellers, do the short sellers look exposed to a squeeze, or neither?
+# Adapted from short-interest frameworks that pair crowding with fundamental
+# decay; borrow fees and utilisation aren't public in Australia, so the
+# crowding side is days to cover and the price against its 50-day average.
+TREND_DAYS = 50
+
+
+def price_vs_average(closes: list, days: int = TREND_DAYS) -> Decimal | None:
+    """The latest close against the average of the last `days` closes, in %
+    (oldest first). None with fewer closes than that."""
+    closes = [Decimal(str(c)) for c in closes if c is not None]
+    if len(closes) < days:
+        return None
+    average = sum(closes[-days:]) / days
+    return (closes[-1] / average - 1) * 100 if average else None
+
+
+def why_short(row: dict, reports: list[dict], days_to_cover=None, price_vs_50d=None,
+              settings: ModelSettings = LIVE) -> dict:
+    """{kind, label, summary, reasons} in plain words. `reports` are annual
+    reports, newest first, with revenue and free_cash_flow.
+
+    BACKED     two or more warning signs: the figures support the short sellers
+    MIXED      one warning sign
+    EXPOSED    no warning signs, days to cover at the ELEVATED level or more and
+               the price above its 50-day average: a squeeze is possible
+    UNCLEAR    no warning signs otherwise: the reason isn't in the figures"""
+    latest = reports[0] if reports else {}
+    before = reports[1] if len(reports) > 1 else {}
+    revenue, previous, fcf = latest.get("revenue"), before.get("revenue"), latest.get("free_cash_flow")
+    warnings, strengths = [], []
+    if revenue is not None and previous:
+        (warnings if revenue < previous else strengths).append("Sales fell last year" if revenue < previous else "Sales grew last year")
+    if fcf is not None:
+        (warnings if fcf < 0 else strengths).append(
+            "The business used more cash than it brought in" if fcf < 0 else "The business brought in more cash than it used")
+    if row.get("earnings_quality") == "WEAK":
+        warnings.append("Profits aren't backed by cash")
+    if row.get("fundamentals_trend") == "DECLINING":
+        warnings.append("Returns and sales are trending down")
+    days = Decimal(str(days_to_cover)) if days_to_cover is not None else None
+    trend = Decimal(str(price_vs_50d)) if price_vs_50d is not None else None
+
+    if len(warnings) >= 2:
+        return {"kind": "BACKED", "label": "The figures back the short sellers", "reasons": warnings,
+                "summary": "The business is weakening, so the short sellers may well be right. Treat this as a serious warning."}
+    if warnings:
+        return {"kind": "MIXED", "label": "One warning sign", "reasons": warnings + strengths,
+                "summary": "There's one warning sign in the figures. Read the latest results and announcements before deciding."}
+    if days is not None and days >= settings.days_to_cover_caution and trend is not None and trend > 0:
+        return {"kind": "EXPOSED", "label": "The short sellers look exposed",
+                "reasons": strengths + [f"The price is {trend:.0f}% above its 50-day average",
+                                        f"Short sellers would need about {days:.0f} days of trading to buy back"],
+                "summary": "The business looks sound and the price is rising. Good news could force short sellers to buy back "
+                           "quickly and push the price up sharply, but expect swings both ways."}
+    return {"kind": "UNCLEAR", "label": "No clear reason in the figures", "reasons": strengths,
+            "summary": "The business figures look sound, so the reason for the shorting isn't clear. Short sellers may know "
+                       "something not yet in the figures, or it may be a hedge. Read the latest announcements."}

@@ -120,7 +120,8 @@ def company(session, code: str) -> dict:
         "short_selling": p["short_interest"] and {  # ASIC, about four business days behind
             "percent_of_shares_sold_short": p["short_interest"]["short_percent"], "report_date": p["short_interest"]["report_date"],
             "change_over_a_month_points": p["short_interest"]["change_points"], "days_to_cover": c.get("days_to_cover"),
-            "caution": p["short_caution"] and p["short_caution"]["text"]},  # never changes the action
+            "caution": p["short_caution"] and p["short_caution"]["text"],  # never changes the action
+            "why_short": p["short_read"] and {k: p["short_read"][k] for k in ("label", "summary", "reasons")}},
         "watchlists": [w["name"] for w in p["watchlists"] if w["member"]], "note": NOT_ADVICE,
     }
 

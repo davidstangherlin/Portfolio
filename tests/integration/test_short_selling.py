@@ -63,6 +63,8 @@ def test_heavily_shorted_buy_stays_a_buy_with_a_caution(shorted):
     company = client.get("/api/company/GOOD").json()
     assert company["short_interest"]["change_points"] == 9.5 and company["short_caution"]["level"] == "HIGH"
     assert company["flags"] == []  # a caution, not a red flag
+    assert company["short_read"]["kind"] in ("BACKED", "MIXED", "EXPOSED", "UNCLEAR") and company["short_read"]["summary"]
+    assert client.get("/api/company/DEAR").json()["short_read"] is None  # no caution, no read
     assert company["volumes"][-1][1] == 100000  # shares traded on the day, for the volume chart
 
 

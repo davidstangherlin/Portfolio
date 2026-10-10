@@ -334,6 +334,9 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         ],
         "flags": red_flags(row),
         "short_caution": short_caution.caution(row),
+        "short_read": short_caution.why_short(  # why might they be short? only with a caution
+            row, [{"revenue": r.revenue, "free_cash_flow": r.free_cash_flow} for r in reports], row.get("days_to_cover"),
+            short_caution.price_vs_average([c for _, c, _ in prices])) if short_caution.caution(row) else None,
         "short_levels": {"watch": short_caution.SHORT_FLOOR, "elevated": model_settings.LIVE.short_caution,
                          "high": model_settings.LIVE.short_warning},  # the information card's scale
         "model": _model_assumptions(row.get("valuation_method")),

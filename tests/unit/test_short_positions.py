@@ -64,3 +64,33 @@ def test_caution_in_words_and_beside_an_unchanged_action():
     action, reason = suggest_action(row)
     assert action == "BUY" and reason.endswith("; caution: " + found["text"])
     assert suggest_action({**row, "short_percent": Decimal("1")})[1] == "passes all four value tests with no red flags"
+
+
+def test_price_against_its_50_day_average():
+    assert short_caution.price_vs_average([1] * 49) is None
+    assert short_caution.price_vs_average([1] * 49 + [Decimal("1.49")]).quantize(Decimal("0.01")) == Decimal("47.55")  # 1.49 / 1.0098 (the 50-day average)
+
+
+def _reports(rev_now, rev_before, fcf):
+    return [{"revenue": rev_now, "free_cash_flow": fcf}, {"revenue": rev_before, "free_cash_flow": None}]
+
+
+def test_why_short_the_figures_back_the_short_sellers():
+    read = short_caution.why_short({}, _reports(90, 100, -5))
+    assert read["kind"] == "BACKED" and read["reasons"] == ["Sales fell last year", "The business used more cash than it brought in"]
+
+
+def test_why_short_one_warning_sign():
+    read = short_caution.why_short({"earnings_quality": "WEAK"}, _reports(110, 100, 5))
+    assert read["kind"] == "MIXED" and read["reasons"][0] == "Profits aren't backed by cash"
+
+
+def test_why_short_the_short_sellers_look_exposed():
+    read = short_caution.why_short({}, _reports(110, 100, 5), days_to_cover=Decimal("8"), price_vs_50d=Decimal("6"))
+    assert read["kind"] == "EXPOSED"
+    assert read["reasons"][-2:] == ["The price is 6% above its 50-day average", "Short sellers would need about 8 days of trading to buy back"]
+
+
+def test_why_short_no_clear_reason():
+    assert short_caution.why_short({}, _reports(110, 100, 5), days_to_cover=Decimal("8"), price_vs_50d=Decimal("-3"))["kind"] == "UNCLEAR"
+    assert short_caution.why_short({}, [])["kind"] == "UNCLEAR"  # no reports: nothing in the figures either way
