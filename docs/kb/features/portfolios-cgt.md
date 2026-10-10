@@ -3,7 +3,7 @@ id: portfolios-cgt
 title: Portfolios, parcels and CGT records
 category: features
 summary: Parcel-level holdings across several portfolios, each with its owner's tax type: buys, sales with parcel splitting, FIFO or minimum-tax order, archiving and the CGT report.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §19
 related: [accounts-owners, screener-actions, web-gui]
-code: [src/portfolio/holdings.py, src/portfolio/cgt.py, src/portfolio/views.py, src/portfolio/trade_input.py, portfolio.py]
+code: [src/portfolio/holdings.py, src/portfolio/cgt.py, src/portfolio/views.py, src/portfolio/trade_input.py, portfolio.py, frontend/src/pages/portfolio/PortfolioPage.tsx, frontend/src/pages/portfolio/PortfoliosPage.tsx, frontend/src/pages/portfolio/holdings.tsx]
 tables: [portfolios, holdings]
 ---
 
@@ -68,6 +68,8 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 
 **Importing from a broker** (added 2026-10-10): parcels can also come from a broker's CSV or Excel export; see [Importing from a broker, and printing](kb:broker-import).
 
+
+**Pages in React** (since 2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). The Portfolios page (`PortfoliosPage.tsx`), each portfolio (`PortfolioPage.tsx`: the buy and sell form, settings, open parcels, sales and capital gains) and the holdings tables shared with the dashboard (`holdings.tsx`: `PortfolioStrip`, `SectionLine`, `HoldingsSections`, filterable with `FilterableTable`) are in `frontend/src/pages/portfolio/`. After a trade the page reloads its figures in place and shows what was recorded, as before.
 ## Code map
 
 - `src/portfolio/holdings.py`: portfolios and parcels: add, sell with splitting, undo, archive, positions; scoped to the current person

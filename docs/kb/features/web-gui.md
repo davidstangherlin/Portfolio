@@ -3,7 +3,7 @@ id: web-gui
 title: Sift web app: pages, dashboard and layout
 category: features
 summary: How the FastAPI server and the plain JavaScript pages fit together: routes, the dashboard and its arrangeable widgets, company pages, charts, phone layout and the house UI rules.
-version: 1.6
+version: 1.7
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §20
 related: [architecture, profile-preferences-impersonation, table-filters, adr-002-fastapi-plain-js, adr-018-react-typescript-pages]
-code: [gui.py, web/index.html, web/app.js, web/style.css, web/dashlayout.js, web/tablefilter.js, frontend/src/main.tsx, frontend/src/lib/host.ts, frontend/README.md]
+code: [gui.py, web/index.html, web/app.js, web/style.css, web/tablefilter.js, frontend/src/main.tsx, frontend/src/lib/host.ts, frontend/README.md]
 tables: [ui_preferences]
 ---
 
@@ -23,7 +23,7 @@ Sift's pages are how people use everything else. The server returns JSON; one Ja
 
 **Moving to React and TypeScript** (2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). Every page is being rebuilt as React components in TypeScript, like for like, in phases (IMP-084); new pages and cards are React from the start. The components live in `frontend/` and are built into `web/dist/sift-ui.js`, which is committed and loaded before `app.js`, so running Sift needs no Node.js (`frontend/README.md`). Until the shell moves, `app.js` builds each page and mounts React components as islands: `island(name, props, title)` calls `SiftUI.mount()`, the router calls `SiftUI.sweep()` after each page change, and `window.SiftHost` lends components help entries and the admin flag. An island's wrapper is `display: contents`, so its card sits in the grid like any other. `web_version()` includes `web/dist`, so a rebuilt bundle reloads open tabs. The first island is the company page's Financial health card ([Financial health](kb:financial-health)). Whole pages use `reactPage(name, props)` in the route table, which replaces the page with one island.
 
-**Moved so far** (each checked like for like against the old page: same text and element structure at desktop and phone widths): Help (`HelpPage`), Track record (`TrackRecordPage`), the company page (`CompanyPage` in `frontend/src/pages/company/`: the page, `cards.tsx`, `insights.tsx` and `types.ts` for the API's answer; the old page printed a stray "null" in the Share registry card, which the new one doesn't). Charts in `frontend/src/charts/`: `lineChart` (with dividend markers and the year-ahead range), `volumeChart`, `columnChart`, `wheel`, `valuationBars`, `edgeBar`. `ChartSlot` also redraws when a closed twisty around it opens and when printing. The watchlist button and picker are `frontend/src/components/watch.tsx`. Phase 3 moved the screener (`ScreenerPage`), the ETF and LIC lists (`FundsPage`) and each fund's page (`FundPage`), with the table filter ported to TypeScript (`lib/tableFilter.ts`, `components/TableFilter.tsx`), sortable headings (`SortTh`, `sortRows`), the row star (`WatchCell`), the mini score wheel (`MiniWheel`) and a cache of answers kept between visits (`lib/cache.ts`, cleared by `SiftUI.invalidate()` from `afterChange()`). `reactPage(name, props, keep)` re-renders the page on screen with new props when only the address's query changed (`SiftUI.update()`). The React side has `frontend/src/lib/` (`api.ts` for `getJSON` and `send`, `tooltip.ts` for the shared `#tooltip`, `dom.ts` for chart drawing, `format.ts`, `host.ts`), `components/` (`ChartSlot` draws a chart at its real width and redraws on resize, as `chartSlot()` did; `bits.tsx` for badges, page heads, clickable rows and data tables; `FieldHelp.tsx` for hover explanations) and `charts/`. Charts stay hand-drawn SVG, ported to typed TypeScript and drawn inside `ChartSlot`, so they look exactly as before. Until a page moves, what's described here applies.
+**Moved so far** (each checked like for like against the old page: same text and element structure at desktop and phone widths): Help (`HelpPage`), Track record (`TrackRecordPage`), the company page (`CompanyPage` in `frontend/src/pages/company/`: the page, `cards.tsx`, `insights.tsx` and `types.ts` for the API's answer; the old page printed a stray "null" in the Share registry card, which the new one doesn't). Charts in `frontend/src/charts/`: `lineChart` (with dividend markers and the year-ahead range), `volumeChart`, `columnChart`, `wheel`, `valuationBars`, `edgeBar`. `ChartSlot` also redraws when a closed twisty around it opens and when printing. The watchlist button and picker are `frontend/src/components/watch.tsx`. Phase 3 moved the screener (`ScreenerPage`), the ETF and LIC lists (`FundsPage`) and each fund's page (`FundPage`), with the table filter ported to TypeScript (`lib/tableFilter.ts`, `components/TableFilter.tsx`), sortable headings (`SortTh`, `sortRows`), the row star (`WatchCell`), the mini score wheel (`MiniWheel`) and a cache of answers kept between visits (`lib/cache.ts`, cleared by `SiftUI.invalidate()` from `afterChange()`). `reactPage(name, props, keep)` re-renders the page on screen with new props when only the address's query changed (`SiftUI.update()`). Phase 4 moved the dashboard (`DashboardPage`, with `DashLayout` for the arrangeable widgets: each widget's `Card` gets its pin, tools bar and drag handle through `DashCardContext`, and a drag reorders by state rather than moving page elements), the portfolio pages and broker import (`pages/portfolio/`), and the watchlist pages (`pages/watchlist/`), with `FilterableTable`, form pieces (`components/forms.tsx`) and `lib/status.ts` (the nightly status in words); `web/dashlayout.js` is retired. Fixes: the old dashboard printed a stray "null" in its layout footer. The React side has `frontend/src/lib/` (`api.ts` for `getJSON` and `send`, `tooltip.ts` for the shared `#tooltip`, `dom.ts` for chart drawing, `format.ts`, `host.ts`), `components/` (`ChartSlot` draws a chart at its real width and redraws on resize, as `chartSlot()` did; `bits.tsx` for badges, page heads, clickable rows and data tables; `FieldHelp.tsx` for hover explanations) and `charts/`. Charts stay hand-drawn SVG, ported to typed TypeScript and drawn inside `ChartSlot`, so they look exactly as before. Until a page moves, what's described here applies.
 
 **Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Writes only portfolios and trades ([§19.1](kb:portfolios-cgt)).
 
@@ -82,9 +82,9 @@ The wheel describes; it does not decide. The suggested action still comes only f
 
 - `gui.py`: the FastAPI app: middleware (password, same-site writes, who the request is from), every /api route, payload builders
 - `web/index.html`: the page shell: menu bar, search box, avatar menu
-- `web/app.js`: every page, chart and dialog
+- `web/app.js`: the shell (menu, search, avatar menu, printing, router) and the pages not yet moved
+- `frontend/src/`: the React pages, cards, charts and shared components
 - `web/style.css`: tokens (light and dark), layout, the action colour rule
-- `web/dashlayout.js`: dashboard widget arrangement
 - `web/tablefilter.js`: table filters
 
 ## Data

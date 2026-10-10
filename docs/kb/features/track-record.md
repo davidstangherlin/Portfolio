@@ -3,7 +3,7 @@ id: track-record
 title: Track record: recording and scoring Sift's calls
 category: features
 summary: How every night's calls are recorded, never edited, and scored at 1, 3, 6 and 12 months against the average screened company, and how the Track record page answers 'is Sift right?'.
-version: 1.4
+version: 1.5
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §21
 related: [personal-nightly-results, screener-actions, adr-005-immutable-signal-record, statistics]
-code: [src/tracking/signals.py, src/tracking/outcomes.py, src/tracking/report.py, src/tracking/record_signals.py, src/tracking/score_signals.py, frontend/src/pages/TrackRecordPage.tsx, frontend/src/components/track.tsx, frontend/src/charts/edgeBar.ts]
+code: [frontend/src/components/DashLayout.tsx, frontend/src/pages/dashboard/DashboardPage.tsx, src/tracking/signals.py, src/tracking/outcomes.py, src/tracking/report.py, src/tracking/record_signals.py, src/tracking/score_signals.py, frontend/src/pages/TrackRecordPage.tsx, frontend/src/components/track.tsx, frontend/src/charts/edgeBar.ts]
 tables: [signal_snapshots, signal_outcomes, track_record_monthly]
 ---
 
@@ -32,7 +32,7 @@ The track record judges the rules on results. It can only measure forward from t
 - **`RULES_VERSION`** (`src/tracking/signals.py`, currently `2026-10-05`) is the date the screening rules last changed. Bump it whenever thresholds, actions, scores or valuation models change, so each rule set is judged on its own results.
 - **Same rows as the GUI.** The recorder uses `load_universe()` (`src/screening/enriched.py`), the loader the dashboard and screener use, so the record holds exactly what was on screen.
 
-**Dashboard layout.** `web/dashlayout.js` arranges the widgets: each `renderDashboard` widget has an id (attention, changes, movers, top, etfs, lics, portfolios, actions, tracking) and a default order. Every widget starts pinned; its pin (top right) unlocks it for this visit, showing a bar to drag it by (pointer events on the window, so mouse and touch both work; the page scrolls to keep the widget under the pointer, and scroll anchoring is off during the drag), ↑ ↓ buttons, half/full width (hidden on one-column screens) and Hide. Hidden widgets get a Show button under the dashboard, with Reset to default layout once anything is saved. The layout, `{"cards": [{"id", "hidden", "wide"}]}` with `wide` null for the widget's default, is saved with `PUT /api/dashboard/layout` (cleared with `DELETE`) in `ui_preferences` (`src/preferences.py` checks its shape) and returned as `layout` in `/api/dashboard`. `dlArrange` drops ids Sift no longer has and puts widgets missing from the saved list (new ones, or the Portfolios widget on days it has nothing to show) straight after the widget they follow by default, so adding a widget needs no migration. Tests: `tests/js/dash_layout.test.js`, `tests/unit/test_preferences.py`, and an API round trip in `tests/integration/test_gui.py`.
+**Dashboard layout.** `frontend/src/components/DashLayout.tsx` (React since 2026-10-10, with the ordering rules in `frontend/src/lib/dashLayout.ts`; formerly `web/dashlayout.js`) arranges the widgets: each `DashboardPage` widget has an id (attention, changes, movers, top, etfs, lics, portfolios, actions, tracking) and a default order. Every widget starts pinned; its pin (top right) unlocks it for this visit, showing a bar to drag it by (pointer events on the window, so mouse and touch both work; the page scrolls to keep the widget under the pointer, and scroll anchoring is off during the drag), ↑ ↓ buttons, half/full width (hidden on one-column screens) and Hide. Hidden widgets get a Show button under the dashboard, with Reset to default layout once anything is saved. The layout, `{"cards": [{"id", "hidden", "wide"}]}` with `wide` null for the widget's default, is saved with `PUT /api/dashboard/layout` (cleared with `DELETE`) in `ui_preferences` (`src/preferences.py` checks its shape) and returned as `layout` in `/api/dashboard`. `dlArrange` drops ids Sift no longer has and puts widgets missing from the saved list (new ones, or the Portfolios widget on days it has nothing to show) straight after the widget they follow by default, so adding a widget needs no migration. Tests: `frontend/src/lib/dashLayout.test.ts`, `frontend/src/pages/dashboard/DashboardPage.test.tsx`, `tests/unit/test_preferences.py`, and an API round trip in `tests/integration/test_gui.py`.
 
 **What changed (dashboard).** `signal_changes()` compares the latest two snapshot dates. Each action has a rank (BUY and ACCUMULATE 1, INVESTIGATE 2, WATCH and HOLD 3, REVIEW and IGNORE 4, AVOID and SELL 5). A move between equal ranks is not a change (BUY to ACCUMULATE after buying), and neither is any move where the held flag changed, because buying or selling, not the market, caused it. Better moves are listed first.
 

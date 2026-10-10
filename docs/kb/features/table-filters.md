@@ -3,7 +3,7 @@ id: table-filters
 title: Table filters
 category: features
 summary: The condition builder and chips shared by the screener, ETF and LIC lists, watchlists, portfolios and Coattail.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §30
 related: [web-gui]
-code: [web/tablefilter.js, frontend/src/lib/tableFilter.ts, frontend/src/components/TableFilter.tsx]
+code: [web/tablefilter.js, frontend/src/lib/tableFilter.ts, frontend/src/components/TableFilter.tsx, frontend/src/components/FilterableTable.tsx]
 ---
 
 ## Purpose
@@ -41,7 +41,7 @@ Every list view can be searched and filtered by any column: the share screener, 
 - **Memory.** Each table keeps its filters until the page reloads (`TF_STATES`, keyed by table: `screener`, `ETF`, `LIC`, `watch:<id>:<type>`, `portfolio:<id>:<type>`). A link that presets a screener (from the dashboard) clears that screener's table filters, so it shows what the link says.
 - **Small tables.** A watchlist or portfolio table with one row shows no filter controls.
 
-**Structure (React, since 2026-10-10).** The screener and the ETF and LIC lists use the TypeScript port: `frontend/src/lib/tableFilter.ts` (the pure rules, with the same checks in `tableFilter.test.ts`, and `filterState(key)` and `forgetFilters(key)` for each table's memory) and `useTableFilter()` in `frontend/src/components/TableFilter.tsx` (the search box, toggle, builder, chips and the right-click or press-and-hold menu, given to the `<table>` as `tableProps(columns, shownRows)`). Fields are `FIELDS` in `ScreenerPage.tsx` and `fieldsFor(kind)` in `pages/funds/FundsPage.tsx`. Watchlists, portfolios and Coattail's holders still use the plain JavaScript below until they move (IMP-084).
+**Structure (React, since 2026-10-10).** The screener and the ETF and LIC lists use the TypeScript port: `frontend/src/lib/tableFilter.ts` (the pure rules, with the same checks in `tableFilter.test.ts`, and `filterState(key)` and `forgetFilters(key)` for each table's memory) and `useTableFilter()` in `frontend/src/components/TableFilter.tsx` (the search box, toggle, builder, chips and the right-click or press-and-hold menu, given to the `<table>` as `tableProps(columns, shownRows)`). Fields are `FIELDS` in `ScreenerPage.tsx` and `fieldsFor(kind)` in `pages/funds/FundsPage.tsx`. Watchlists and portfolios use it too, through `FilterableTable` (`frontend/src/components/FilterableTable.tsx`, the React `filterableTable()`). Only Coattail's holders still use the plain JavaScript below until they move (IMP-084).
 
 **Structure (plain JavaScript).** `web/tablefilter.js` loads before `app.js`. The pure part (`tfNumber`, `tfReady`, `tfTest`, `tfApply`, `tfUpsert`) runs in Node for tests; the controls use `app.js`'s `h()`. Pages describe their columns as fields (`label`, `type` num or text, `get` the value, `text` the value as shown): `WATCH_SHARE_FIELDS`, `fundWatchFields(kind)`, `holdingFields(kind)`. Coattail's holders call `tableFilter()` inside their own refresh; watchlists and portfolios use `filterableTable()`, which redraws the table on each change. Help: "Filtering a table" (`table-filters`).
 
@@ -50,7 +50,8 @@ Every list view can be searched and filtered by any column: the share screener, 
 ## Code map
 
 - `frontend/src/lib/tableFilter.ts`, `frontend/src/components/TableFilter.tsx`: the React version (screener, ETFs, LICs)
-- `web/tablefilter.js`: the evaluator, the bar, the builder, chips and the column menu (watchlists, portfolios, Coattail holders)
+- `frontend/src/components/FilterableTable.tsx`: a whole filterable table (watchlists, portfolios)
+- `web/tablefilter.js`: the evaluator, the bar, the builder, chips and the column menu (Coattail holders, until it moves)
 
 ## Data
 

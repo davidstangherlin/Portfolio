@@ -3,7 +3,7 @@ id: broker-import
 title: Importing from a broker, and printing
 category: features
 summary: How a broker's CSV or Excel export (trade history or holdings) becomes parcels in a portfolio, recognising each broker's columns with a preview to confirm; and how any page prints or saves as PDF on A4 landscape.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-10
 source: AS_BUILT change log, 2026-10-10
 related: [portfolios-cgt, web-gui]
-code: [src/portfolio/importer.py, gui.py, web/app.js, web/style.css]
+code: [src/portfolio/importer.py, gui.py, frontend/src/pages/portfolio/ImportPage.tsx, web/app.js, web/style.css]
 tables: [holdings, portfolios]
 ---
 
@@ -37,7 +37,8 @@ Let people bring their real portfolios into Sift from the brokers they use (aske
 
 - `src/portfolio/importer.py`: reading files, finding columns, each line's status, preview and import
 - `gui.py`: the preview and import routes
-- `web/app.js`: `renderImport()`; the beforeprint and afterprint handlers
+- `frontend/src/pages/portfolio/ImportPage.tsx`: the import page (React since 2026-10-10)
+- `web/app.js`: the beforeprint and afterprint handlers
 - `web/style.css`: the import page; `@media print`
 
 ## Data

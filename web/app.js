@@ -147,19 +147,6 @@ async function getJSON(url) {
   }
   return res.json();
 }
-
-/* ---------- shared pieces ---------- */
-/* Valuation status from margin of safety, using the live value-test threshold. */
-function valuationStatus(mos) {
-  if (mos === null || mos === undefined) return { cls: "none", label: "No estimate" };
-  if (mos > thresholds().margin_of_safety) return { cls: "under", label: "Undervalued" };
-  if (mos >= 0) return { cls: "fair", label: "Fair value" };
-  return { cls: "over", label: "Overvalued" };
-}
-function valuationPill(mos, large = false) {
-  const st = valuationStatus(mos);
-  return h("span", { class: `pill ${st.cls}${large ? " lg" : ""}`, text: st.label });
-}
 const signClass = (v) => (v === null || v === undefined || v === 0 ? null : v > 0 ? "pos" : "neg");
 function badge(action) {
   return h("span", { class: `badge ${ACTION_STATUS[action] || "neutral"}`, text: action });
@@ -370,9 +357,6 @@ const signed = (v, fmtFn) => (v === null || v === undefined ? NA : (v > 0 ? "+" 
 const dateTime = (iso) => new Date(iso).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const timeOnly = (iso) => new Date(iso).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
 const plural = (n, word, many = word + "s") => `${fmt(n, 0)} ${n === 1 ? word : many}`;
-function companyLink(code, name, ...extra) {
-  return h("a", { class: "row-link", href: `#/company/${code}` }, h("span", { class: "code", text: code }), name ? h("span", { class: "name-inline", text: name }) : null, extra);
-}
 function clickableRow(code, ...cells) {
   const open = () => { location.hash = `#/company/${code}`; };
   return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } }, cells);
@@ -639,182 +623,6 @@ function initNav() {
   loadWatchlistMenu();
 }
 
-/* ---------- dashboard ---------- */
-function portfolioStrip(pf) {
-  const gainPct = pf.gain !== null && pf.cost_base ? (pf.gain / pf.cost_base) * 100 : null;
-  const prevValue = pf.day_change !== null && pf.value !== null ? pf.value - pf.day_change : null;
-  const dayPct = prevValue ? (pf.day_change / prevValue) * 100 : null;
-  const n = pf.holdings.length;
-  return h("div", { class: "stats" },
-    statTile("Portfolio value", money(pf.value, 0), null, `${plural(n, "holding")}${pf.unpriced.length ? `, ${pf.unpriced.length} without a price` : ""}`),
-    statTile("Today", signed(pf.day_change, (v) => money(v, 0)), signClass(pf.day_change), dayPct === null ? "needs two days of prices" : signed(dayPct, (v) => fmt(v, 2) + "%")),
-    statTile("Unrealised gain", signed(pf.gain, (v) => money(v, 0)), signClass(pf.gain), gainPct === null ? null : signed(gainPct, (v) => fmt(v, 1) + "%") + " on cost"),
-    statTile("Cost base", money(pf.cost_base, 0), null, "purchase price plus brokerage"));
-}
-
-/* One line per active portfolio, when there's more than one. */
-function portfoliosCard(list) {
-  return card("Portfolios", null, h("ul", { class: "items" }, list.map((p) => h("li", {},
-    h("div", { class: "main" }, h("a", { class: "row-link", href: portfolioHref(p) }, h("span", { class: "code", text: p.name })),
-      h("span", { class: "detail", text: `${p.tax_type_label}, ${plural(p.holdings, "holding")}` })),
-    p.holdings ? h("div", { class: "side" }, h("div", { class: "strong", text: money(p.value, 0) }),
-      h("div", { class: `detail ${signClass(p.gain) || ""}`.trim(), text: `${signed(p.gain, (v) => money(v, 0))} gain` }))
-      : h("div", { class: "side detail", text: "no holdings yet" })))),
-    h("p", { class: "card-foot" }, h("a", { href: "#/portfolios", text: "All portfolios →" })));
-}
-
-function attentionCard(d) {
-  const items = [
-    ...d.attention.map((a) => h("li", {}, h("div", { class: "main" },
-      companyLink(a.asx_code, null), badge(a.action), h("span", { class: "detail", text: a.action_reason })))),
-    ...d.cgt_soon.map((c) => h("li", {}, h("div", { class: "main" },
-      companyLink(c.asx_code, null), h("span", { text: `CGT discount from ${longDate(c.date)}` }),
-      h("span", { class: "detail", text: `${fmt(c.units, 0)} units, ${plural(c.days, "day")} away. A sale before then gets no CGT discount on these units.` })))),
-    d.not_screened.length ? h("li", {}, h("div", { class: "main" }, h("span", { text: `Held but not screened: ${d.not_screened.join(", ")}` }),
-      h("span", { class: "detail", text: "Add them to the nightly ticker file (allords.txt) so they are valued each night." }))) : null,
-    ...d.triggered.map((t) => h("li", {}, h("div", { class: "main" },
-      companyLink(t.asx_code, null), h("span", { class: "watch-star", "aria-hidden": "true", text: "★" }),
-      h("span", { text: t.triggers.map((x) => x.label).join("; ") }),
-      h("span", { class: "detail" }, "Watchlist trigger met on ", h("a", { href: `#/watchlist/${t.watchlist_id}`, text: t.watchlist }),
-        t.note ? `. Note: ${t.note}` : "")))),
-  ].filter(Boolean);
-  return card("Needs attention", items.length ? "Held shares flagged SELL or REVIEW, parcels reaching the CGT discount soon, and watchlist triggers met." : null,
-    items.length ? h("ul", { class: "items" }, items)
-      : h("p", { class: "empty", text: `Nothing needs attention: no held shares are flagged SELL or REVIEW, no parcel reaches the CGT discount in the next ${d.cgt_soon_days} days, and no watchlist trigger is met.` }));
-}
-
-const MAX_CHANGES = 12;
-function changesCard(d) {
-  const ch = d.changes;
-  if (!ch.from_date) {
-    const first = d.tracking.first_date;
-    return card("What changed", null, h("p", { class: "empty", text: first
-      ? `Appears after the second night of recording (first night ${longDate(first)}). Lists companies whose suggested action moved.`
-      : "Appears once two nightly runs have recorded signals. Lists companies whose suggested action moved." }));
-  }
-  if (!ch.changes.length) {
-    return card("What changed", null, h("p", { class: "empty", text: `No suggested action changed between ${longDate(ch.from_date)} and ${longDate(ch.to_date)}.` }));
-  }
-  const shown = ch.changes.slice(0, MAX_CHANGES);
-  return card("What changed", `${longDate(ch.from_date)} to ${longDate(ch.to_date)}: suggested actions that moved, watchlist companies (★) first, then better moves first.`,
-    h("ul", { class: "items" }, shown.map((c) => h("li", {},
-      h("span", { class: `move ${c.direction}`, "aria-label": c.direction === "up" ? "Better" : "Worse", text: c.direction === "up" ? "▲" : "▼" }),
-      h("div", { class: "main" }, companyLink(c.asx_code, null), watchStar(c.watchlists), c.held ? h("span", { class: "held-tag", text: "HELD" }) : null,
-        h("span", { class: "detail", text: `${c.company_name || ""}${c.margin_of_safety_percent !== null ? `, margin of safety ${pct(c.margin_of_safety_percent, 0)}` : ""}` })),
-      h("div", { class: "side" }, badge(c.previous), h("span", { class: "arrow", "aria-label": "to", text: "→" }), badge(c.action))))),
-    ch.changes.length > MAX_CHANGES ? h("p", { class: "card-foot", text: `and ${ch.changes.length - MAX_CHANGES} more.` }) : null);
-}
-
-function topCard(d) {
-  const counts = d.action_counts;
-  const parts = ["BUY", "INVESTIGATE"].filter((a) => counts[a]).map((a) => `${counts[a]} ${a}`);
-  const foot = parts.length ? h("p", { class: "card-foot" }, h("a", { href: "#/screener?action=BUY,INVESTIGATE",
-    text: `See all ${parts.join(" and ")} in the screener →` })) : null;
-  const c = card("Top opportunities", "Shares you don't hold: BUY first, then INVESTIGATE, highest score first.",
-    d.top.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, ["Score", "Company", "Margin of safety", "Valuation", "Action"].map((x, i) =>
-        withHelp(h("th", { class: [i === 2 ? "center" : "", i === 0 || i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
-      h("tbody", {}, d.top.map((r) => clickableRow(r.asx_code,
-        h("td", { class: "opt2" }, wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(r.scores) })),
-        h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
-        h("td", { class: `center tabular ${signClass(r.margin_of_safety_percent) || ""}`.trim(), text: pct(r.margin_of_safety_percent, 0) }),
-        h("td", { class: "opt2" }, valuationPill(r.margin_of_safety_percent)),
-        h("td", {}, badge(r.action))))))) : h("p", { class: "empty", text: "No BUY or INVESTIGATE signals today." }),
-    foot);
-  c.classList.add("wide");
-  return c;
-}
-
-/* Biggest movers on the last trading day, by percentage: 5 each way for
-   screener shares (with their score wheel), ETFs and LICs. Rows open the
-   company or fund. `d` is the dashboard payload, for the wheel's axes. */
-function moversCard(m, d) {
-  const groups = [["Shares in the screener", m.shares, (c) => `#/company/${c}`, "SHARE"],
-    ["ETFs", m.etfs, (c) => fundHref("ETF", c), "ETF"], ["LICs", m.lics, (c) => fundHref("LIC", c), "LIC"]].filter(([, x]) => x && x.as_of);
-  if (!groups.length) {
-    return card("Biggest movers", null, h("p", { class: "empty", text: "Appears once Sift has two closing prices to compare." }));
-  }
-  const day = groups[0][1].as_of;
-  const price = (v) => money(v, v !== null && v !== undefined && v < 1 ? 3 : 2);
-  const side = (title, rows, href, kind, none) => {
-    const share = kind === "SHARE";
-    return h("div", { class: "table-wrap" }, h("table", { class: "grid compact movers" },
-      h("thead", {}, h("tr", {}, share ? withHelp(h("th", { tabindex: 0, text: "Score" }), "Score") : null, h("th", { text: title }),
-        h("th", { class: "num opt2", text: "Close" }), h("th", { class: "num", text: "Day move" }))),
-      h("tbody", {}, rows.length ? rows.map((r) => rowTo(href(r.asx_code),
-        share ? h("td", { class: "mover-score" }, r.scores ? [wheel(r.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }),
-          h("span", { class: "score-total", text: sum(r.scores) })] : null) : null,
-        nameCell(r, kind), h("td", { class: "num opt2 tabular", text: price(r.price) }), retCell(r.change_percent, "tabular")))
-        : h("tr", {}, h("td", { colspan: share ? 4 : 3, class: "hint", text: none })))));
-  };
-  const c = card("Biggest movers", `Percentage change from the previous close to the close on ${longDate(day)}. ★ watchlist, HELD in a portfolio.`,
-    groups.map(([label, x, href, kind]) => h("div", { class: "movers-group" },
-      h("h3", { class: "sub-head" }, label, h("span", { class: "hint", text: ` · ranked from ${fmt(x.traded, 0)}${x.as_of !== day ? `, to ${longDate(x.as_of)}` : ""}` })),
-      h("div", { class: "movers-cols" },
-        side("Biggest rises", x.up, href, kind, "Nothing rose."),
-        side("Biggest falls", x.down, href, kind, "Nothing fell.")))));
-  c.classList.add("wide");
-  return c;
-}
-
-function actionsCard(d) {
-  const chips = Object.entries(d.action_counts).filter(([, n]) => n).map(([a, n]) =>
-    h("a", { class: "chip", href: `#/screener?action=${a}` }, badge(a), h("span", { class: "n", text: n })));
-  return card("Today's suggested actions", `Across ${plural(d.companies, "screened company", "screened companies")}. Pick one to open the screener filtered to it.`,
-    h("div", { class: "action-chips" }, chips));
-}
-
-function resultsTimeline(t) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return h("ul", { class: "timeline" }, t.results_due.map((r) => {
-    const days = Math.round((toDate(r.date) - today) / 86400000);
-    return h("li", {}, h("span", { text: `${r.months}-month results` }),
-      h("span", { text: days > 0 ? `${longDate(r.date)} (in ${plural(days, "day")})` : `from ${longDate(r.date)}` }));
-  }));
-}
-function trackingCard(t, withLink = true) {
-  const body = t.first_date
-    ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}.` }),
-      t.headline ? h("ul", { class: "verdict rules compact" }, verdictLine(t.headline, t.headline.horizon_months)) : null,
-      resultsTimeline(t)]
-    : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
-  return card("Track record", null, body,
-    withLink ? h("p", { class: "card-foot" }, h("a", { href: "#/track-record", text: "Track record →" })) : null);
-}
-
-function statusFoot(st) {
-  return h("div", { class: "dash-foot" }, statusLines(st).map((l) => h("span", { text: l })));
-}
-
-async function renderDashboard() {
-  app.replaceChildren(h("p", { class: "loading", text: "Loading dashboard..." }));
-  const d = await getJSON("/api/dashboard");
-  cache.thresholds = d.thresholds;
-  cache.status = d.status;
-  paintChip(d.status);
-  const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const pf = d.portfolio;
-  app.replaceChildren(...[
-    pageHead("Dashboard", today),
-    pf.holdings.length ? portfolioStrip(pf) : null,
-    pf.holdings.length ? sectionLine(pf.sections) : null,
-    ...dashboardLayout(d, [
-      { id: "attention", title: "Needs attention", build: () => attentionCard(d) },
-      { id: "changes", title: "What changed", build: () => changesCard(d) },
-      { id: "movers", title: "Biggest movers", build: () => (d.movers ? moversCard(d.movers, d) : null) },
-      { id: "top", title: "Top opportunities", build: () => topCard(d) },
-      { id: "etfs", title: "ETFs", build: () => fundDashCard("ETF", d.etfs) },
-      { id: "lics", title: "LICs", build: () => fundDashCard("LIC", d.lics) },
-      { id: "portfolios", title: "Portfolios", build: () => (pf.portfolios.length > 1 ? portfoliosCard(pf.portfolios) : null) },
-      { id: "actions", title: "Today's suggested actions", build: () => actionsCard(d) },
-      { id: "tracking", title: "Track record", build: () => trackingCard(d.tracking) },
-      { id: "notices", title: "Director and holder notices", build: () => noticesDashCard(d.notices || []) },
-    ]),
-    statusFoot(d.status),
-  ].filter(Boolean));
-  window.scrollTo(0, 0);
-}
-
 /* ---------- portfolios (each with its own tax type) and trades ---------- */
 /* Every change carries the X-Sift header: gui.py refuses changes without
    it, so another website's page can't make them with your saved password. */
@@ -827,9 +635,6 @@ async function send(method, url, body) {
 }
 /* After a trade, held flags and actions change: refetch the screener and the menu next time. */
 function afterChange() { cache.screener = null; if (window.SiftUI) window.SiftUI.invalidate(); loadPortfolioMenu(); loadWatchlistMenu(); }
-
-const discountText = (rate) => (rate > 0 ? `${fmt(rate * 100, rate * 100 % 1 ? 1 : 0)}% CGT discount` : "no CGT discount");
-const taxTag = (p) => h("span", { class: "tag", text: `${p.tax_type_label}, ${discountText(p.discount_rate)}` });
 const portfolioHref = (p) => `#/portfolio/${p.portfolio_id}`;
 
 async function loadPortfolioMenu() {
@@ -844,392 +649,12 @@ async function loadPortfolioMenu() {
 function field(label, input, hint) {
   return h("label", { class: "field" }, h("span", { class: "field-label", text: label }), input, hint ? h("span", { class: "field-hint", text: hint }) : null);
 }
-const todayIso = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
-function taxSelect(types, value) {
-  return h("select", { name: "tax_type" }, types.map((t) =>
-    h("option", { value: t.tax_type, selected: t.tax_type === value, text: `${t.tax_type === "SMSF" ? "SMSF" : t.label} (${discountText(t.discount_rate)})` })));
-}
 /* A status line under a form: what happened, or what to fix. */
 function formMessage() { return h("p", { class: "form-msg", role: "status", "aria-live": "polite" }); }
 /* Only the latest outcome stays on screen: an earlier "Recorded" must not sit above a new error. */
 function showMessage(el, text, ok) {
   for (const other of document.querySelectorAll(".form-msg")) if (other !== el) other.textContent = "";
   el.textContent = text; el.className = `form-msg ${ok ? "ok" : "bad"}`;
-}
-
-function newPortfolioCard(types, focus) {
-  const name = h("input", { name: "name", maxlength: 60, required: true, placeholder: "e.g. Super fund", autocomplete: "off" });
-  const tax = taxSelect(types, "INDIVIDUAL");
-  const msg = formMessage();
-  const form = h("form", { class: "form-grid", novalidate: true },
-    field("Name", name), field("Owner's tax type", tax, "Sets the capital gains tax discount on its sales."),
-    h("div", { class: "form-actions" }, h("button", { class: "btn primary", type: "submit", text: "Create portfolio" })), msg);
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try {
-      const p = await send("POST", "/api/portfolios", { name: name.value, tax_type: tax.value });
-      afterChange();
-      location.hash = portfolioHref(p);
-    } catch (err) { showMessage(msg, err.message, false); }
-  });
-  const c = card("New portfolio", "One per owner or account, for example your own shares, a family trust or a self-managed super fund.", form);
-  if (focus) setTimeout(() => { c.scrollIntoView({ block: "center" }); name.focus(); }, 0);
-  return c;
-}
-
-function holdingsText(p) {
-  const s = p.sections;
-  const etfs = s && s.ETF ? s.ETF.holdings : 0, lics = s && s.LIC ? s.LIC.holdings : 0, shares = p.holdings - etfs - lics;
-  const parts = [shares ? `${fmt(shares, 0)} ${shares === 1 ? "company" : "companies"}` : null, etfs ? plural(etfs, "ETF") : null,
-    lics ? plural(lics, "LIC") : null].filter(Boolean);
-  return `${parts.join(" and ")}, ${plural(p.open_parcels, "parcel")}`;
-}
-function portfolioCard(p) {
-  const c = h("a", { class: "card pf-card", href: portfolioHref(p) },
-    h("div", { class: "pf-head" }, h("h2", { text: p.name }), p.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
-    taxTag(p),
-    p.archived ? h("p", { class: "hint", text: `${plural(p.sales, "sale")} kept for tax records.` })
-      : !p.holdings ? h("p", { class: "hint pf-kv", text: "No holdings yet. Open it to record a buy." }) : h("dl", { class: "kv pf-kv" },
-      h("dt", { text: "Value" }), h("dd", { text: money(p.value, 0) }),
-      h("dt", { text: "Unrealised gain" }), h("dd", { class: signClass(p.gain), text: signed(p.gain, (v) => money(v, 0)) }),
-      h("dt", { text: "Today" }), h("dd", { class: signClass(p.day_change), text: signed(p.day_change, (v) => money(v, 0)) }),
-      h("dt", { text: "Holdings" }), h("dd", { text: holdingsText(p) })));
-  return c;
-}
-
-async function renderPortfolios(query) {
-  app.replaceChildren(h("p", { class: "loading", text: "Loading portfolios..." }));
-  const d = await getJSON("/api/portfolios");
-  const active = d.portfolios.filter((p) => !p.archived), archived = d.portfolios.filter((p) => p.archived);
-  const wantNew = new URLSearchParams(query || "").get("new") === "1";
-  app.replaceChildren(...[
-    pageHead("Portfolios", active.length ? `${plural(active.length, "active portfolio")}` : null,
-      h("a", { class: "btn", href: "#/portfolios/import", text: "Import from a broker" })),
-    active.length ? h("div", { class: "cards" }, active.map(portfolioCard)) : h("p", { class: "empty", text: "No portfolios yet. Create one below, then record your first buy." }),
-    archived.length ? h("details", { class: "archived" }, h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), `Archived (${archived.length})`),
-      h("div", { class: "cards" }, archived.map(portfolioCard))) : null,
-    h("div", { class: "cards", style: "margin-top:16px" }, newPortfolioCard(d.tax_types, wantNew)),
-  ].filter(Boolean));
-  if (!wantNew) window.scrollTo(0, 0);
-}
-
-/* ---------- importing a broker's export (docs/kb/features/broker-import.md) ---------- */
-const IMPORT_FIELDS = [["code", "ASX code"], ["side", "Buy or sell"], ["units", "Units"], ["price", "Price"], ["avg_cost", "Average cost"],
-  ["total_cost", "Total cost"], ["date", "Date"], ["brokerage", "Brokerage"], ["details", "Details (B 100 BHP @ 45.00)"],
-  ["debit", "Debit"], ["credit", "Credit"], ["market", "Market"], ["currency", "Currency"]];
-const IMPORT_STATUS = { new: ["Ready", "under"], duplicate: ["Already in Sift", "none"], check: ["Check the code", "fair"], skip: ["Skipped", "none"] };
-
-async function renderImport() {
-  app.replaceChildren(pageHead("Import from a broker", null), h("p", { class: "loading", text: "Loading..." }));
-  const pf = await getJSON("/api/portfolios");
-  const portfolios = pf.portfolios.filter((p) => !p.archived);
-  const st = { filename: null, content: null, broker: "", kind: "", mapping: {}, holdings_date: todayIso(), portfolio_id: portfolios.length ? portfolios[0].portfolio_id : "", d: null };
-  const msg = formMessage(), out = h("div");
-  const brokerSel = h("select", { "aria-label": "Broker", onchange: () => { st.broker = brokerSel.value; if (st.content) load(); } },
-    h("option", { value: "", text: "Work it out from the file" }));
-  const file = h("input", { type: "file", accept: ".csv,.txt,.xlsx,.xlsm", "aria-label": "Your broker's export" });
-  file.addEventListener("change", () => {
-    const f = file.files[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => { st.filename = f.name; st.content = String(reader.result).split(",")[1] || ""; st.mapping = {}; st.kind = ""; load(); };
-    reader.readAsDataURL(f);
-  });
-
-  async function load() {
-    showMessage(msg, "Reading the file...", true);
-    try {
-      st.d = await send("POST", "/api/portfolios/import/preview", { filename: st.filename, content: st.content, broker: st.broker || null,
-        kind: st.kind || null, mapping: st.mapping, holdings_date: st.holdings_date, portfolio_id: st.portfolio_id || null });
-      msg.textContent = "";
-      if (brokerSel.options.length === 1) brokerSel.append(...st.d.brokers.map((b) => h("option", { value: b.broker_id, text: b.name })));
-      brokerSel.value = st.broker || "";
-      draw();
-    } catch (err) { showMessage(msg, err.message, false); out.replaceChildren(); }
-  }
-
-  function draw() {
-    const d = st.d;
-    const ticks = new Map(d.lines.map((l) => [l.row, l.include]));
-    const kindSeg = h("div", { class: "segmented", role: "group", "aria-label": "What the file holds" },
-      [["trades", "Trade history"], ["holdings", "Holdings now"]].map(([k, t]) => h("button", { type: "button", "aria-pressed": String(d.kind === k), text: t,
-        onclick: () => { st.kind = k; load(); } })));
-    const when = d.kind === "holdings" ? h("label", { class: "field" }, h("span", { class: "field-label", text: "Bought on" }),
-      h("input", { type: "date", value: d.holdings_date, max: todayIso(), onchange: (e) => { st.holdings_date = e.target.value; load(); } }),
-      h("span", { class: "field-hint", text: "A holdings file has no buy dates. Use your earliest buy date if you know it; you can edit each parcel later. It decides when the CGT discount applies." })) : null;
-    const cols = h("div", { class: "import-map" }, IMPORT_FIELDS.filter(([f]) => d.kind === "trades" ? !["avg_cost", "total_cost"].includes(f) : !["side", "date", "brokerage", "details", "debit", "credit"].includes(f)).map(([f, label]) =>
-      h("label", { class: "field" }, h("span", { class: "field-label", text: label }),
-        h("select", { onchange: (e) => { st.mapping[f] = e.target.value === "" ? "" : Number(e.target.value); load(); } },
-          h("option", { value: "", text: "Not in this file", selected: d.mapping[f] === undefined }),
-          d.headings.map((hd, i) => h("option", { value: i, text: hd, selected: d.mapping[f] === i }))))));
-    const newName = h("input", { maxlength: 60, placeholder: "e.g. CommSec", value: "", "aria-label": "New portfolio name" });
-    const taxSel = h("select", { "aria-label": "Tax type" }, pf.tax_types.map((t) => h("option", { value: t.tax_type, text: t.label })));
-    const dest = h("select", { "aria-label": "Import into", onchange: (e) => { st.portfolio_id = e.target.value === "new" ? "" : e.target.value; newBox.hidden = e.target.value !== "new"; load(); } },
-      portfolios.map((p) => h("option", { value: p.portfolio_id, text: p.name, selected: p.portfolio_id === st.portfolio_id })),
-      h("option", { value: "new", text: "A new portfolio...", selected: !st.portfolio_id }));
-    const newBox = h("div", { class: "import-new", hidden: !!st.portfolio_id }, newName, taxSel);
-    const c = d.counts;
-    const rows = d.lines.map((l) => {
-      const [label, pill] = IMPORT_STATUS[l.status];
-      const box = h("input", { type: "checkbox", checked: l.include, disabled: l.status === "skip" || l.status === "duplicate", "aria-label": `Import row ${l.row}`,
-        onchange: (e) => ticks.set(l.row, e.target.checked) });
-      return h("tr", { class: "static" }, h("td", {}, box), h("td", { class: "num opt", text: l.row }), h("td", { text: l.date ? longDate(l.date) : "" }),
-        h("td", { class: "strong", text: l.code || "" }), h("td", { class: "opt", text: l.side === "SELL" ? "Sell" : l.side === "BUY" ? "Buy" : "" }),
-        h("td", { class: "num", text: l.units === null ? "" : fmt(l.units, 0) }), h("td", { class: "num", text: l.price === null ? "" : money(l.price, 3) }),
-        h("td", { class: "num opt", text: l.brokerage ? money(l.brokerage) : "" }),
-        h("td", { title: l.reason || "" }, h("span", { class: `pill ${pill}`, text: label }), l.reason ? h("div", { class: "sub-text import-reason", text: l.reason }) : null));
-    });
-    const go = h("button", { type: "button", class: "btn primary", text: "Import ticked lines", onclick: async () => {
-      if (!st.portfolio_id && !newName.value.trim()) { showMessage(msg2, "Name the new portfolio first.", false); return; }
-      try {
-        const r = await send("POST", "/api/portfolios/import", { filename: st.filename, content: st.content, broker: st.broker || d.broker, kind: d.kind,
-          mapping: d.mapping, holdings_date: d.holdings_date, portfolio_id: st.portfolio_id || null, new_portfolio: st.portfolio_id ? null : newName.value,
-          tax_type: taxSel.value, rows: [...ticks].filter(([, on]) => on).map(([row]) => row) });
-        afterChange();
-        out.replaceChildren(card("Imported", null,
-          h("p", {}, `${plural(r.bought, "buy", "buys")} and ${plural(r.sold, "sale")} added to ${r.portfolio}.`),
-          r.problems.length ? [h("p", { class: "error", text: `${plural(r.problems.length, "line")} couldn't be added:` }),
-            h("ul", {}, r.problems.map((p) => h("li", { text: `Row ${p.row} (${p.code}): ${p.reason}` })))] : null,
-          h("p", {}, h("a", { class: "btn primary", href: `#/portfolio/${r.portfolio_id}`, text: "Open the portfolio" }))));
-        window.scrollTo(0, 0);
-      } catch (err) { showMessage(msg2, err.message, false); }
-    } });
-    const msg2 = formMessage();
-    out.replaceChildren(h("div", { class: "cards" },
-      card("2. Check what was found", `${d.filename}: ${d.broker !== "other" ? `looks like ${d.brokers.find((b) => b.broker_id === d.broker).name}. ` : ""}${plural(c.new, "line")} ready${c.check ? `, ${c.check} to check` : ""}${c.duplicate ? `, ${c.duplicate} already in Sift` : ""}${c.skip ? `, ${c.skip} skipped` : ""}.`,
-        kindSeg, when,
-        d.missing.length ? h("p", { class: "error", text: `Choose the ${d.missing.join(" and ")} column below.` }) : null,
-        h("details", { class: "import-cols", open: d.missing.length > 0 }, h("summary", { text: "Columns" }), cols)),
-      card("3. Where to put them", null, h("label", { class: "field" }, h("span", { class: "field-label", text: "Import into" }), dest), newBox,
-        h("p", { class: "hint", text: "Lines already in that portfolio (same code, date, units and price) are left out, so importing the same file twice adds nothing." }))),
-      h("div", { class: "table-wrap" }, h("table", { class: "grid compact import-lines" },
-        h("thead", {}, h("tr", {}, [["", null], ["Row", "num opt"], ["Date"], ["Code"], ["Side", "opt"], ["Units", "num"], ["Price", "num"], ["Brokerage", "num opt"], ["Status"]]
-          .map(([t, cl]) => h("th", { scope: "col", class: cl || null, text: t })))),
-        h("tbody", {}, rows))),
-      h("div", { class: "form-actions" }, go, msg2));
-  }
-
-  app.replaceChildren(pageHead("Import from a broker", "Your broker's export into one of your portfolios"),
-    h("p", { class: "hint page-note" }, "Download your trade history (best: exact dates for capital gains tax) or your current holdings from your broker as CSV or Excel, then choose the file. Nothing is saved until you press Import. ", helpLink("broker-import")),
-    h("div", { class: "cards" }, card("1. Choose the file", "From CommSec, Sharesies, CMC Invest, nabtrade, ANZ, Moomoo, Tiger, Interactive Brokers, eToro, Selfwealth, Stake, Superhero or a spreadsheet of your own. Only ASX shares come in; other markets are listed and skipped.",
-      h("label", { class: "field" }, h("span", { class: "field-label", text: "Your broker's export" }), file),
-      h("label", { class: "field" }, h("span", { class: "field-label", text: "Broker" }), brokerSel), msg)),
-    out);
-  window.scrollTo(0, 0);
-}
-
-/* Buy or sell form. Sell offers only what the portfolio holds, and which parcels go first. */
-function tradeCard(d, reload) {
-  const pf = d.portfolio;
-  if (pf.archived) return card("Record a trade", null, h("p", { class: "empty", text: "This portfolio is archived. Unarchive it in Settings to record trades." }));
-  let mode = "BUY";
-  const msg = formMessage();
-  const seg = h("div", { class: "segmented", role: "group", "aria-label": "Trade type" });
-  const body = h("div");
-  const date = () => h("input", { type: "date", name: "date", value: todayIso(), max: todayIso(), required: true });
-  const num = (name, placeholder) => h("input", { name, inputmode: "decimal", autocomplete: "off", placeholder: placeholder || "" });
-
-  function buyForm() {
-    const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "e.g. BHP or VAS", style: "text-transform:uppercase" });
-    const method = h("select", { name: "method" }, ["PURCHASE", "DRP", "BONUS", "TRANSFER", "OTHER"].map((m) =>
-      h("option", { value: m, text: { PURCHASE: "Purchase", DRP: "Dividend reinvestment (DRP)", BONUS: "Bonus issue", TRANSFER: "Transfer in", OTHER: "Other" }[m] })));
-    return [field("Company or ETF", code), field("Units", num("units")), field("Price per share or unit", num("price", "$")),
-      field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Adds to the cost base."), field("How acquired", method),
-      field("Broker or account", h("input", { name: "broker", maxlength: 50, autocomplete: "off" })), field("Notes", h("input", { name: "notes", maxlength: 500, autocomplete: "off" }))];
-  }
-  function sellForm() {
-    const codes = d.positions.map((p) => p.asx_code);
-    const code = h("select", { name: "asx_code" }, codes.map((c) => h("option", { value: c, text: `${c} (${fmt(d.positions.find((p) => p.asx_code === c).units, 0)} units)` })));
-    const order = h("select", { name: "order" });
-    const fillOrder = () => {
-      const parcels = d.parcels.filter((p) => p.asx_code === code.value);
-      order.replaceChildren(h("option", { value: "fifo", text: "Oldest parcels first" }),
-        h("option", { value: "min-tax", text: "Smallest taxable gain first" }),
-        parcels.length > 1 ? parcels.map((p) => h("option", { value: `parcel:${p.holding_id}`, text: `Only parcel ${p.short_id}: ${fmt(p.units, 0)} units bought ${longDate(p.buy_date)}` })) : null);
-    };
-    code.addEventListener("change", fillOrder);
-    fillOrder();
-    return [field("Company or ETF", code), field("Units", num("units")), field("Price per share or unit", num("price", "$")),
-      field("Trade date", date()), field("Brokerage", num("brokerage", "$0.00"), "Reduces the capital proceeds."),
-      field("Which parcels", order, "Smallest taxable gain counts this portfolio's CGT discount.")];
-  }
-  const form = h("form", { class: "form-grid", novalidate: true });
-  const submit = h("button", { class: "btn primary", type: "submit" });
-  function draw() {
-    for (const b of seg.children) b.setAttribute("aria-pressed", b.dataset.mode === mode);
-    form.replaceChildren(...(mode === "BUY" ? buyForm() : sellForm()), h("div", { class: "form-actions" }, submit), msg);
-    submit.textContent = mode === "BUY" ? "Record buy" : "Record sale";
-  }
-  for (const [m, label] of [["BUY", "Buy"], ["SELL", "Sell"]]) {
-    seg.append(h("button", { type: "button", "data-mode": m, text: label, disabled: m === "SELL" && !d.positions.length,
-      onclick: () => { mode = m; msg.textContent = ""; draw(); } }));
-  }
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(form).entries());
-    if (data.order && data.order.startsWith("parcel:")) { data.parcel_id = data.order.slice(7); data.order = "fifo"; }
-    submit.disabled = true;
-    try {
-      if (mode === "BUY") {
-        const r = await send("POST", `/api/portfolios/${pf.portfolio_id}/buys`, data);
-        afterChange();
-        await reload(`Recorded: ${fmt(r.units, 0)} ${r.asx_code}, cost base ${money(r.cost_base)}.${pf.discount_rate > 0 ? ` CGT discount applies to sales from ${longDate(r.discount_from)}.` : ""}`);
-      } else {
-        const r = await send("POST", `/api/portfolios/${pf.portfolio_id}/sales`, data);
-        afterChange();
-        await reload(`Recorded: sold ${fmt(r.units, 0)} units from ${plural(r.parcels, "parcel")}, proceeds ${money(r.proceeds)}, ` +
-          `${r.gain >= 0 ? "capital gain" : "capital loss"} ${money(Math.abs(r.gain))}` +
-          `${pf.discount_rate > 0 ? ` (${fmt(r.discounted_units, 0)} units eligible for the discount)` : ""}.`);
-      }
-    } catch (err) { showMessage(msg, err.message, false); submit.disabled = false; }
-  });
-  draw();
-  return card("Record a trade", null, seg, form);
-}
-
-function holdingsTable(lines) {
-  const heads = ["Company", "Units", "Cost base", "Price", "Value", "Gain", "Today", "Action", "CGT discount from"];
-  const numeric = new Set([1, 2, 3, 4, 5, 6]), optional = new Set([2, 3, 6, 8]);
-  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
-    h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
-    h("tbody", {}, lines.map((r) => clickableRow(r.asx_code,
-      h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
-      h("td", { class: "num", text: fmt(r.units, 0) }),
-      h("td", { class: "num opt", text: money(r.cost_base, 0) }),
-      h("td", { class: "num opt", text: money(r.price) }),
-      h("td", { class: "num", text: money(r.value, 0) }),
-      h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
-      h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
-      h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" }), cautionTag(r.short_caution, true, true)),
-      h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "eligible now" }))))));
-}
-
-function rowButton(label, cls, onClick) {
-  return h("button", { type: "button", class: `btn small ${cls}`, text: label, onclick: (e) => { e.stopPropagation(); onClick(); } });
-}
-
-function fundTag(d, code) {
-  return (d.etf_codes || []).includes(code) ? kindTag("ETF") : (d.lic_codes || []).includes(code) ? kindTag("LIC") : null;
-}
-function parcelsCard(d, reload, msg) {
-  const gets = d.portfolio.discount_rate > 0;
-  const remove = async (p) => {
-    if (!confirm(`Delete parcel ${p.short_id}: ${fmt(p.units, 0)} ${p.asx_code} bought ${longDate(p.buy_date)}?\n\nOnly for a parcel entered by mistake. This can't be undone.`)) return;
-    try { await send("DELETE", `/api/parcels/${p.holding_id}`); afterChange(); await reload(`Deleted parcel ${p.short_id}.`); }
-    catch (err) { showMessage(msg, err.message, false); }
-  };
-  const c = card("Open parcels", "Each buy is its own parcel for tax. Delete is for a parcel entered by mistake.",
-    d.parcels.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, ["Company", "Parcel", "Bought", "Units", "Buy price", "Cost base", "Gain", gets ? "CGT discount from" : "CGT discount", ""].map((x, i) =>
-        h("th", { class: [i >= 3 && i <= 6 ? "num" : "", [1, 4, 7].includes(i) ? "opt" : ""].join(" ").trim() || null, text: x })))),
-      h("tbody", {}, d.parcels.map((p) => h("tr", { class: "static" },
-        h("td", {}, h("span", { class: "code", text: p.asx_code }), fundTag(d, p.asx_code), p.method !== "PURCHASE" ? h("span", { class: "tag muted sm", text: p.method }) : null),
-        h("td", { class: "opt mono", text: p.short_id }),
-        h("td", { text: longDate(p.buy_date) }),
-        h("td", { class: "num", text: fmt(p.units, 0) }),
-        h("td", { class: "num opt", text: money(p.buy_price, 3) }),
-        h("td", { class: "num", text: money(p.cost_base) }),
-        h("td", { class: `num ${signClass(p.gain) || ""}`.trim(), text: signed(p.gain, (v) => money(v, 0)) }),
-        h("td", { class: "opt", text: p.discount_from ? (p.discount_from <= todayIso() ? "eligible now" : longDate(p.discount_from)) : "n/a" }),
-        h("td", { class: "act" }, rowButton("Delete", "danger", () => remove(p)))))))) : h("p", { class: "empty", text: "No open parcels." }));
-  c.classList.add("wide");
-  return c;
-}
-
-function salesCard(d, reload, msg) {
-  const gets = d.portfolio.discount_rate > 0;
-  const undo = async (s) => {
-    if (!confirm(`Undo the sale of ${fmt(s.units, 0)} ${s.asx_code} on ${longDate(s.sell_date)}?\n\nThe units go back into the open parcel they came from.`)) return;
-    try { await send("POST", `/api/parcels/${s.holding_id}/undo-sale`); afterChange(); await reload(`Sale undone: ${fmt(s.units, 0)} ${s.asx_code} are open again.`); }
-    catch (err) { showMessage(msg, err.message, false); }
-  };
-  const c = card("Sales", "Every sale recorded, newest first. Undo is for a sale entered by mistake.",
-    d.sales.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, ["Company", "Sold", "Units", "Proceeds", "Cost base", "Gain", "CGT discount", "Financial year", ""].map((x, i) =>
-        h("th", { class: [i >= 2 && i <= 5 ? "num" : "", [3, 4, 7].includes(i) ? "opt" : "", i === 6 ? "opt2" : ""].join(" ").trim() || null, text: x })))),
-      h("tbody", {}, d.sales.map((s) => h("tr", { class: "static" },
-        h("td", {}, h("span", { class: "code", text: s.asx_code }), fundTag(d, s.asx_code)),
-        h("td", { text: longDate(s.sell_date) }),
-        h("td", { class: "num", text: fmt(s.units, 0) }),
-        h("td", { class: "num opt", text: money(s.proceeds) }),
-        h("td", { class: "num opt", text: money(s.cost_base) }),
-        h("td", { class: `num ${signClass(s.gain) || ""}`.trim(), text: signed(s.gain, (v) => money(v)) }),
-        h("td", { class: "opt2", text: gets ? (s.discount_eligible ? "Yes" : "No") : "n/a" }),
-        h("td", { class: "opt", text: s.financial_year }),
-        h("td", { class: "act" }, rowButton("Undo", "", () => undo(s)))))))) : h("p", { class: "empty", text: "No sales recorded." }));
-  c.classList.add("wide");
-  return c;
-}
-
-function cgtCard(d) {
-  const pf = d.portfolio;
-  const c = card("Capital gains by financial year",
-    `${pf.tax_type_label}: ${discountText(pf.discount_rate)}. Losses are set against gains that don't get the discount first.`,
-    d.cgt.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, ["Financial year", "Sales", "Gains with discount", "Other gains", "Losses", "Net capital gain", "Losses carried forward"].map((x, i) =>
-        h("th", { class: [i ? "num" : "", i === 1 || i === 6 ? "opt2" : ""].join(" ").trim() || null, text: x })))),
-      h("tbody", {}, d.cgt.map((y) => h("tr", { class: "static" },
-        h("td", { text: y.financial_year }), h("td", { class: "num opt2", text: fmt(y.sales, 0) }),
-        h("td", { class: "num", text: money(y.discountable_gains) }), h("td", { class: "num", text: money(y.non_discountable_gains) }),
-        h("td", { class: "num", text: money(y.capital_losses) }), h("td", { class: "num strong", text: money(y.net_capital_gain) }),
-        h("td", { class: "num opt2", text: money(y.unused_losses) })))))) : h("p", { class: "empty", text: "Appears once a sale is recorded." }),
-    h("p", { class: "hint", style: "margin-top:8px", text: "A record-keeping aid, not tax advice. Losses carried forward from earlier years aren't included; confirm anything you lodge with the ATO or your accountant." }));
-  c.classList.add("wide");
-  return c;
-}
-
-function settingsCard(d, reload) {
-  const pf = d.portfolio;
-  const msg = formMessage();
-  const name = h("input", { name: "name", value: pf.name, maxlength: 60, autocomplete: "off" });
-  const tax = taxSelect(d.tax_types, pf.tax_type);
-  const save = h("form", { class: "form-grid", novalidate: true },
-    field("Name", name),
-    field("Owner's tax type", tax, d.sales.length ? "Changing it changes the CGT discount on the sales already recorded here." : null),
-    h("div", { class: "form-actions" }, h("button", { class: "btn", type: "submit", text: "Save" })));
-  save.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { name: name.value, tax_type: tax.value }); afterChange(); await reload("Saved."); }
-    catch (err) { showMessage(msg, err.message, false); }
-  });
-  const open = d.parcels.length, sales = d.sales.length;
-  const archive = pf.archived
-    ? h("button", { class: "btn", type: "button", text: "Unarchive", onclick: async () => {
-        try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { archived: false }); afterChange(); await reload("Unarchived."); }
-        catch (err) { showMessage(msg, err.message, false); } } })
-    : h("button", { class: "btn", type: "button", text: "Archive", disabled: open > 0, onclick: async () => {
-        if (!confirm(`Archive ${pf.name}? It moves out of the menu and dashboard; its sales stay in the CGT report.`)) return;
-        try { await send("PATCH", `/api/portfolios/${pf.portfolio_id}`, { archived: true }); afterChange(); await reload("Archived."); }
-        catch (err) { showMessage(msg, err.message, false); } } });
-  const del = h("button", { class: "btn danger", type: "button", text: "Delete portfolio", disabled: sales > 0, onclick: async () => {
-    if (!confirm(`Delete ${pf.name}${open ? ` and its ${plural(open, "open parcel")}` : ""}? This can't be undone.`)) return;
-    try { await send("DELETE", `/api/portfolios/${pf.portfolio_id}`); afterChange(); location.hash = "#/portfolios"; }
-    catch (err) { showMessage(msg, err.message, false); } } });
-  return card("Settings", null, save,
-    h("div", { class: "danger-zone" },
-      h("div", {}, archive, h("span", { class: "field-hint", text: open ? "Archive once every parcel is sold." : "Keeps the sale records for tax, out of the way." })),
-      h("div", {}, del, h("span", { class: "field-hint", text: sales ? "Has sales, which are tax records: archive it instead." : "Removes it and any open parcels." }))),
-    msg);
-}
-
-async function renderPortfolio(id, note) {
-  if (!note) app.replaceChildren(h("p", { class: "loading", text: "Loading portfolio..." }));
-  const d = await getJSON(`/api/portfolios/${encodeURIComponent(id)}`);
-  const pf = d.portfolio;
-  const reload = (text) => renderPortfolio(id, text);
-  const notice = formMessage();
-  if (note) showMessage(notice, note, true);
-  const strip = d.positions.length ? portfolioStrip({ ...d.totals, holdings: d.positions }) : null;
-  app.replaceChildren(...[
-    h("a", { class: "back", href: "#/portfolios", text: "← Portfolios" }),
-    h("div", { class: "page-head" }, h("h1", { text: pf.name }), taxTag(pf), pf.archived ? h("span", { class: "tag muted", text: "Archived" }) : null),
-    notice,
-    strip,
-    d.positions.length ? h("div", { style: "margin-top:16px" }, holdingsSections(d.positions, d.sections, `portfolio:${d.portfolio.portfolio_id}`)) : null,
-    h("div", { class: "cards dash", style: "margin-top:16px" }, tradeCard(d, reload), settingsCard(d, reload),
-      parcelsCard(d, reload, notice), salesCard(d, reload, notice), cgtCard(d)),
-  ].filter(Boolean));
-  if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
 /* ---------- Coattail: following the smart money (§31) ---------- */
@@ -1339,38 +764,12 @@ function tradeText(t) {
   const amount = t.direction === "MIXED" ? `${sharesText(t.acquired)} and ${sharesText(t.disposed)}` : sharesText(units);
   return `${verb} ${amount} shares${t.consideration !== null ? ` for ${compact(t.consideration)}` : ""}${t.price !== null ? ` at ${money(t.price, t.price < 1 ? 3 : 2)}` : ""}`;
 }
-function holdingText(n) {
-  const x = n.holding || {};
-  const who = x.holder || "A holder";
-  if (n.kind === "SUBSTANTIAL_NEW") return `${who} now holds ${x.present_pct === null || x.present_pct === undefined ? "5% or more" : pct(x.present_pct, 2)}`;
-  if (n.kind === "SUBSTANTIAL_CEASE") return `${who} is now below 5%`;
-  return x.previous_pct !== null && x.present_pct !== null && x.present_pct !== undefined
-    ? `${who}: ${pct(x.previous_pct, 2)} to ${pct(x.present_pct, 2)}` : `${who} changed their holding`;
-}
 /* What happened to the holding, without the holder's name: "6.12% to 7.15%". */
 function holdingChange(n) {
   const x = n.holding || {};
   if (n.kind === "SUBSTANTIAL_NEW") return `${EVENT_LABELS[n.kind]} a holder${x.present_pct !== null && x.present_pct !== undefined ? ` at ${pct(x.present_pct, 2)}` : ""}`;
   if (n.kind === "SUBSTANTIAL_CEASE") return "Now below 5%";
   return x.previous_pct !== null && x.present_pct !== null && x.present_pct !== undefined ? `${pct(x.previous_pct, 2)} to ${pct(x.present_pct, 2)}` : "Changed";
-}
-/* One line per notice, for the company page and the dashboard. */
-function noticeLine(n) {
-  const unread = n.read_status !== "read" && !n.trades.length && !(n.holding && n.holding.holder);
-  const what = n.kind === "DIRECTOR"
-    ? (n.trades.length ? n.trades.map((t) => `${t.director || "A director"}: ${tradeText(t)}${t.nature_kind !== "OTHER" ? ` (${NATURE_LABELS[t.nature_kind].toLowerCase()})` : ""}`).join("; ") : "")
-    : holdingText(n);
-  return h("li", { class: "notice-line" },
-    h("div", { class: "main" }, h("span", { class: `tag sm notice-${n.kind === "DIRECTOR" ? "dir" : "sub"}`, text: n.kind_label }), " ",
-      n.in_sift === false ? h("span", { class: "code", text: n.asx_code }) : h("a", { class: "code", href: `#/company/${n.asx_code}`, text: n.asx_code }),
-      h("div", { class: "notice-what", text: unread ? `Details not read: ${n.read_note || "open the notice"}` : what })),
-    h("div", { class: "side" }, h("span", { class: "hint", text: noticeDay(n.released_at) }), " ", noticeLink(n)));
-}
-function noticesDashCard(list) {
-  return card("Director and holder notices", "On the companies you hold or watch, from ASX in the last week.",
-    list.length ? h("ul", { class: "items notice-list" }, list.slice(0, 8).map(noticeLine)) : h("p", { class: "hint", text: "None on your companies this week." }),
-    h("div", { class: "more-links" }, h("a", { class: "more-link", href: "#/coattail?tab=directors", text: "All director trades" }),
-      h("a", { class: "more-link", href: "#/coattail?tab=substantial", text: "All substantial holders" })));
 }
 
 function coattailTabs(current) {
@@ -1872,30 +1271,8 @@ function searchIndexCard() {
   return card("Search index", "Rebuilt after each nightly run, your own lists the moment you save them, and help and pages when Sift starts. Rebuild now after loading data by hand.",
     body, h("div", { class: "form-actions" }, btn, msg), h("p", { class: "hint" }, "Or from PowerShell: ", h("code", { text: ".venv\\Scripts\\python.exe -m src.search.reindex" }), " ", helpLink("sift-search")));
 }
-
-/* ---------- track record (the page itself is React: frontend/src/pages/TrackRecordPage.tsx) ---------- */
-/* The dashboard's Track record card still uses these; they move with the dashboard (IMP-084). */
-const horizonText = (m) => (m === 1 ? "1 month" : `${m} months`);
 const points = (v) => `${fmt(Math.abs(v), 1)} point${Math.abs(v) === 1 ? "" : "s"}`;
 const signedPct = (v, dp = 1) => signed(v, (x) => fmt(x, dp) + "%");
-
-function verdictPill(t) {
-  const [cls, icon] = t.intended === true ? ["good", "✓"] : t.intended === false ? ["bad", "✕"]
-    : t.kind === "NEEDS_MORE" ? ["wait", "…"] : t.kind === "UNCLEAR" ? ["wait", "~"] : ["wait", "–"];
-  return h("span", { class: `vpill ${cls}` }, h("span", { "aria-hidden": "true", text: icon }), t.label);
-}
-function verdictLine(a, months) {
-  const beat = a.avg_excess >= 0, t = a.test;
-  const rate = a.beat_rate === null ? null : beat ? a.beat_rate : 100 - a.beat_rate;
-  const luck = t.kind === "NEEDS_MORE" ? ` Too early to tell: Sift needs ${fmt(t.min_calls, 0)} calls and has ${fmt(a.signals, 0)}.`
-    : t.kind === "UNCLEAR" ? ` That could easily be luck: ${t.luck}.` : ` That's unlikely to be luck: ${t.luck}.`;
-  return h("li", { class: "rule-row" },
-    h("div", { class: "rule-head" }, badge(a.action), verdictPill(t)),
-    h("div", { class: "rule-body" },
-      h("p", { class: "verdict-text" },
-        `${a.action} calls ${beat ? "beat" : "trailed"} the average screened share by ${points(a.avg_excess)} over ${horizonText(months)}` +
-        (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`) + luck)));
-}
 
 /* ---------- watchlists: named lists to follow, with notes and triggers ---------- */
 const watchlistHref = (w) => `#/watchlist/${w.watchlist_id}`;
@@ -1906,192 +1283,6 @@ async function loadWatchlistMenu() {
     const d = await getJSON("/api/watchlists?brief=1");
     slot.replaceChildren(...d.watchlists.map((w) => h("a", { href: watchlistHref(w), text: w.name })));
   } catch (e) { /* the menu keeps its last list */ }
-}
-
-/* Each trigger with a tick when met now, or a dash when not. */
-function triggerList(triggers) {
-  if (!triggers || !triggers.length) return h("span", { class: "hint", text: "none" });
-  return h("span", { class: "trigs" }, triggers.map((t) => h("span", { class: `trig ${t.met ? "met" : ""}`,
-    "aria-label": `${t.label}: ${t.met ? "met" : "not met"}` },
-    h("span", { class: "mark", "aria-hidden": "true", text: t.met ? "✓" : "–" }), t.label)));
-}
-
-async function renderWatchlists(query) {
-  app.replaceChildren(h("p", { class: "loading", text: "Loading watchlists..." }));
-  const d = await getJSON("/api/watchlists");
-  const wantNew = new URLSearchParams(query || "").get("new") === "1";
-  const name = h("input", { name: "name", maxlength: 60, placeholder: "e.g. Dividend ideas", autocomplete: "off" });
-  const msg = formMessage();
-  const form = h("form", { class: "form-grid", novalidate: true }, field("Name", name),
-    h("div", { class: "form-actions" }, h("button", { class: "btn primary", type: "submit", text: "Create watchlist" })), msg);
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try { const w = await send("POST", "/api/watchlists", { name: name.value }); afterChange(); location.hash = watchlistHref(w); }
-    catch (err) { showMessage(msg, err.message, false); }
-  });
-  const create = card("New watchlist", "Companies, ETFs and LICs to follow without owning them. Add them here or with ☆ Add to watchlist on any company, ETF or LIC page.", form);
-  app.replaceChildren(...[
-    pageHead("Watchlists", d.watchlists.length ? plural(d.watchlists.length, "watchlist") : null),
-    d.watchlists.length ? h("div", { class: "cards" }, d.watchlists.map((w) => h("a", { class: "card pf-card", href: watchlistHref(w) },
-      h("div", { class: "pf-head" }, h("h2", { text: w.name })),
-      h("p", { class: "hint", text: w.companies || w.etfs || w.lics ? [w.companies ? plural(w.companies, "company", "companies") : null, w.etfs ? plural(w.etfs, "ETF") : null,
-        w.lics ? plural(w.lics, "LIC") : null].filter(Boolean).join(", ") : "Nothing on it yet" }),
-      w.triggered ? h("span", { class: "tag", text: `${plural(w.triggered, "trigger")} met` }) : null)))
-      : h("p", { class: "empty", text: "No watchlists yet. Create one below." }),
-    h("div", { class: "cards", style: "margin-top:16px" }, create),
-  ].filter(Boolean));
-  if (wantNew) setTimeout(() => { create.scrollIntoView({ block: "center" }); name.focus(); }, 0); else window.scrollTo(0, 0);
-}
-
-/* Watchlist and portfolio tables as filter fields (web/tablefilter.js). */
-const codeField = (label) => ({ label, type: "text", get: (r) => r.asx_code, text: (r) => `${r.asx_code} ${r.company_name || ""}` });
-const numField = (label, key, show) => ({ label, type: "num", get: (r) => r[key], text: (r) => show(r[key]) });
-const triggersField = { label: "Triggers", type: "text",
-  get: (r) => (r.triggers && r.triggers.length ? (r.triggers.some((t) => t.met) ? "Met" : "Not met") : null),
-  text: (r) => (r.triggers || []).map((t) => `${t.label} ${t.met ? "met" : "not met"}`).join("; ") };
-const noteField = { label: "Note", type: "text", get: (r) => r.note };
-const WATCH_SHARE_FIELDS = {
-  score: { label: "Score", type: "num", get: (r) => (r.scores ? sum(r.scores) : null) },
-  asx_code: codeField("Company"),
-  price: numField("Price", "price", (v) => money(v)),
-  margin_of_safety_percent: numField("Margin of safety", "margin_of_safety_percent", (v) => pct(v, 0)),
-  valuation: { label: "Valuation", type: "text", get: (r) => valuationStatus(r.margin_of_safety_percent).label },
-  action: { label: "Action", type: "text", get: (r) => r.action },
-  triggers: triggersField, note: noteField,
-};
-const fundWatchFields = (kind) => ({
-  asx_code: codeField(FUNDS[kind].noun),
-  price: numField(FUNDS[kind].price, "price", (v) => money(v)),
-  day_change_percent: numField("Day move", "day_change_percent", signedPct),
-  [kind === "LIC" ? "premium_now" : "return_1y"]: kind === "LIC" ? numField("Premium/discount to NTA", "premium_now", premText) : numField("1-year return", "return_1y", signedPct),
-  distribution_yield_12m: numField("Yield (12 months)", "distribution_yield_12m", (v) => pct(v, 1)),
-  triggers: triggersField, note: noteField,
-});
-function fundWatchFiltered(kind, d, items, editing, remove) {
-  const fields = fundWatchFields(kind);
-  return filterableTable(`watch:${d.watchlist_id}:${kind}`, fields, [...Object.keys(fields), null], items,
-    (rows) => fundWatchTable(kind, rows, editing, remove));
-}
-const discountField = { label: "CGT discount from", type: "text", get: (r) => (r.next_discount_date ? longDate(r.next_discount_date) : "eligible now") };
-const holdingFields = (kind) => {
-  const money0 = (v) => money(v, 0), signedMoney = (v) => signed(v, money0);
-  const base = {
-    asx_code: codeField(kind === "SHARE" ? "Company" : FUNDS[kind].noun),
-    units: numField("Units", "units", (v) => fmt(v, 0)),
-    cost_base: numField("Cost base", "cost_base", money0),
-    price: numField(kind === "SHARE" ? "Price" : FUNDS[kind].price, "price", (v) => money(v)),
-    value: numField("Value", "value", money0),
-    gain: numField("Gain", "gain", signedMoney),
-    day_change: numField("Today", "day_change", signedMoney),
-  };
-  if (kind === "SHARE") return { ...base, action: { label: "Action", type: "text", get: (r) => r.action }, next_discount_date: discountField };
-  return { ...base,
-    [kind === "LIC" ? "premium_now" : "return_1y"]: kind === "LIC" ? numField("Premium/discount to NTA", "premium_now", premText) : numField("1-year return", "return_1y", signedPct),
-    distribution_yield_12m: numField("Yield (12 months)", "distribution_yield_12m", (v) => pct(v, 1)), next_discount_date: discountField };
-};
-
-async function renderWatchlist(id, note) {
-  if (!note) app.replaceChildren(h("p", { class: "loading", text: "Loading watchlist..." }));
-  const d = await getJSON(`/api/watchlists/${encodeURIComponent(id)}`);
-  const reload = (text) => renderWatchlist(id, text);
-  const notice = formMessage();
-  if (note) showMessage(notice, note, true);
-
-  // Add or edit an entry: the same form, since saving a company already on the list updates it.
-  const code = h("input", { name: "asx_code", list: "company-list", maxlength: 6, autocomplete: "off", placeholder: "BHP or VAS", style: "text-transform:uppercase" });
-  const noteIn = h("input", { name: "note", maxlength: 500, autocomplete: "off", placeholder: "Why you're watching it" });
-  const mos = h("input", { name: "mos_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 25" });
-  const dy = h("input", { name: "yield_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 5" });
-  const disc = h("input", { name: "nta_discount_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 10" });
-  const price = h("input", { name: "price_below", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 38.50" });
-  const shortIn = h("input", { name: "short_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 5" });
-  const submit = h("button", { class: "btn primary", type: "submit", text: "Add to watchlist" });
-  const cancel = h("button", { class: "btn", type: "button", text: "Cancel", hidden: true });
-  const formMsg = formMessage();
-  const mosField = field("Trigger: margin of safety above (%)", mos, "Shares only. Met while the share is at least this far below estimated value.");
-  const dyField = field("Trigger: yield above (%)", dy, "ETFs and LICs. Met while the 12-month yield is above this.");
-  const discField = field("Trigger: discount to NTA of at least (%)", disc, "LICs only. Met while the price is at least this far below the last NTA.");
-  const shortField = field("Trigger: short interest above (%)", shortIn, "Shares only. Met while more than this % of the company's shares are reported sold short (ASIC, a few days behind).");
-  const form = h("form", { class: "form-grid", novalidate: true },
-    field("Company, ETF or LIC", code), field("Note", noteIn), mosField, dyField, discField,
-    field("Trigger: price at or below ($)", price, "Met while the latest close is at or under this price."), shortField,
-    h("div", { class: "form-actions" }, submit, cancel), formMsg);
-  const formCard = card("Add a company, ETF or LIC", "Triggers are optional; leave them blank to just follow it.", form);
-  const editing = (e) => {
-    code.value = e.asx_code; code.readOnly = true; noteIn.value = e.note || "";
-    mos.value = e.mos_above ?? ""; dy.value = e.yield_above ?? ""; disc.value = e.nta_discount_above ?? ""; price.value = e.price_below ?? "";
-    shortIn.value = e.short_above ?? ""; shortField.hidden = e.security_type !== "SHARE";
-    mosField.hidden = e.security_type !== "SHARE"; dyField.hidden = e.security_type === "SHARE"; discField.hidden = e.security_type !== "LIC";
-    formCard.querySelector("h2").textContent = `Edit ${e.asx_code}`;
-    submit.textContent = "Save changes"; cancel.hidden = false;
-    formCard.scrollIntoView({ block: "center" }); noteIn.focus();
-  };
-  cancel.addEventListener("click", () => reload(null));
-  form.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const c = code.value.trim().toUpperCase();
-    if (!c) { showMessage(formMsg, "Enter an ASX code, such as BHP.", false); return; }
-    try {
-      await send("PUT", `/api/watchlists/${d.watchlist_id}/items/${encodeURIComponent(c)}`,
-        { note: noteIn.value, mos_above: mosField.hidden ? "" : mos.value, yield_above: dyField.hidden ? "" : dy.value,
-          nta_discount_above: discField.hidden ? "" : disc.value, price_below: price.value, short_above: shortField.hidden ? "" : shortIn.value });
-      afterChange();
-      await reload(code.readOnly ? `Saved ${c}.` : `Added ${c}.`);
-    } catch (err) { showMessage(formMsg, err.message, false); }
-  });
-
-  const remove = async (e) => {
-    try { await send("DELETE", `/api/watchlists/${d.watchlist_id}/items/${e.asx_code}`); afterChange(); await reload(`Removed ${e.asx_code}.`); }
-    catch (err) { showMessage(notice, err.message, false); }
-  };
-  const heads = ["Score", "Company", "Price", "Margin of safety", "Valuation", "Action", "Triggers", "Note", ""];
-  const shareTable = (items) => h("div", { class: "table-wrap" }, h("table", { class: "grid" },
-    h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const cls = [i === 2 || i === 3 ? "num" : "", i === 0 ? "opt3" : "", i === 4 ? "opt4" : "", i === 2 || i === 7 ? "opt" : ""].join(" ").trim() || null;
-      return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
-    }))),
-    h("tbody", {}, items.map((e) => clickableRow(e.asx_code,
-      h("td", { class: "opt3" }, e.scores ? [wheel(e.scores, d.axes, d.checks_per_axis, { size: 34, labels: false }), h("span", { class: "score-total", text: sum(e.scores) })] : null),
-      h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
-      h("td", { class: "num opt", text: money(e.price) }),
-      h("td", { class: `num ${signClass(e.margin_of_safety_percent) || ""}`.trim(), text: pct(e.margin_of_safety_percent, 0) }),
-      h("td", { class: "opt4" }, valuationPill(e.margin_of_safety_percent)),
-      h("td", {}, e.action ? badge(e.action) : h("span", { class: "hint", text: "not valued" })),
-      h("td", {}, triggerList(e.triggers)),
-      h("td", { class: "opt" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
-      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
-  const table = d.items.length ? filterableTable(`watch:${d.watchlist_id}:SHARE`, WATCH_SHARE_FIELDS,
-    ["score", "asx_code", "price", "margin_of_safety_percent", "valuation", "action", "triggers", "note", null], d.items, shareTable) : null;
-
-  const rename = h("input", { name: "name", value: d.name, maxlength: 60, autocomplete: "off" });
-  const setMsg = formMessage();
-  const settings = h("form", { class: "form-grid", novalidate: true }, field("Name", rename),
-    h("div", { class: "form-actions" }, h("button", { class: "btn", type: "submit", text: "Rename" }),
-      h("button", { class: "btn danger", type: "button", text: "Delete watchlist", onclick: async () => {
-        if (!confirm(`Delete ${d.name}${d.items.length ? ` and its ${plural(d.items.length, "company", "companies")}, notes and triggers` : ""}? This can't be undone.`)) return;
-        try { await send("DELETE", `/api/watchlists/${d.watchlist_id}`); afterChange(); location.hash = "#/watchlists"; }
-        catch (err) { showMessage(setMsg, err.message, false); } } })), setMsg);
-  settings.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    try { await send("PATCH", `/api/watchlists/${d.watchlist_id}`, { name: rename.value }); afterChange(); await reload("Renamed."); }
-    catch (err) { showMessage(setMsg, err.message, false); }
-  });
-  const lics = d.lics || [];
-  const met = [...d.items, ...d.etfs, ...lics].filter((e) => e.triggered).length;
-  const counts = [d.items.length ? plural(d.items.length, "company", "companies") : null, d.etfs.length ? plural(d.etfs.length, "ETF") : null,
-    lics.length ? plural(lics.length, "LIC") : null].filter(Boolean);
-  const both = d.etfs.length || lics.length;
-  app.replaceChildren(...[
-    h("a", { class: "back", href: "#/watchlists", text: "← Watchlists" }),
-    pageHead(d.name, counts.length ? `${counts.join(", ")}${met ? `, ${plural(met, "trigger")} met` : ""}` : null),
-    notice,
-    table ? [both ? sectionHead("Shares") : null, table] : null,
-    d.etfs.length ? [sectionHead("ETFs"), fundWatchFiltered("ETF", d, d.etfs, editing, remove)] : null,
-    lics.length ? [sectionHead("LICs"), fundWatchFiltered("LIC", d, lics, editing, remove)] : null,
-    !table && !d.etfs.length && !lics.length ? h("p", { class: "empty", text: "Nothing on this list yet. Add a company, ETF or LIC below, or use ☆ Add to watchlist on its page." }) : null,
-    h("div", { class: "cards dash", style: "margin-top:16px" }, formCard, card("Settings", null, settings)),
-  ].flat().filter(Boolean));
-  if (note) notice.scrollIntoView({ block: "nearest" }); else window.scrollTo(0, 0);
 }
 
 /* ---------- ETFs (§26) and LICs (§27): each under its own heading ---------- */
@@ -2116,121 +1307,12 @@ function rowTo(href, ...cells) {
   const open = () => { location.hash = href; };
   return h("tr", { tabindex: 0, onclick: open, onkeydown: (e) => { if (e.key === "Enter") open(); } }, cells);
 }
-const retCell = (v, cls = "") => h("td", { class: `num ${cls} ${signClass(v) || ""}`.trim(), text: signedPct(v) });
-/* Premium (+) or discount (-) to NTA: shown with its sign, not coloured as good or bad. */
-const premText = (v) => (v === null || v === undefined ? NA : v < 0 ? `${fmt(-v, 1)}% discount` : v > 0 ? `${fmt(v, 1)}% premium` : "at NTA");
-const premCell = (v, cls = "") => h("td", { class: `num ${cls}`.trim() },
-  h("span", { class: "long", text: premText(v) }), h("span", { class: "short", text: signedPct(v) }));
 const nameCell = (r, kind, star = true) => h("td", {}, h("span", { class: "code", text: r.asx_code }), star ? watchStar(r.watchlists) : null,
   r.held !== null && r.held !== false ? h("span", { class: "held-tag", text: "HELD" }) : null,
   kind === "LIC" && r.product_type === "LIT" ? kindTag("LIT") : null, h("div", { class: "name", text: r.company_name || "" }));
 function monthsBefore(iso, months) {
   const d = toDate(iso); d.setMonth(d.getMonth() - months);
   return d.toISOString().slice(0, 10);
-}
-
-/* ---------- ETFs and LICs on the dashboard, in portfolios and in watchlists ---------- */
-function fundDashCard(kind, x) {
-  const F = FUNDS[kind];
-  if (!x || !x.count) {
-    return card(F.nouns, null, h("p", { class: "empty" }, `No ${F.nouns} loaded yet. They arrive with the ASX's monthly report. `,
-      h("a", { href: "#/help/asx-etf-report", text: "How" }), "."));
-  }
-  const items = [
-    ...x.triggered.map((t) => h("li", {}, h("div", { class: "main" },
-      h("a", { class: "row-link", href: fundHref(kind, t.asx_code) }, h("span", { class: "code", text: t.asx_code })),
-      h("span", { class: "watch-star", "aria-hidden": "true", text: "★" }), h("span", { text: t.triggers.map((y) => y.label).join("; ") }),
-      h("span", { class: "detail" }, "Watchlist trigger met on ", h("a", { href: `#/watchlist/${t.watchlist_id}`, text: t.watchlist }), t.note ? `. Note: ${t.note}` : "")))),
-    ...x.cgt_soon.map((c) => h("li", {}, h("div", { class: "main" },
-      h("a", { class: "row-link", href: fundHref(kind, c.asx_code) }, h("span", { class: "code", text: c.asx_code })),
-      h("span", { text: `CGT discount from ${longDate(c.date)}` }),
-      h("span", { class: "detail", text: `${fmt(c.units, 0)} ${kind === "LIC" ? "shares" : "units"}, ${plural(c.days, "day")} away.` })))),
-  ];
-  const heads = kind === "LIC" ? ["LIC", "Day move", "Premium/discount to NTA", "1-year return"] : ["ETF", "Day move", "1-year return", "Yield (12 months)"];
-  const table = x.followed.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-    h("thead", {}, h("tr", {}, heads.map((t, i) =>
-      withHelp(h("th", { class: [i ? "num" : "", i === 3 ? "opt2" : ""].join(" ").trim() || null, tabindex: 0, text: t }), t)))),
-    h("tbody", {}, x.followed.map((r) => rowTo(fundHref(kind, r.asx_code),
-      nameCell({ ...r, held: r.held ? true : null }, kind),
-      retCell(r.day_change_percent),
-      kind === "LIC" ? premCell(r.premium_now) : retCell(r.return_1y),
-      kind === "LIC" ? retCell(r.return_1y, "opt2") : h("td", { class: "num opt2", text: pct(r.distribution_yield_12m, 1) })))))) : null;
-  const v = x.value;
-  const c = card(F.nouns, v.holdings ? `Your ${F.nouns}: ${money(v.value, 0)}, ${signed(v.day_change, (n) => money(n, 0))} today.` : `${plural(x.count, F.noun)} followed. Hold or watch some to see them here.`,
-    items.length ? h("ul", { class: "items" }, items) : null,
-    table || (v.holdings ? null : h("p", { class: "empty", text: `Add ${F.nouns} to a watchlist, or record a buy in a portfolio, and they appear here.` })),
-    x.more ? h("p", { class: "card-foot", text: `and ${x.more} more.` }) : null,
-    h("p", { class: "card-foot" }, h("a", { href: F.list, text: `${F.noun} screener →` })));
-  c.classList.add("wide");
-  return c;
-}
-const etfDashCard = (x) => fundDashCard("ETF", x);
-
-/* "Shares $X (3) | ETFs $Y (2) | LICs $Z (1)" under a portfolio's figures. */
-function sectionLine(sections) {
-  if (!sections || !["ETF", "LIC"].some((k) => sections[k] && sections[k].holdings)) return null;
-  const part = (label, s) => `${label} ${money(s.value, 0)} (${plural(s.holdings, "holding")})`;
-  const parts = [["Shares", "SHARE"], ["ETFs", "ETF"], ["LICs", "LIC"]].filter(([, k]) => sections[k] && sections[k].holdings)
-    .map(([label, k]) => part(label, sections[k]));
-  return h("p", { class: "hint section-line", text: parts.join("  |  ") });
-}
-
-function sectionHead(title, s) {
-  return h("div", { class: "section-head" }, h("h2", { text: title }),
-    s && s.holdings ? h("span", { class: "sub", text: `${money(s.value, 0)} | gain ${signed(s.gain, (v) => money(v, 0))}${s.day_change !== null ? ` | today ${signed(s.day_change, (v) => money(v, 0))}` : ""}` }) : null);
-}
-
-function fundHoldingsTable(kind, lines) {
-  const F = FUNDS[kind];
-  const heads = [F.noun, "Units", "Cost base", F.price, "Value", "Gain", "Today", kind === "LIC" ? "Premium/discount to NTA" : "1-year return", "Yield (12 months)", "CGT discount from"];
-  const numeric = new Set([1, 2, 3, 4, 5, 6, 7, 8]), optional = new Set([2, 3, 6, 8, 9]);
-  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
-    h("thead", {}, h("tr", {}, heads.map((x, i) => withHelp(h("th", { class: [numeric.has(i) ? "num" : "", optional.has(i) ? "opt" : ""].join(" ").trim() || null, tabindex: 0, text: x }), x)))),
-    h("tbody", {}, lines.map((r) => rowTo(fundHref(kind, r.asx_code),
-      h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" })),
-      h("td", { class: "num", text: fmt(r.units, 0) }),
-      h("td", { class: "num opt", text: money(r.cost_base, 0) }),
-      h("td", { class: "num opt", text: money(r.price) }),
-      h("td", { class: "num", text: money(r.value, 0) }),
-      h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
-      h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
-      kind === "LIC" ? premCell(r.premium_now) : retCell(r.return_1y),
-      h("td", { class: "num opt", text: pct(r.distribution_yield_12m, 1) }),
-      h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "eligible now" }))))));
-}
-
-/* Shares, then ETFs, then LICs, each under its own heading with a subtotal. */
-function holdingsSections(lines, sections, filterKey) {
-  const of = (kind) => lines.filter((l) => (l.security_type || "SHARE") === kind);
-  const shares = of("SHARE"), etfs = of("ETF"), lics = of("LIC");
-  const table = (kind, rows, render) => {
-    if (!filterKey) return render(rows);
-    const fields = holdingFields(kind);
-    return filterableTable(`${filterKey}:${kind}`, fields, Object.keys(fields), rows, render);
-  };
-  return h("div", { class: "holdings-sections" },
-    shares.length ? [sectionHead("Shares", sections && sections.SHARE), table("SHARE", shares, holdingsTable)] : null,
-    etfs.length ? [sectionHead("ETFs", sections && sections.ETF), table("ETF", etfs, (r) => fundHoldingsTable("ETF", r))] : null,
-    lics.length ? [sectionHead("LICs", sections && sections.LIC), table("LIC", lics, (r) => fundHoldingsTable("LIC", r))] : null);
-}
-
-function fundWatchTable(kind, items, editing, remove) {
-  const F = FUNDS[kind];
-  const heads = [F.noun, F.price, "Day move", kind === "LIC" ? "Premium/discount to NTA" : "1-year return", "Yield (12 months)", "Triggers", "Note", ""];
-  return h("div", { class: "table-wrap" }, h("table", { class: "grid" },
-    h("thead", {}, h("tr", {}, heads.map((x, i) => {
-      const cls = [i >= 1 && i <= 4 ? "num" : "", i === 2 || i === 6 ? "opt4" : ""].join(" ").trim() || null;
-      return FIELD_HELP[x] ? withHelp(h("th", { class: cls, tabindex: 0, text: x }), x) : h("th", { class: cls, text: x });
-    }))),
-    h("tbody", {}, items.map((e) => rowTo(fundHref(kind, e.asx_code),
-      h("td", {}, h("span", { class: "code", text: e.asx_code }), e.held ? h("span", { class: "held-tag", text: "HELD" }) : null, h("div", { class: "name", text: e.company_name || "" })),
-      h("td", { class: "num", text: money(e.price) }),
-      retCell(e.day_change_percent, "opt4"),
-      kind === "LIC" ? premCell(e.premium_now) : retCell(e.return_1y),
-      h("td", { class: "num", text: pct(e.distribution_yield_12m, 1) }),
-      h("td", {}, triggerList(e.triggers)),
-      h("td", { class: "opt4" }, h("div", { class: "name note-cell", title: e.note || "", text: e.note || "" })),
-      h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
 }
 
 /* ---------- help (the page itself is React: frontend/src/pages/HelpPage.tsx) ---------- */
@@ -2302,6 +1384,7 @@ window.SiftHost = {
   fundHref: (code) => { const f = (cache.companies || []).find((x) => x.code === code && FUNDS[x.type]); return f ? fundHref(f.type, code) : null; },
   afterChange: () => afterChange(),
   setThresholds: (t) => { cache.thresholds = t; },
+  setStatus: (st) => { cache.status = st; paintChip(st); },
 };
 /* A React component as one more card on a page this file built. The wrapper
    takes no space of its own (display: contents), so the card sits in the
@@ -3114,13 +2197,13 @@ const ROUTES = [
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
   [/^#\/admin\/scenario\/([0-9a-f-]{36})$/, "admin", (m) => renderScenario(m[1])],
   [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => reactPage("HelpPage", { focusId: m[1] })],
-  [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
-  [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
-  [/^#\/portfolios\/import$/, "portfolios", () => renderImport()],
-  [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
-  [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => renderPortfolio(m[1])],
+  [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => reactPage("WatchlistsPage", { query: m[1] })],
+  [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => reactPage("WatchlistPage", { id: m[1] })],
+  [/^#\/portfolios\/import$/, "portfolios", () => reactPage("ImportPage", {})],
+  [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => reactPage("PortfoliosPage", { query: m[1] })],
+  [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => reactPage("PortfolioPage", { id: m[1] })],
   [/^#\/search(?:\?(.*))?$/, "search", (m) => renderSearch(m[1] || "")],
-  [/^(#\/?)?$/, "dashboard", () => renderDashboard()],
+  [/^(#\/?)?$/, "dashboard", () => reactPage("DashboardPage", {})],
 ];
 let previousPage = null;
 let currentHash = null;

@@ -52,7 +52,7 @@ def test_every_island_and_page_used_by_app_js_is_registered():
     main = (FRONTEND / "src" / "main.tsx").read_text(encoding="utf-8")
     used = set(re.findall(r'(?:island|reactPage)\("([A-Za-z]+)"', app))
     assert used, "app.js mounts no islands"
-    registered = set(re.search(r"const ISLANDS[^=]*=\s*\{([^}]*)\}", main).group(1).replace(" ", "").split(","))
+    registered = set(re.search(r"const ISLANDS[^=]*=\s*\{([^}]*)\}", main).group(1).replace(" ", "").replace("\n", "").split(","))
     assert used <= registered
 
 

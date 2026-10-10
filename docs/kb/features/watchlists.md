@@ -3,7 +3,7 @@ id: watchlists
 title: Watchlists and triggers
 category: features
 summary: Named lists of companies, ETFs and LICs to follow, each entry with a note and triggers (margin of safety, price, yield, NTA discount).
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §22
 related: [accounts-owners, web-gui]
-code: [src/watchlist/lists.py, frontend/src/components/watch.tsx]
+code: [src/watchlist/lists.py, frontend/src/components/watch.tsx, frontend/src/pages/watchlist/WatchlistPages.tsx]
 tables: [watchlists, watchlist_items]
 ---
 
@@ -40,6 +40,8 @@ Watchlists let a person follow companies without owning them and be told on the 
 
 
 **The watchlist button and stars** (React since 2026-10-10: `frontend/src/components/watch.tsx`). The company and fund pages' Add to watchlist button and picker (`WatchButton`, `WatchPicker`, `WatchNote`) and the star on each row of the screener and fund lists (`WatchCell`, which floats the same picker under the star; Escape or a click elsewhere closes it, and Enter in its form never opens the row).
+
+**The watchlist pages** (React since 2026-10-10: `frontend/src/pages/watchlist/WatchlistPages.tsx`). The list of watchlists and each watchlist, with its shares, ETFs and LICs tables (filterable), the add and edit form whose triggers follow the kind of security, and the settings form.
 ## Code map
 
 - `src/watchlist/lists.py`: lists, entries and triggers; scoped to the current person

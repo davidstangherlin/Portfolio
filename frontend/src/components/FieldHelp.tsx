@@ -27,8 +27,8 @@ export function useFieldHelp(label: string, text: string | null = host().fieldHe
 }
 
 /* A table heading with its explanation, if web/knowledge.json has one. */
-export function HelpTh({ label, className }: { label: string; className?: string }) {
+export function HelpTh({ label, className, tab = false, children }: { label: string; className?: string; tab?: boolean; children?: ReactNode }) {
   const { props, info } = useFieldHelp(label);
   const cls = [className, (props as { className?: string }).className].filter(Boolean).join(" ") || undefined;
-  return <th {...props} className={cls}>{label}{info}</th>;
+  return <th {...props} className={cls} tabIndex={tab ? 0 : undefined}>{children ?? label}{info}</th>;
 }

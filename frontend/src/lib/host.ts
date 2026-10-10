@@ -35,6 +35,8 @@ export interface SiftHost {
   afterChange(): void;
   /* The screener's live thresholds, for the explanations app.js still draws. */
   setThresholds(t: Thresholds): void;
+  /* The nightly data's status, for the menu bar's data chip. */
+  setStatus(st: unknown): void;
 }
 export interface Thresholds { margin_of_safety: number; roe: number; debt_to_equity: number; yield: number }
 
@@ -51,6 +53,6 @@ const fallback: SiftHost = {
   knowledge: () => ({ categories: [], entries: [] }), fieldHelp: () => null, fillThresholds: (t) => t,
   settings: () => DEFAULT_SETTINGS, previousPage: () => null, noteVersion: () => undefined,
   thresholds: () => ({ margin_of_safety: 20, roe: 12, debt_to_equity: 0.8, yield: 4.5 }),
-  estimatedValueHelp: () => null, fundHref: () => null, afterChange: () => undefined, setThresholds: () => undefined,
+  estimatedValueHelp: () => null, fundHref: () => null, afterChange: () => undefined, setThresholds: () => undefined, setStatus: () => undefined,
 };
 export const host = (): SiftHost => window.SiftHost ?? fallback;
