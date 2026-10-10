@@ -1115,7 +1115,7 @@
     "Each company's first signal of each month is scored on its total return, dividends included, against the average of every company screened that night.",
     "Confidence: too early under 30 signals, moderate from 30 to 100, solid above 100. The order check asks whether BUY beat WATCH and WATCH beat AVOID.",
     "What did I miss lists BUY and INVESTIGATE calls you didn't buy within 30 days that beat the average by more than 10 points. What should I look at now lists today's signals of a kind that has proven itself, still more than 20% below estimated value.",
-    "Daily detail is kept for 14 months; monthly results are kept for good. Filter by rules version to judge each set of rules on its own results."
+    "Daily detail is kept for 14 months; monthly results are kept for good. When the rules change, Sift starts a new version and keeps each version's results apart behind the scenes, so a rule change can be judged on its own results."
    ],
    "aliases": [
     "accuracy",

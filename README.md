@@ -342,7 +342,8 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   - Each of these tables shows, for the night of the call, Sift's estimated value (Value then),
     the analysts' consensus target (Target then) and the Graham Number (Graham then) beside the
     price then; hover a figure for its gap to that night's price.
-  Filter by rules version to judge each set of rules on its own results. Results start one month
+  The page shows one track record of every rules version; admins can open each version's own
+  from Admin, Model and rules, Rules versions (Version 1, 2 and so on, with what changed). Results start one month
   after recording begins; until then each panel says when its results are due. The dashboard's
   Track record card shows the headline BUY result once there is one.
 - **Search** (top right) finds anything in Sift: shares, ETFs, LICs, fund managers, your watchlists

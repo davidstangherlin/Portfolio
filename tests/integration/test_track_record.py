@@ -161,7 +161,13 @@ def test_track_record_api(history, db_session):
     db_session.commit()
     data = TestClient(gui.create_app()).get("/api/track-record").json()
     assert set(data["verdict"]) == {"1", "3", "6", "12"}
-    assert data["versions"] == ["2026-10-05"] and data["proven"] == {"actions": ["BUY"], "proven": False, "horizon": None}
+    assert "versions" not in data and data["version_label"] is None  # versions are an admin detail
+    assert data["proven"] == {"actions": ["BUY"], "proven": False, "horizon": None}
+    one = TestClient(gui.create_app()).get("/api/track-record?version=2026-10-05").json()
+    assert one["version_label"].startswith("Version ")
+    listed = TestClient(gui.create_app()).get("/api/admin/rules-versions").json()["versions"]
+    mine = next(v for v in listed if v["version"] == "2026-10-05")
+    assert mine["label"] == one["version_label"] and mine["calls"] > 0 and mine["scored"] > 0
     assert data["missed"][0]["asx_code"] == "UP"
     assert data["missed"][0]["value_then"] is not None  # what Sift's estimate stood at that night
     assert {"target_then", "graham_then", "analysts_then"} <= set(data["missed"][0])

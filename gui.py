@@ -63,6 +63,7 @@ from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
 from src.tracking import report as track_report
+from src.tracking import rules_versions
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
 from src import settings as model_settings
@@ -621,8 +622,8 @@ def track_record_payload(session, today: date, version: str | None = None) -> di
     missed, saved = track_report.missed_and_saved(session, version, current, threshold, watched)
     return {
         "status": tracking_status(session),
-        "versions": track_report.versions(session),
         "version": version,
+        "version_label": rules_versions.label(session, version),  # versions are an admin detail (Admin, Model and rules)
         "horizons": list(verdict),
         "verdict": verdict,
         "monthly": track_report.monthly(session, version),
@@ -844,6 +845,12 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
         if found is None:
             raise HTTPException(status_code=404, detail="No such account")
         return found
+
+    @app.get("/api/admin/rules-versions")
+    def api_rules_versions():
+        """Each rules version: its number, when it took effect, what changed and its share of the track record."""
+        with get_session() as session:
+            return JSONResponse(_json_ready({"versions": rules_versions.listing(session)}))
 
     @app.get("/api/admin/users")
     def api_users(request: Request):

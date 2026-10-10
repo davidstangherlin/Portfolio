@@ -1361,7 +1361,7 @@ function resultsTimeline(t) {
 }
 function trackingCard(t, withLink = true) {
   const body = t.first_date
-    ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}. Rules version ${t.rules_version}.` }),
+    ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}.` }),
       t.headline ? h("ul", { class: "verdict" }, verdictLine(t.headline, t.headline.horizon_months)) : null,
       resultsTimeline(t)]
     : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
@@ -2396,7 +2396,7 @@ function verdictCard(d, months, setHorizon) {
     ? [h("ul", { class: "verdict" }, v.actions.map((a) => verdictLine(a, months))), orderLine(v.order)]
     : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
       : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
-      : d.version ? `No ${months}-month results yet for the rules of ${longDate(d.version)}: their signals aren't ${horizonText(months)} old yet.`
+      : d.version ? `No ${months}-month results yet for ${d.version_label || "this rules version"}: its signals aren't ${horizonText(months)} old yet.`
       : `First ${months}-month results arrive with the next nightly run.` })];
   const c = card("Is Sift accurate?", "Each company's first signal of each month, against the average total return (dividends included) of every company screened that night. Points are percentage points.", seg, body);
   c.classList.add("wide");
@@ -2499,19 +2499,19 @@ async function renderTrackRecord() {
   const d = await getJSON(`/api/track-record${q}`);
   const withData = d.horizons.filter((m) => d.verdict[m].actions.length);
   if (!trackState.horizon || !d.horizons.includes(trackState.horizon)) trackState.horizon = withData.includes(3) ? 3 : withData[0] || 1;
-  const versionSelect = h("select", { "aria-label": "Rules version", class: "inline-select", onchange: (e) => { trackState.version = e.target.value; renderTrackRecord(); } },
-    h("option", { value: "", text: "All rules versions" }),
-    d.versions.map((v) => h("option", { value: v, selected: v === trackState.version, text: `Rules of ${longDate(v)}` })));
+  /* One rules version only, when an admin opens it from Admin, Model and rules, Rules versions. */
+  const versionNote = d.version ? h("p", { class: "hint page-note" }, `Showing ${d.version_label || "one rules version"} only. `,
+    h("a", { href: "#/track-record", text: "Show every version" })) : null;
   const how = card("How Sift is judged", null, h("div", { class: "prose" },
     h("p", { text: "Each night Sift records what it said about every screened company. Those records are never edited, so later rule changes can't rewrite history." }),
     h("p", { text: "Each company's first signal of each month is scored after 1, 3, 6 and 12 months: its total return including dividends, minus the average for every company screened that night. A company that stops trading is scored at its last price. A BUY that beats the average was right; an AVOID that trails it was right." }),
     h("p", { text: `Confidence: too early under ${d.rules.too_early_below} signals, moderate up to ${d.rules.solid_above}, solid above that. The daily detail is kept for 14 months; the monthly results are kept for good.` })));
   const draw = () => {
     const m = trackState.horizon;
-    app.replaceChildren(pageHead("Track record", "Is Sift right?", versionSelect),
+    app.replaceChildren(...[pageHead("Track record", "Is Sift right?"), versionNote,
       h("div", { class: "cards" },
         verdictCard(d, m, (x) => { trackState.horizon = x; draw(); }),
-        actionableCard(d), missedCard(d), monthlyCard(d, m), trackingCard(d.status, false), how));
+        actionableCard(d), missedCard(d), monthlyCard(d, m), trackingCard(d.status, false), how)].filter(Boolean));
   };
   draw();
   window.scrollTo(0, 0);
@@ -3631,8 +3631,29 @@ async function renderAdmin() {
   app.replaceChildren(pageHead("Model and rules", "Every setting behind Sift's results"), adminTabs("settings"),
     h("div", { class: "cards" }, pipeline, ...groups,
       card("Trying other values", null, h("p", { class: "hint" }, "Change these in a ",
-        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario")))));
+        h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario"))),
+      rulesVersionsCard()));
   window.scrollTo(0, 0);
+}
+
+/* Each set of screening rules the track record judges separately, with what
+   changed. People see one track record; admins can open each version's own. */
+function rulesVersionsCard() {
+  const body = h("div", {}, h("p", { class: "loading", text: "Loading..." }));
+  getJSON("/api/admin/rules-versions").then((d) => body.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "grid rules-versions" },
+    h("thead", {}, h("tr", {}, [["Version"], ["In use from", "opt"], ["What changed"], ["Calls recorded", "num opt"], ["", "num"]].map(([t, c]) => h("th", { scope: "col", class: c || null, text: t })))),
+    h("tbody", {}, d.versions.map((v) => h("tr", { class: "static" },
+      h("td", {}, h("div", { class: "strong", text: v.label }), v.current ? h("span", { class: "tag sm", text: "In use" }) : null,
+        h("div", { class: "sub-text phone-only", text: `From ${longDate(v.in_use_from)}` })),
+      h("td", { class: "opt", text: longDate(v.in_use_from) }),
+      h("td", {}, h("div", { class: "strong", text: v.title }), v.changes ? h("div", { class: "sub-text", text: v.changes }) : null),
+      h("td", { class: "num opt", title: v.first_night ? `${longDate(v.first_night)} to ${longDate(v.last_night)}` : "",
+        text: v.calls ? `${fmt(v.calls, 0)} over ${plural(v.nights, "night")}` : "None yet" }),
+      h("td", { class: "num" }, h("a", { href: `#/track-record?version=${encodeURIComponent(v.version)}`, text: "Track record" })))))))))
+    .catch((err) => body.replaceChildren(h("p", { class: "error", text: err.message })));
+  const c = card("Rules versions", "Each time the screening rules change (thresholds, actions, scores or valuation models), Sift starts a new version, so the track record judges each set of rules on its own results. People see one track record of every version; open a version's own here.", body);
+  c.classList.add("wide");
+  return c;
 }
 
 async function renderScenarios() {
@@ -4366,7 +4387,7 @@ const ROUTES = [
   [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => renderFund("ETF", m[1].toUpperCase(), m[2])],
   [/^#\/lics(?:\?(.*))?$/, "lics", (m) => { presetFunds("LIC", m[1]); return renderFunds("LIC"); }],
   [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
-  [/^#\/track-record$/, "track-record", () => renderTrackRecord()],
+  [/^#\/track-record(?:\?(.*))?$/, "track-record", (m) => { trackState.version = new URLSearchParams(m[1] || "").get("version") || ""; return renderTrackRecord(); }],
   [/^#\/coattail(?:\?(.*))?$/, "coattail", (m) => renderCoattail(m[1])],
   [/^#\/coattail\/([a-z0-9-]+)$/, "coattail", (m) => renderCoattailHolder(m[1])],
   [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],

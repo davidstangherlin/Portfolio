@@ -3,7 +3,7 @@ id: track-record
 title: Track record: recording and scoring Sift's calls
 category: features
 summary: How every night's calls are recorded, never edited, and scored at 1, 3, 6 and 12 months against the average screened company, and how the Track record page answers 'is Sift right?'.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -50,7 +50,7 @@ The track record judges the rules on results. It can only measure forward from t
 - **What did I miss?** From the last 14 months of detail, each signal at its longest scored horizon: BUY or INVESTIGATE on shares not held, with no parcel bought (any portfolio) from the signal date to 30 days after, that beat the average by more than 10 points. **Calls that saved money:** AVOID on shares not held, and SELL on shares held, that trailed it by more than 10 points. First qualifying call per company, best first, up to 20, with price then and now and whether it's still undervalued. Watchlist companies carry a ★.
 - **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why, checked in this order: you bought it; the price rose out of the buy zone (margin of safety at or below 20% and the price above the signal's); the estimated value fell (margin of safety at or below 20% without a price rise); or its action changed.
 - **Value, target and Graham then** (added 2026-10-09 at the user's request). Each night's row also records the Graham Number (from that night's valuation) and the analysts' consensus target and count in force (`company_insights.target_mean`, `analyst_count`, refreshed weekly), beside the price and Sift's estimated value it always held (`snapshot_values(row, analysts=...)`). Every per-company table on the page (New this week, Still open, Moved on, What did I miss?, Calls that saved money) shows Value then, Target then and Graham then for the night of the call (`report._targets_then()`; the outcome query and `person_nights()` carry them), each with its gap to that night's price on hover and a heading hover from the Help entry `targets-then`; on phones they fold away. Earlier nights were filled in by `db/schema.sql` section 13 from what Sift held that night: the Graham Number from the same night's `valuation_metrics` row, and the analysts' target only for nights on or after the latest weekly fetch (older nights stay blank, as the earlier targets weren't kept). Filling in a figure recorded that night doesn't change any call, so the record stays as it was made ([ADR-005](kb:adr-005-immutable-signal-record)). The AI tool `explain_call` returns the same figures with each change in the call's history.
-- **Rules version filter** limits the verdict, missed and saved lists to one `rules_version`. Empty panels say when their first results are due, or, with a version selected, that its signals aren't old enough yet.
+- **Rules versions** (changed 2026-10-09 at the user's request: versions as numbers, not dates, and out of people's way). The Track record page has no version picker: it shows one record of every version. Admin, Model and rules has a Rules versions card (`rulesVersionsCard()`, `GET /api/admin/rules-versions`, `src/tracking/rules_versions.py` `listing()`): each version numbered in date order (`Version 1`, `Version 2`), when it took effect, what changed (from `HISTORY`), the calls recorded under it and a Track record link to `#/track-record?version=<date>`, which limits the verdict, missed and saved lists to that version and says "Showing Version N only" with a Show every version link. The payload carries `version_label` instead of the list of dates. Empty panels say when their first results are due, or, for one version, that its signals aren't old enough yet.
 - **Dashboard:** the Track record card shows the BUY line at 3 months (1 month until then) once results exist.
 
 **Validated against made-up history.** `tests/integration/test_track_record.py` builds 13 months of daily prices and signals for a rising BUY, a falling AVOID, a flat WATCH that pays a dividend and turns BUY, and a company that stops trading, then checks benchmark arithmetic, dividends, scorecard selection, delisting, the summary, deletion at the month boundary, the verdict, the rules-version filter and the 30-day purchase rule. A disposable GUI database with 60 synthetic companies, whose signals were set to partly predict their returns, and two rules versions produced 21,816 outcomes in about 20 seconds; the page showed BUY at +5.8 points (solid), the order check "in order", and the 12-month filter's empty state.
@@ -60,6 +60,7 @@ The track record judges the rules on results. It can only measure forward from t
 - `src/tracking/signals.py`: nightly recording (shared calls and each person's held calls), what changed
 - `src/tracking/outcomes.py`: scoring, monthly summary, 14-month retention
 - `src/tracking/report.py`: the Track record page's figures
+- `src/tracking/rules_versions.py`: version numbers and what changed in each, for the admin console
 - `src/tracking/record_signals.py`: nightly step: record
 - `src/tracking/score_signals.py`: nightly step: score
 
@@ -74,7 +75,7 @@ Columns and types: [Data dictionary](kb:ref-data-dictionary).
 ## Diagnosing problems
 
 - 'Too early' everywhere: results start one month after recording began; the page shows when each horizon is due.
-- Results look skewed after a rules change: filter by rules version; bump RULES_VERSION whenever rules change.
+- Results look skewed after a rules change: open each version's own record from Admin, Model and rules, Rules versions. Bump RULES_VERSION whenever rules change, with an entry in `HISTORY` (`src/tracking/rules_versions.py`) saying what changed; `tests/unit/test_rules_versions.py` fails until there is one.
 
 ## Known limits
 
@@ -88,3 +89,4 @@ The full list, with status: [Improvement register](#/admin/kb/register).
 
 - `tests/integration/test_tracking.py`
 - `tests/integration/test_track_record.py`
+- `tests/unit/test_rules_versions.py`
