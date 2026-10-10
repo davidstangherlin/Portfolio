@@ -3,7 +3,7 @@ id: track-record
 title: Track record: recording and scoring Sift's calls
 category: features
 summary: How every night's calls are recorded, never edited, and scored at 1, 3, 6 and 12 months against the average screened company, and how the Track record page answers 'is Sift right?'.
-version: 1.3
+version: 1.4
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §21
 related: [personal-nightly-results, screener-actions, adr-005-immutable-signal-record, statistics]
-code: [src/tracking/signals.py, src/tracking/outcomes.py, src/tracking/report.py, src/tracking/record_signals.py, src/tracking/score_signals.py]
+code: [src/tracking/signals.py, src/tracking/outcomes.py, src/tracking/report.py, src/tracking/record_signals.py, src/tracking/score_signals.py, frontend/src/pages/TrackRecordPage.tsx, frontend/src/components/track.tsx, frontend/src/charts/edgeBar.ts]
 tables: [signal_snapshots, signal_outcomes, track_record_monthly]
 ---
 
@@ -45,7 +45,7 @@ The track record judges the rules on results. It can only measure forward from t
 4. **Monthly summary.** `track_record_monthly` is rebuilt for every month that still has scored cohort signals: per month, action, horizon and rules version, the count, how many beat the benchmark, and the average return, average excess and median excess. Months whose detail is gone keep their rows.
 5. **Deletion.** Snapshots before the first day of the month 14 months back are deleted, with their outcomes by cascade. Whole months only: deleting part of a month would make a later day that month's "first signal" and score it twice. Runs after the summary, so nothing is deleted unsummarised. On 5 October 2026 the cutoff is 1 August 2025.
 
-**Track record page (`report.py`, `GET /api/track-record[?version=]`).**
+**Track record page (`report.py`, `GET /api/track-record[?version=]`).** Drawn by React since 2026-10-10 (`frontend/src/pages/TrackRecordPage.tsx`, rebuilt like for like, [ADR-018](kb:adr-018-react-typescript-pages)); the verdict rows and Track record card are in `frontend/src/components/track.tsx`, the edge bar in `frontend/src/charts/edgeBar.ts`. The chosen period is remembered between visits.
 - **Is Sift accurate?** From the permanent monthly summary, per period: one sentence per action ("BUY calls beat the average screened share by 5.8 points over 3 months; 67% of 202 beat it"), its confidence (too early under 30 signals, moderate 30 to 100, solid above 100; used by the order check and proven actions), and, since 2026-10-10, a verdict on whether the difference is more than luck (Beating the average, Trailing the average, Too early to tell, Needs more calls) with a luck sentence and a bar of the likely true edge (`test` in the payload, `src/analytics/rules.py`; see [Statistics](kb:statistics)), a tick when the direction is what the action intends (BUY, ACCUMULATE, INVESTIGATE should beat the average; AVOID and SELL should trail it; WATCH, HOLD, REVIEW and IGNORE are neutral), and the order check: BUY above WATCH above AVOID on average excess return, judged only when all three have 30 signals. Averages across months are weighted by each month's count. A "By month" table lists each month for the chosen period.
 - **What did I miss?** From the last 14 months of detail, each signal at its longest scored horizon: BUY or INVESTIGATE on shares not held, with no parcel bought (any portfolio) from the signal date to 30 days after, that beat the average by more than 10 points. **Calls that saved money:** AVOID on shares not held, and SELL on shares held, that trailed it by more than 10 points. First qualifying call per company, best first, up to 20, with price then and now and whether it's still undervalued. Watchlist companies carry a ★.
 - **What should I look at now?** *Proven* actions are the buy-side actions (BUY, INVESTIGATE, ACCUMULATE) beating the average at 3 months (1 month until 3-month results exist) with at least moderate confidence; until one is, BUY stands in "on the rules' own terms" and the page says so. Today's signals of a proven action with margin of safety above 20% are split into **New this week** (that action's current run started in the last 7 days) and **Still open**, with price when the run started and now. **Moved on** lists companies with a proven signal in the last 90 days that no longer qualify, and why, checked in this order: you bought it; the price rose out of the buy zone (margin of safety at or below 20% and the price above the signal's); the estimated value fell (margin of safety at or below 20% without a price rise); or its action changed.
@@ -60,6 +60,7 @@ The track record judges the rules on results. It can only measure forward from t
 - `src/tracking/signals.py`: nightly recording (shared calls and each person's held calls), what changed
 - `src/tracking/outcomes.py`: scoring, monthly summary, 14-month retention
 - `src/tracking/report.py`: the Track record page's figures
+- `frontend/src/pages/TrackRecordPage.tsx`: the page itself (React)
 - `src/tracking/rules_versions.py`: version numbers and what changed in each, for the admin console
 - `src/tracking/record_signals.py`: nightly step: record
 - `src/tracking/score_signals.py`: nightly step: score

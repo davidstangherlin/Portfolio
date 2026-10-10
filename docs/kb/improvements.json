@@ -1222,7 +1222,7 @@
     "web-gui",
     "adr-018-react-typescript-pages"
    ],
-   "notes": "Owner's request 2026-10-10. Like-for-like, in phases, each pushed with the app working: shared pieces (charts, tooltips, tables, table filter, dashboard layout), then pages (dashboard, screener, company, ETFs and LICs, watchlists, portfolios, track record, coattail, search, help, admin, profile and preferences, print), then the shell and router; then retire app.js, tablefilter.js and dashlayout.js."
+   "notes": "Owner's request 2026-10-10. Like-for-like, in phases, each pushed with the app working: shared pieces (charts, tooltips, tables, table filter, dashboard layout), then pages (dashboard, screener, company, ETFs and LICs, watchlists, portfolios, track record, coattail, search, help, admin, profile and preferences, print), then the shell and router; then retire app.js, tablefilter.js and dashlayout.js. Progress: phase 1 done 2026-10-10 (foundation, Help, Track record)."
   },
   {
    "id": "IMP-085",

@@ -1658,7 +1658,7 @@ function resultsTimeline(t) {
 function trackingCard(t, withLink = true) {
   const body = t.first_date
     ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}.` }),
-      t.headline ? h("ul", { class: "verdict rules compact" }, verdictLine(t.headline, t.headline.horizon_months, null)) : null,
+      t.headline ? h("ul", { class: "verdict rules compact" }, verdictLine(t.headline, t.headline.horizon_months)) : null,
       resultsTimeline(t)]
     : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
   return card("Track record", null, body,
@@ -2762,25 +2762,18 @@ function searchIndexCard() {
     body, h("div", { class: "form-actions" }, btn, msg), h("p", { class: "hint" }, "Or from PowerShell: ", h("code", { text: ".venv\\Scripts\\python.exe -m src.search.reindex" }), " ", helpLink("sift-search")));
 }
 
-/* ---------- track record: is Sift right, what did I miss, what now ---------- */
-const BULLISH = new Set(["BUY", "ACCUMULATE", "INVESTIGATE"]);
-const BEARISH = new Set(["AVOID", "SELL"]);
-const trackState = { horizon: null, version: "" };
+/* ---------- track record (the page itself is React: frontend/src/pages/TrackRecordPage.tsx) ---------- */
+/* The dashboard's Track record card still uses these; they move with the dashboard (IMP-084). */
 const horizonText = (m) => (m === 1 ? "1 month" : `${m} months`);
 const points = (v) => `${fmt(Math.abs(v), 1)} point${Math.abs(v) === 1 ? "" : "s"}`;
 const signedPct = (v, dp = 1) => signed(v, (x) => fmt(x, dp) + "%");
 
-/* One row per action: its verdict (more than luck?), one plain sentence,
-   e.g. "BUY calls beat the average screened share by 3.2 points over 3
-   months; 62% of 140 did. That's unlikely to be luck: about a 1 in 40
-   chance.", and a bar showing where its true edge most likely sits
-   (src/analytics/rules.py). */
 function verdictPill(t) {
   const [cls, icon] = t.intended === true ? ["good", "✓"] : t.intended === false ? ["bad", "✕"]
     : t.kind === "NEEDS_MORE" ? ["wait", "…"] : t.kind === "UNCLEAR" ? ["wait", "~"] : ["wait", "–"];
   return h("span", { class: `vpill ${cls}` }, h("span", { "aria-hidden": "true", text: icon }), t.label);
 }
-function verdictLine(a, months, domain) {
+function verdictLine(a, months) {
   const beat = a.avg_excess >= 0, t = a.test;
   const rate = a.beat_rate === null ? null : beat ? a.beat_rate : 100 - a.beat_rate;
   const luck = t.kind === "NEEDS_MORE" ? ` Too early to tell: Sift needs ${fmt(t.min_calls, 0)} calls and has ${fmt(a.signals, 0)}.`
@@ -2790,182 +2783,7 @@ function verdictLine(a, months, domain) {
     h("div", { class: "rule-body" },
       h("p", { class: "verdict-text" },
         `${a.action} calls ${beat ? "beat" : "trailed"} the average screened share by ${points(a.avg_excess)} over ${horizonText(months)}` +
-        (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`) + luck),
-      t.low !== null && domain ? chartSlot((w) => edgeBar(a, domain, w)) : null));  // no bar on the dashboard
-}
-const ptsText = (v) => `${v > 0 ? "+" : v < 0 ? "-" : ""}${fmt(Math.abs(v), 1)} pts`;
-/* Where an action's true edge most likely sits (widened for the number of
-   tests, rules.adjust()), against the average screened share at zero. */
-function edgeBar(a, domain, width) {
-  const t = a.test, W = Math.max(260, width), H = 50, m = { l: 10, r: 10 };
-  const X = (v) => m.l + ((v - domain.lo) / (domain.hi - domain.lo)) * (W - m.l - m.r);
-  const y = 18;
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart edge-bar", role: "img",
-    "aria-label": `${a.action}: likely true edge ${ptsText(t.low)} to ${ptsText(t.high)} against the average share` });
-  for (const v of domain.ticks) {
-    svg.append(s("line", { x1: X(v), x2: X(v), y1: 4, y2: 32, class: v === 0 ? "edge-zero" : "grid-line" }));
-    svg.append(s("text", { x: X(v), y: H - 4, "text-anchor": "middle", class: v === 0 ? "strong" : null, text: v === 0 ? "Average" : `${v > 0 ? "+" : ""}${fmt(v, 0)} pts` }));
-  }
-  svg.append(s("rect", { x: X(t.low), y: y - 5, width: Math.max(2, X(t.high) - X(t.low)), height: 10, rx: 5, class: "edge-range" }));
-  svg.append(s("circle", { cx: X(a.avg_excess), cy: y, r: 6, class: "edge-point" }));
-  const hit = s("rect", { x: X(t.low) - 8, y: 0, width: X(t.high) - X(t.low) + 16, height: 36, fill: "transparent" });
-  const tipNodes = () => [h("div", { class: "t-head", text: `${a.action}, ${fmt(a.signals, 0)} calls` }),
-    h("div", { text: `Average ${ptsText(a.avg_excess)}` }), h("div", { text: `Likely true edge ${ptsText(t.low)} to ${ptsText(t.high)}` })];
-  hit.addEventListener("pointermove", (e) => showTip(e, tipNodes()));
-  hit.addEventListener("pointerleave", hideTip);
-  svg.append(hit);
-  return svg;
-}
-/* One scale for every action's bar in a period, always including zero. */
-function edgeDomain(actions) {
-  const tested = actions.filter((a) => a.test && a.test.low !== null);
-  if (!tested.length) return null;
-  const lo = Math.min(0, ...tested.map((a) => a.test.low)), hi = Math.max(0, ...tested.map((a) => a.test.high));
-  return niceTicks(lo, hi, 5);
-}
-function orderLine(order) {
-  if (order.status === "too early") return h("p", { class: "hint", text: "Order check: too early. It needs 30 monthly signals each of BUY, WATCH and AVOID." });
-  return h("p", { class: `order ${order.status === "in order" ? "pos" : "neg"}`, text: order.status === "in order"
-    ? "In order: BUY beat WATCH, and WATCH beat AVOID. The rules rank companies the right way round."
-    : "Out of order: BUY, WATCH and AVOID don't line up best to worst. The rules need review." });
-}
-
-function verdictCard(d, months, setHorizon) {
-  const v = d.verdict[months];
-  const due = (d.status.results_due || []).find((r) => r.months === months);
-  const seg = h("div", { class: "segmented periods", role: "group", "aria-label": "Period" }, d.horizons.map((m) =>
-    h("button", { type: "button", "aria-pressed": String(m === months), text: horizonText(m), onclick: () => setHorizon(m) })));
-  const domain = edgeDomain(v.actions);
-  const admin = me && me.user && me.user.admin;
-  const body = v.actions.length
-    ? [h("ul", { class: "verdict rules" }, v.actions.map((a) => verdictLine(a, months, domain))), orderLine(v.order),
-      workedOut([`Each call's total return is compared with the average screened share's over the same ${horizonText(months)}. The bar shows where the action's true edge most likely sits. If the whole bar is clear of the average, the difference is very unlikely to be luck.`,
-        "Calls a month apart overlap when the period is longer than a month, so Sift widens the bar to allow for that: it claims less, not more.",
-        "Sift tests every action at every period at once, and with that many tests a few would pass by luck alone. It corrects for this (the Benjamini-Hochberg method), which widens the bars and adjusts the luck odds, so no more than 1 in 20 of the results it calls real should be luck.",
-        `An action needs ${fmt(v.actions[0].test.min_calls, 0)} calls before Sift judges it (a setting in Admin, Model and rules).`], "rule-reliability",
-        admin ? h("p", { class: "hint", text: "Admin: " + v.actions.filter((a) => a.test.t !== null).map((a) => `${a.action} t = ${fmt(a.test.t, 2)}, p = ${fmt(a.test.p_value, 3)}, adjusted ${a.test.q_value === null || a.test.q_value === undefined ? "n/a" : fmt(a.test.q_value, 3)}, ${fmt(100 * a.test.level, 1)}% ${ptsText(a.test.low)} to ${ptsText(a.test.high)}`).join("; ") }) : null)]
-    : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
-      : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
-      : d.version ? `No ${months}-month results yet for ${d.version_label || "this rules version"}: its signals aren't ${horizonText(months)} old yet.`
-      : `First ${months}-month results arrive with the next nightly run.` })];
-  const c = card("Is Sift accurate?", "Each company's first signal of each month, against the average total return (dividends included) of every company screened that night. Points are percentage points.", seg, body);
-  c.classList.add("wide");
-  return c;
-}
-
-function monthlyCard(d, months) {
-  const rows = d.monthly.filter((r) => r.horizon_months === months);
-  const actions = [...new Set(rows.map((r) => r.action))].sort((a, b) => d.verdict[months].actions.findIndex((x) => x.action === a) - d.verdict[months].actions.findIndex((x) => x.action === b));
-  const monthsList = [...new Set(rows.map((r) => r.month))];
-  const cell = (m, a) => rows.find((r) => r.month === m && r.action === a);
-  const c = card(`By month, ${horizonText(months)} later`, "Average points above (+) or below (-) the average screened share, with the number of signals. Kept for good, after the daily detail is deleted.",
-    rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-      h("thead", {}, h("tr", {}, h("th", { text: "Signals given in" }), actions.map((a) => h("th", { class: "num", text: a })))),
-      h("tbody", {}, monthsList.map((m) => h("tr", { class: "static" }, h("td", { text: toDate(m).toLocaleDateString("en-AU", { month: "long", year: "numeric" }) }),
-        actions.map((a) => { const r = cell(m, a); return h("td", { class: `num ${r ? signClass(r.avg_excess) || "" : ""}`.trim(), text: r ? `${signed(r.avg_excess, (x) => fmt(x, 1))} (${r.signals})` : "" }); })))))) : h("p", { class: "empty", text: "Fills in month by month as results arrive." }));
-  c.classList.add("wide");
-  return c;
-}
-
-function signalTable(items, cols) {
-  return h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
-    h("thead", {}, h("tr", {}, cols.map((col) => {
-      const th = h("th", { class: [col.num ? "num" : "", col.opt ? "opt" : ""].join(" ").trim() || null, text: col.label });
-      return col.help ? withHelp(th, col.label) : th;  // hover text from web/knowledge.json labels
-    }))),
-    h("tbody", {}, items.map((it) => clickableRow(it.asx_code, cols.map((col) => {
-      const v = col.value(it);
-      return h("td", { class: [col.num ? "num" : "", col.opt ? "opt" : "", col.cls ? col.cls(it) || "" : ""].join(" ").trim() || null }, v);
-    }))))));
-}
-const companyCell = { label: "Company", value: (it) => [h("span", { class: "code", text: it.asx_code }), watchStar(it.watchlists), h("div", { class: "name", text: it.company_name || "" })] };
-/* What Sift's estimated value, the analysts' target and the Graham Number
-   stood at on the night of the call, each with its gap to that night's
-   price on hover. Blank before they were recorded. */
-function targetsThen(priceKey) {
-  const cell = (key, extra) => (it) => {
-    const v = it[key], price = it[priceKey];
-    if (v === null || v === undefined) return "";
-    const gap = price ? `${signedPct((v / price - 1) * 100, 0)} on the price then (${money(price)})` : "";
-    return h("span", { title: [gap, extra ? extra(it) : ""].filter(Boolean).join("; "), text: money(v) });
-  };
-  return [
-    { label: "Value then", num: true, opt: true, help: true, value: cell("value_then") },
-    { label: "Target then", num: true, opt: true, help: true, value: cell("target_then", (it) => (it.analysts_then ? `mean of ${plural(it.analysts_then, "analyst")}` : "")) },
-    { label: "Graham then", num: true, opt: true, help: true, value: cell("graham_then") },
-  ];
-}
-
-function actionableCard(d) {
-  const a = d.actionable, p = d.proven, mos = d.rules.margin_of_safety;
-  const hint = p.proven
-    ? `Signals of the kind that has beaten the average at ${horizonText(p.horizon)}: ${p.actions.join(", ")}. Only those still more than ${fmt(mos, 0)}% below estimated value.`
-    : `Nothing is proven yet (too few results), so this lists today's ${p.actions.join(", ")} signals on the rules' own terms, more than ${fmt(mos, 0)}% below estimated value.`;
-  const cols = [companyCell,
-    { label: "Signal", value: (it) => badge(it.action) },
-    { label: "Since", opt: true, value: (it) => (it.since ? longDate(it.since) : NA) },
-    { label: "Price then", num: true, opt: true, value: (it) => money(it.price_then) },
-    ...targetsThen("price_then"),
-    { label: "Price now", num: true, value: (it) => money(it.price_now) },
-    { label: "Margin of safety", num: true, cls: (it) => signClass(it.margin_of_safety_now), value: (it) => pct(it.margin_of_safety_now, 0) }];
-  const group = (title, items, empty, extraCols = []) => [h("h3", { class: "sub-head", text: `${title} (${items.length})` }),
-    items.length ? signalTable(items, cols.concat(extraCols)) : h("p", { class: "empty", text: empty })];
-  const c = card("What should I look at now?", hint,
-    group("New this week", a.new, "No new signals this week."),
-    group("Still open", a.open, "None open."),
-    group("Moved on", a.moved_on, "Nothing has moved on in the last 90 days.", [{ label: "Why", value: (it) => it.why }]));
-  c.classList.add("wide");
-  return c;
-}
-
-function missedCard(d) {
-  const due = (d.status.results_due || [])[0];
-  const empty = due && toDate(due.date) > new Date() ? `Appears once the first results arrive (${longDate(due.date)}).` : "None so far.";
-  const later = { label: "Ahead of average", num: true, cls: (it) => signClass(it.excess_return), value: (it) => `${signed(it.excess_return, (x) => fmt(x, 1))} pts (${horizonText(it.horizon_months)})` };
-  const c = card("What did I miss?", `BUY and INVESTIGATE calls on shares you didn't hold and didn't buy within ${d.rules.purchase_window_days} days, that beat the average by more than ${fmt(d.rules.missed_excess, 0)} points. First call per company; ★ marks your watchlists.`,
-    d.missed.length ? signalTable(d.missed, [companyCell,
-      { label: "Signal", value: (it) => badge(it.action) },
-      { label: "Date", value: (it) => longDate(it.snapshot_date) },
-      { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
-      ...targetsThen("price"),
-      { label: "Price now", num: true, opt: true, value: (it) => money(it.price_now) },
-      later,
-      { label: "Still undervalued", value: (it) => (it.price_now === null ? NA : it.still_undervalued ? "Yes" : "No") }]) : h("p", { class: "empty", text: empty }),
-    h("h3", { class: "sub-head", text: `Calls that saved money (${d.saved.length})` }),
-    d.saved.length ? signalTable(d.saved, [companyCell,
-      { label: "Signal", value: (it) => badge(it.action) },
-      { label: "Date", value: (it) => longDate(it.snapshot_date) },
-      { label: "Price then", num: true, opt: true, value: (it) => money(it.price) },
-      ...targetsThen("price"),
-      { label: "Return", num: true, cls: (it) => signClass(it.total_return), value: (it) => signedPct(it.total_return) },
-      later]) : h("p", { class: "empty", text: `AVOID calls on shares you didn't hold, and SELL calls on shares you did, that trailed the average by more than ${fmt(d.rules.missed_excess, 0)} points. ${empty}` }));
-  c.classList.add("wide");
-  return c;
-}
-
-async function renderTrackRecord() {
-  app.replaceChildren(h("p", { class: "loading", text: "Loading track record..." }));
-  const q = trackState.version ? `?version=${encodeURIComponent(trackState.version)}` : "";
-  const d = await getJSON(`/api/track-record${q}`);
-  const withData = d.horizons.filter((m) => d.verdict[m].actions.length);
-  if (!trackState.horizon || !d.horizons.includes(trackState.horizon)) trackState.horizon = withData.includes(3) ? 3 : withData[0] || 1;
-  /* One rules version only, when an admin opens it from Admin, Model and rules, Rules versions. */
-  const versionNote = d.version ? h("p", { class: "hint page-note" }, `Showing ${d.version_label || "one rules version"} only. `,
-    h("a", { href: "#/track-record", text: "Show every version" })) : null;
-  const how = card("How Sift is judged", null, h("div", { class: "prose" },
-    h("p", { text: "Each night Sift records what it said about every screened company. Those records are never edited, so later rule changes can't rewrite history." }),
-    h("p", { text: "Each company's first signal of each month is scored after 1, 3, 6 and 12 months: its total return including dividends, minus the average for every company screened that night. A company that stops trading is scored at its last price. A BUY that beats the average was right; an AVOID that trails it was right." }),
-    h("p", { text: `Confidence: too early under ${d.rules.too_early_below} signals, moderate up to ${d.rules.solid_above}, solid above that. The daily detail is kept for 14 months; the monthly results are kept for good.` })));
-  const draw = () => {
-    const m = trackState.horizon;
-    app.replaceChildren(...[pageHead("Track record", "Is Sift right?"), versionNote,
-      h("div", { class: "cards" },
-        verdictCard(d, m, (x) => { trackState.horizon = x; draw(); }),
-        actionableCard(d), missedCard(d), monthlyCard(d, m), trackingCard(d.status, false), how)].filter(Boolean));
-    drawSlots();  // the verdict's range bars
-  };
-  draw();
-  window.scrollTo(0, 0);
+        (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`) + luck)));
 }
 
 /* ---------- watchlists: named lists to follow, with notes and triggers ---------- */
@@ -3919,8 +3737,8 @@ function fundWatchTable(kind, items, editing, remove) {
       h("td", { class: "act" }, rowButton("Edit", "", () => editing(e)), " ", rowButton("Remove", "danger", () => remove(e))))))));
 }
 
-/* ---------- help: the knowledge base (web/knowledge.json) ---------- */
-const helpState = { q: "", category: "" };
+/* ---------- help (the page itself is React: frontend/src/pages/HelpPage.tsx) ---------- */
+/* The menu search's term lookups (web/knowledge.json). */
 const entryText = (e) => [e.title, e.abbreviation, e.full, ...(e.aliases || []), ...(e.labels || []), e.definition, e.hover, ...(e.body || [])]
   .filter(Boolean).join(" ").toLowerCase();
 
@@ -3947,59 +3765,6 @@ function findTerm(q) {
   if (!s || !KNOWLEDGE.entries) return null;
   const hit = (names) => KNOWLEDGE.entries.find((e) => names(e).some((n) => n && n.toLowerCase() === s));
   return hit((e) => [e.title, e.abbreviation, e.full]) || hit((e) => e.aliases || []) || null;
-}
-
-function helpEntry(e, open) {
-  const cat = KNOWLEDGE.categories.find((c) => c.id === e.category);
-  const inSift = e.hover && e.hover !== e.definition ? fillThresholds(e.hover) : null;
-  return h("details", { class: "help-entry", id: `help-${e.id}`, open },
-    h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }),
-      h("span", { class: "help-title", text: e.title }),
-      h("span", { class: "help-def", text: fillThresholds(e.definition || "") })),
-    h("div", { class: "help-body" },
-      cat ? h("span", { class: "tag muted sm", text: cat.name }) : null,
-      e.full && e.abbreviation ? h("p", {}, h("strong", { text: e.abbreviation }), ` stands for ${e.full}.`) : null,
-      inSift ? h("p", {}, h("strong", { text: "In Sift: " }), inSift) : null,
-      (e.body || []).map((para) => h("p", { text: fillThresholds(para) })),
-      (e.related || []).length ? h("p", { class: "help-related" }, "Related: ",
-        e.related.map((id, i) => { const r = knowledgeEntry(id); return r ? [i ? ", " : "", h("a", { href: `#/help/${id}`, text: r.title })] : null; })) : null,
-      (e.links || []).length ? h("p", { class: "help-links" }, e.links.map((l, i) => [i ? "  |  " : "", /^https?:/.test(l.href)  // other websites open in a new tab
-        ? h("a", { href: l.href, target: "_blank", rel: "noopener noreferrer", text: `${l.text} ↗` })
-        : h("a", { href: l.href, text: `${l.text} →` })])) : null));
-}
-
-async function renderHelp(query, focusId) {
-  if (query !== undefined) helpState.q = new URLSearchParams(query).get("q") || "";
-  const results = h("div", { class: "help-results" });
-  const count = h("span", { class: "count" });
-  const search = h("input", { type: "search", class: "page-search", value: helpState.q, placeholder: "Search terms, rules and how-tos",
-    "aria-label": "Search help", autocomplete: "off" });
-  const chips = h("div", { class: "chips", role: "group", "aria-label": "Filter by topic" });
-  function draw() {
-    const q = helpState.q.trim();
-    let list = q ? searchKnowledge(q) : KNOWLEDGE.entries;
-    if (helpState.category) list = list.filter((e) => e.category === helpState.category);
-    count.textContent = `${list.length} of ${KNOWLEDGE.entries.length}`;
-    for (const c of chips.children) c.setAttribute("aria-pressed", String((c.dataset.cat || "") === helpState.category));
-    if (!list.length) { results.replaceChildren(h("p", { class: "empty", text: `Nothing matches "${q}". Try a shorter word, or clear the topic filter.` })); return; }
-    const open = (e) => e.id === focusId || (q !== "" && list.length <= 3);
-    if (q) { results.replaceChildren(h("div", { class: "card" }, list.map((e) => helpEntry(e, open(e))))); return; }
-    results.replaceChildren(...KNOWLEDGE.categories.map((c) => {
-      const items = list.filter((e) => e.category === c.id);
-      return items.length ? h("section", { class: "card help-group" }, h("h2", { text: c.name }), items.map((e) => helpEntry(e, open(e)))) : null;
-    }).filter(Boolean));
-  }
-  const chip = (id, name) => h("button", { type: "button", class: "chip", "data-cat": id, text: name,
-    onclick: () => { helpState.category = helpState.category === id ? "" : id; draw(); } });
-  chips.append(chip("", "All topics"), ...KNOWLEDGE.categories.map((c) => chip(c.id, c.name)));
-  search.addEventListener("input", () => { helpState.q = search.value; draw(); });
-  if (focusId) { helpState.q = ""; search.value = ""; helpState.category = ""; }
-  app.replaceChildren(pageHead("Help", "Terms, rules and how Sift works"),
-    h("div", { class: "controls" }, search, count), chips, results);
-  draw();
-  const target = focusId && document.getElementById(`help-${focusId}`);
-  if (target) target.scrollIntoView({ block: "start" }); else window.scrollTo(0, 0);
-  if (!focusId && window.matchMedia("(hover: hover)").matches) search.focus();
 }
 
 /* ---------- admin console: model and rules, what-if scenarios, workings ---------- */
@@ -4030,11 +3795,27 @@ window.SiftHost = {
   helpEntry: (id) => { const e = knowledgeEntry(id); return e ? { id: e.id, title: e.title } : null; },
   openHelp: (id) => window.open(new URL(`#/help/${id}`, location.href).href, "_blank", "noopener"),
   isAdmin: () => Boolean(me && me.user && me.user.admin),
+  knowledge: () => KNOWLEDGE,
+  fieldHelp: (label) => (FIELD_HELP[label] ? FIELD_HELP[label](thresholds()) : null),
+  fillThresholds: (text) => fillThresholds(text),
+  settings: () => me.settings,
+  previousPage: () => previousPage,
+  noteVersion: (res) => noteVersion(res),
 };
 /* A React component as one more card on a page this file built. The wrapper
    takes no space of its own (display: contents), so the card sits in the
    grid like any other. Islands on a page that has gone are unmounted by
    SiftUI.sweep() after each route change. */
+/* A whole page built in React: replaces the page and mounts it (the router
+   sweeps away the previous page's islands afterwards). */
+function reactPage(name, props) {
+  const el = h("div", { class: "island", "data-page": name });
+  app.replaceChildren(el);
+  if (!(window.SiftUI && window.SiftUI.mount(name, el, props))) {
+    el.append(h("p", { class: "error", text: "This page didn't load. Refresh the page; if it stays, the page files need rebuilding (frontend/README.md)." }));
+  }
+  return Promise.resolve();
+}
 function island(name, props, title) {
   const el = h("div", { class: "island", "data-island": name });
   if (!(window.SiftUI && window.SiftUI.mount(name, el, props))) {
@@ -4902,10 +4683,10 @@ const ROUTES = [
   [/^#\/etf\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "etf", (m) => renderFund("ETF", m[1].toUpperCase(), m[2])],
   [/^#\/lics(?:\?(.*))?$/, "lics", (m) => { presetFunds("LIC", m[1]); return renderFunds("LIC"); }],
   [/^#\/lic\/([A-Za-z0-9.]+)(?:\?(.*))?$/, "lic", (m) => renderFund("LIC", m[1].toUpperCase(), m[2])],
-  [/^#\/track-record(?:\?(.*))?$/, "track-record", (m) => { trackState.version = new URLSearchParams(m[1] || "").get("version") || ""; return renderTrackRecord(); }],
+  [/^#\/track-record(?:\?(.*))?$/, "track-record", (m) => reactPage("TrackRecordPage", { version: new URLSearchParams(m[1] || "").get("version") || "" })],
   [/^#\/coattail(?:\?(.*))?$/, "coattail", (m) => renderCoattail(m[1])],
   [/^#\/coattail\/([a-z0-9-]+)$/, "coattail", (m) => renderCoattailHolder(m[1])],
-  [/^#\/help(?:\?(.*))?$/, "help", (m) => renderHelp(m[1])],
+  [/^#\/help(?:\?(.*))?$/, "help", (m) => reactPage("HelpPage", { query: m[1] })],
   [/^#\/admin$/, "admin", () => renderAdmin()],
   [/^#\/admin\/scenarios$/, "admin", () => renderScenarios()],
   [/^#\/admin\/search$/, "admin", () => renderAdminSearch()],
@@ -4917,7 +4698,7 @@ const ROUTES = [
   [/^#\/preferences(?:\/([a-z]+))?$/, "preferences", (m) => renderPreferences(m[1])],
   [/^#\/admin\/scenario\/new$/, "admin", () => renderScenario(null)],
   [/^#\/admin\/scenario\/([0-9a-f-]{36})$/, "admin", (m) => renderScenario(m[1])],
-  [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
+  [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => reactPage("HelpPage", { focusId: m[1] })],
   [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
   [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
   [/^#\/portfolios\/import$/, "portfolios", () => renderImport()],

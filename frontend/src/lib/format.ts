@@ -14,3 +14,17 @@ export const plural = (n: number, word: string, many = word + "s"): string => `$
 export const toDate = (iso: string): Date => new Date(iso + "T00:00:00");
 export const longDate = (iso: string): string =>
   toDate(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+export function compact(v: Num): string {
+  if (v === null || v === undefined) return NA;
+  const body = new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v));
+  return (v < 0 ? "-$" : "$") + body;
+}
+export const dayMonth = (iso: string): string => toDate(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+export const monthYear = (iso: string): string => toDate(iso).toLocaleDateString("en-AU", { month: "short", year: "2-digit" });
+export const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+export const signedPct = (v: Num, dp = 1): string => signed(v, (x) => fmt(x, dp) + "%");
+export const dateTime = (iso: string): string =>
+  new Date(iso).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+export const timeOnly = (iso: string): string => new Date(iso).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+/* "pos" or "neg" for a figure's sign, nothing for zero or no figure. */
+export const signClass = (v: Num): string | undefined => (v === null || v === undefined || v === 0 ? undefined : v > 0 ? "pos" : "neg");

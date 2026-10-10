@@ -3,7 +3,7 @@ id: adr-018-react-typescript-pages
 title: Decision: all Sift pages in React and TypeScript, migrated in phases inside the current app
 category: decisions
 summary: Why every Sift page is moving to React and TypeScript, new work first and then the existing pages phase by phase as islands inside the current app, until React owns the shell and router and app.js is retired.
-version: 2.0
+version: 2.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -30,6 +30,8 @@ Accepted, 2026-10-10. Supersedes the front-end half of [ADR-002](kb:adr-002-fast
 - **Every existing page moves, in phases** (owner's request, 2026-10-10: "rebuild the remaining web pages in the new format"). It is a like-for-like rebuild: same look, words and behaviour, so users notice nothing but speed and polish. The order is shared pieces first (charts, tooltips, tables, the table filter, the dashboard layout), then the pages one at a time, then the shell (menu, sign-in, search, router), after which `web/app.js`, `tablefilter.js` and `dashlayout.js` are retired. Each phase is pushed with the whole app working and the test suite passing; until the last phase, `app.js` builds the shell and mounts React pages and cards as islands.
 - **How islands work.** `frontend/src/main.tsx` registers components and exposes `window.SiftUI.mount(name, element, props)` and `sweep()`. `island()` in `app.js` mounts one, and the router calls `sweep()` after each page change to unmount islands whose page has gone. `window.SiftHost` (typed in `frontend/src/lib/host.ts`) lends components what the old app knows (help entries, opening help, whether the user is an admin) until React owns those too.
 - **Built with Vite; the built files are committed** to the repository (`web/dist/sift-ui.js`, one script loaded before `app.js`), so the owner's PC runs Sift without Node.js. Only whoever builds pages needs Node.js. Library versions are pinned exactly (`.npmrc` `save-exact=true`). `web/dist/build-info.json` records a fingerprint of the sources, and `tests/unit/test_frontend.py` fails if `frontend/` changed without a rebuild.
+- **Charts stay hand-drawn SVG** (added in 2.1): each chart function is ported to typed TypeScript (`frontend/src/charts/`) and drawn by a `ChartSlot` component at its real on-screen width, the usual way to pair React with hand-made SVG. They look and behave exactly as before, with no chart library to load or keep current.
+- **Each moved page is checked like for like:** the old and new page side by side, comparing their visible text and element structure at desktop and phone widths, before it is pushed.
 - **The API is unchanged:** components call the same JSON routes in `gui.py`.
 - **Tests:** component tests with Vitest beside each component, run from the pytest suite when Node.js is installed, plus the existing browser checks at desktop and phone widths.
 

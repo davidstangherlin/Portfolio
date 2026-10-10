@@ -47,10 +47,10 @@ def test_bundle_was_built_from_current_sources():
         "frontend/ changed since web/dist was built: run `npm run build` in frontend/ and commit web/dist")
 
 
-def test_every_island_used_by_app_js_is_registered():
+def test_every_island_and_page_used_by_app_js_is_registered():
     app = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     main = (FRONTEND / "src" / "main.tsx").read_text(encoding="utf-8")
-    used = set(re.findall(r'island\("([A-Za-z]+)"', app))
+    used = set(re.findall(r'(?:island|reactPage)\("([A-Za-z]+)"', app))
     assert used, "app.js mounts no islands"
     registered = set(re.search(r"const ISLANDS[^=]*=\s*\{([^}]*)\}", main).group(1).replace(" ", "").split(","))
     assert used <= registered

@@ -3,7 +3,7 @@ id: web-gui
 title: Sift web app: pages, dashboard and layout
 category: features
 summary: How the FastAPI server and the plain JavaScript pages fit together: routes, the dashboard and its arrangeable widgets, company pages, charts, phone layout and the house UI rules.
-version: 1.3
+version: 1.4
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -21,7 +21,9 @@ Sift's pages are how people use everything else. The server returns JSON; one Ja
 
 ## How it works
 
-**Moving to React and TypeScript** (2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). Every page is being rebuilt as React components in TypeScript, like for like, in phases (IMP-084); new pages and cards are React from the start. The components live in `frontend/` and are built into `web/dist/sift-ui.js`, which is committed and loaded before `app.js`, so running Sift needs no Node.js (`frontend/README.md`). Until the shell moves, `app.js` builds each page and mounts React components as islands: `island(name, props, title)` calls `SiftUI.mount()`, the router calls `SiftUI.sweep()` after each page change, and `window.SiftHost` lends components help entries and the admin flag. An island's wrapper is `display: contents`, so its card sits in the grid like any other. `web_version()` includes `web/dist`, so a rebuilt bundle reloads open tabs. The first island is the company page's Financial health card ([Financial health](kb:financial-health)). Until a page moves, what's described here applies.
+**Moving to React and TypeScript** (2026-10-10, [ADR-018](kb:adr-018-react-typescript-pages)). Every page is being rebuilt as React components in TypeScript, like for like, in phases (IMP-084); new pages and cards are React from the start. The components live in `frontend/` and are built into `web/dist/sift-ui.js`, which is committed and loaded before `app.js`, so running Sift needs no Node.js (`frontend/README.md`). Until the shell moves, `app.js` builds each page and mounts React components as islands: `island(name, props, title)` calls `SiftUI.mount()`, the router calls `SiftUI.sweep()` after each page change, and `window.SiftHost` lends components help entries and the admin flag. An island's wrapper is `display: contents`, so its card sits in the grid like any other. `web_version()` includes `web/dist`, so a rebuilt bundle reloads open tabs. The first island is the company page's Financial health card ([Financial health](kb:financial-health)). Whole pages use `reactPage(name, props)` in the route table, which replaces the page with one island.
+
+**Moved so far** (each checked like for like against the old page: same text and element structure at desktop and phone widths): Help (`HelpPage`), Track record (`TrackRecordPage`). The React side has `frontend/src/lib/` (`api.ts` for `getJSON` and `send`, `tooltip.ts` for the shared `#tooltip`, `dom.ts` for chart drawing, `format.ts`, `host.ts`), `components/` (`ChartSlot` draws a chart at its real width and redraws on resize, as `chartSlot()` did; `bits.tsx` for badges, page heads, clickable rows and data tables; `FieldHelp.tsx` for hover explanations) and `charts/`. Charts stay hand-drawn SVG, ported to typed TypeScript and drawn inside `ChartSlot`, so they look exactly as before. Until a page moves, what's described here applies.
 
 **Purpose.** A browser view of the screener, Simply Wall St style: a filterable table of every company and a page per company with a score wheel, valuation, quality markers and charts. Usable from a phone on home Wi-Fi. Writes only portfolios and trades ([§19.1](kb:portfolios-cgt)).
 
