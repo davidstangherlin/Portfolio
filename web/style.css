@@ -235,6 +235,21 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .caution-text { color: var(--warning-text); font-weight: 600; }
 .caution-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warning-bg); color: var(--ink); font-size: 13px; }
 .caution-note .caution-tag { margin-left: 0; }
+/* The short-selling information card: a four-band scale, the share's band highlighted */
+.info-head { font-size: 13px; font-weight: 650; margin: 14px 0 4px; }
+.short-info p, .short-info .info-steps { max-width: 80ch; }
+.short-info .short-scale { max-width: 720px; }
+.info-steps { margin: 4px 0 8px; padding-left: 18px; }
+.info-steps li + li { margin-top: 4px; }
+.short-scale { list-style: none; margin: 6px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }
+.short-scale li { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: var(--surface-2); color: var(--ink-2); font-size: 12px; }
+.short-scale li:first-child { border-radius: 6px 0 0 6px; }
+.short-scale li:last-child { border-radius: 0 6px 6px 0; }
+.short-scale .band-name { font-weight: 650; color: var(--ink); }
+.short-scale li.here { background: var(--warning-bg); box-shadow: inset 0 0 0 1px var(--warning); }
+.short-scale .band-here { font-weight: 700; color: var(--warning-text); }
+@media (max-width: 520px) { .short-scale { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .short-scale li { border-radius: 0 !important; } }
 .more { display: block; margin: 12px auto; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
 .pos { color: var(--good-text); }
 .neg { color: var(--critical-text); }

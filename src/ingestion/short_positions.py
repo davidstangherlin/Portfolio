@@ -10,6 +10,10 @@ Sift's figure is always a few days behind.
     python -m src.ingestion.short_positions --days 365    # a year of history
     python -m src.ingestion.short_positions --dry-run     # fetch the newest file, print, save nothing
     python -m src.ingestion.short_positions --file RR20261003-001-SSDailyAggShortPos.csv
+    python -m src.ingestion.short_positions --folder          # every ASIC file saved in data/ASIC
+
+Files saved from ASIC's website into data/ASIC (kept out of git) are also
+loaded by the nightly run, if their day isn't loaded already.
 
 The files are tab or comma separated and often UTF-16 encoded; the reader
 finds its columns by name ("Product Code", "Reported Short Positions",
@@ -38,6 +42,7 @@ URL = "https://download.asic.gov.au/short-selling/RR{day:%Y%m%d}-001-SSDailyAggS
 PAUSE = 1.0            # seconds between requests
 NIGHTLY_DAYS = 14      # how far back the nightly run looks for files not yet loaded
 KEEP_DAYS = 730        # two years of history
+FOLDER = Path(__file__).resolve().parents[2] / "data" / "ASIC"   # files saved from ASIC's website
 
 
 @dataclass
@@ -153,9 +158,27 @@ def date_of(name: str) -> date | None:
     return datetime.strptime(m.group(1), "%Y%m%d").date() if m else None
 
 
+def load_folder(session, folder: Path = FOLDER, only_new: bool = True) -> list[tuple[date, int]]:
+    """Load the ASIC files saved in a folder (named as ASIC names them, which
+    carries the date); with only_new, days already loaded are skipped."""
+    if not folder.is_dir():
+        return []
+    done = {d for (d,) in session.execute(text("SELECT DISTINCT report_date FROM short_positions"))} if only_new else set()
+    out = []
+    for f in sorted(folder.glob("RR*.csv")):
+        day = date_of(f.name)
+        if day is None or day in done:
+            continue
+        out.append((day, save(session, day, parse(f.read_bytes()))))
+        session.commit()
+    return out
+
+
 def run(session, today: date, days: int = NIGHTLY_DAYS, fetch=None, dry_run: bool = False) -> dict:
     fetch = fetch or get
     loaded = missing = 0
+    if not dry_run and fetch is get:
+        loaded += len(load_folder(session))  # anything saved by hand first, so it isn't fetched again
     for day in days_to_fetch(session, today, days):
         status, content = fetch(URL.format(day=day))
         if status != 200 or not content or content.lstrip()[:1] == b"<":
@@ -178,9 +201,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--days", type=int, default=NIGHTLY_DAYS, help=f"how far back to look (default {NIGHTLY_DAYS})")
     p.add_argument("--dry-run", action="store_true", help="fetch the newest file, print the most shorted, save nothing")
     p.add_argument("--file", type=Path, help="load one ASIC file saved from the browser")
+    p.add_argument("--folder", type=Path, nargs="?", const=FOLDER,
+                   help="load every ASIC file in a folder (default data/ASIC), replacing days already loaded")
     args = p.parse_args(argv)
     from src.config import get_session
     with get_session() as session:
+        if args.folder:
+            for day, n in load_folder(session, args.folder, only_new=False):
+                logger.info("Short positions: %d products for %s", n, day)
+            return 0
         if args.file:
             day = date_of(args.file.name)
             if day is None:

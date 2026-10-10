@@ -956,6 +956,7 @@ async function renderCompany(code) {
 
   const drpCard = dividendReinvestCard(d.drp);
   const shortCard = shortInterestCard(c, d.short_interest, d.short_caution);
+  const shortInfo = shortInfoCard(c, d);
   const registryCard = shareRegistryCard(c.asx_code, d.registry);
 
   const held = d.position ? h("p", { class: "hint", text:
@@ -981,7 +982,7 @@ async function renderCompany(code) {
     held,
     watchNote(d.watchlists),
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, drpCard, registryCard,
-      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), shortCard, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
+      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), shortCard, shortInfo, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
@@ -991,9 +992,10 @@ async function renderCompany(code) {
 /* A shorted share can still be bought, with care: an amber caution beside
    the action, never a change to it (src/screening/short_caution.py). */
 const CAUTION_WORDS = { HIGH: "Heavily shorted", ELEVATED: "Shorted" };
-function cautionTag(level, iconOnly = false) {
+function cautionTag(level, iconOnly = false, held = false) {
   if (!level) return null;
-  const words = `Caution: ${CAUTION_WORDS[level].toLowerCase()}, expect bigger price swings`;
+  const words = `Caution: ${CAUTION_WORDS[level].toLowerCase()}, expect bigger price swings` +
+    (held ? ". Not a reason to sell on its own: open the company for what it means." : "");
   return h("span", { class: `caution-tag${level === "HIGH" ? " high" : ""}`, title: words, "aria-label": words, role: "img" },
     h("span", { "aria-hidden": "true", text: "!" }), iconOnly ? null : h("span", { text: CAUTION_WORDS[level] }));
 }
@@ -1012,6 +1014,54 @@ function shortInterestCard(c, x, caution) {
       yFmt: (v) => fmt(v, 1) + "%", label: `${c.asx_code} short interest`, width: w, height: 180 })) : null,
     h("p", { class: "hint" }, "Short sellers profit if the price falls, so a high or rising figure means some professional investors expect it to. You can still buy, with care: heavily shorted shares swing harder on news, both ways. Some shorts are hedges. ", helpLink("short-selling")));
   el.classList.add("wide");
+  return el;
+}
+
+/* What a short-selling caution means, in plain words, for this share and
+   for whoever is reading: someone thinking of buying, or someone who holds it.
+   Shown only with a caution, so most company pages stay as they were. */
+function shortInfoCard(c, d) {
+  const caution = d.short_caution, x = d.short_interest, lv = d.short_levels;
+  if (!caution || !x || !lv) return null;
+  const held = Boolean(d.position && d.position.units > 0);
+  const s = x.short_percent, days = c.days_to_cover, ch = x.change_points;
+  const bands = [["Normal", `under ${fmt(lv.watch, 0)}%`, 0, lv.watch], ["Watch", `${fmt(lv.watch, 0)} to ${fmt(lv.elevated, 0)}%`, lv.watch, lv.elevated],
+    ["Elevated", `${fmt(lv.elevated, 0)} to ${fmt(lv.high, 0)}%`, lv.elevated, lv.high], ["High", `${fmt(lv.high, 0)}% or more`, lv.high, Infinity]];
+  const scale = h("ol", { class: "short-scale", "aria-label": `Where ${c.asx_code} sits: ${pct(s, 1)} sold short` },
+    bands.map(([name, range, lo, hi]) => {
+      const here = s >= lo && s < hi;
+      return h("li", { class: here ? "here" : null, "aria-current": here ? "true" : null },
+        h("span", { class: "band-name", text: name }), h("span", { class: "band-range", text: range }),
+        here ? h("span", { class: "band-here", text: `${c.asx_code} ${pct(s, 1)}` }) : null);
+    }));
+  const bandName = bands.find(([, , lo, hi]) => s >= lo && s < hi)[0];
+  const levelName = caution.level === "HIGH" ? "High" : "Elevated";
+  const lifted = bandName !== levelName ? h("p", { class: "hint", text: `Sift's caution is ${levelName}, not ${bandName}, because ` +
+    (days !== null && days !== undefined && days >= 5 ? `short sellers would need about ${fmt(days, 1)} trading days to buy back: a crowded trade.`
+      : `shorting has risen ${fmt(ch, 1)} points in a month.`) }) : null;
+  const happening = `${pct(s, 1)} of ${c.asx_code}'s shares are sold short: professional investors, usually hedge funds, are betting the price will fall.` +
+    (ch !== null && ch !== undefined && ch > 0 ? ` Shorting has risen ${fmt(ch, 1)} points over the last month.` : "");
+  const swings = "Heavily shorted shares move harder both ways. Bad news lands on a crowded bet against the company, so the price can fall fast. " +
+    "Good news can force short sellers to buy back at once, so the price can jump (a short squeeze)." +
+    (days !== null && days !== undefined ? ` At recent volumes, short sellers would need about ${fmt(days, 1)} trading days to buy back (days to cover); the more days, the sharper a squeeze can be.` : "");
+  const steps = held ? [
+    "It isn't a reason to sell on its own: short sellers are sometimes wrong, and some shorts are hedges rather than a view on the company.",
+    "Check the latest announcements and the action and reasons above for anything that has changed.",
+    "Expect bigger price swings, and decide in advance what would change your view.",
+    "Set a watchlist trigger for short interest to be told if shorting keeps building.",
+  ] : [
+    "Find out what the short sellers may be seeing: read the latest results and announcements.",
+    "Check the four value tests and any red flags above: do the numbers still hold up?",
+    caution.level === "HIGH" ? "If you buy, consider a smaller position than usual." : "Expect bigger price swings than usual.",
+    "Set a watchlist trigger for short interest to be told if shorting keeps building.",
+  ];
+  const el = card(held ? "You hold a shorted share" : "Buying a shorted share", "What the short-selling caution means, in plain words.",
+    h("h3", { class: "info-head", text: "What's happening" }), h("p", { text: happening }),
+    h("h3", { class: "info-head", text: "Where it sits" }), scale, lifted,
+    h("h3", { class: "info-head", text: "Why the price can swing" }), h("p", { text: swings }),
+    h("h3", { class: "info-head", text: held ? "As a holder" : "Before you buy" }), h("ul", { class: "info-steps" }, steps.map((t) => h("li", { text: t }))),
+    h("p", { class: "hint" }, "A prompt for your own research, not financial advice. ", helpLink("short-selling")));
+  el.classList.add("wide", "short-info");
   return el;
 }
 
@@ -1850,7 +1900,7 @@ function holdingsTable(lines) {
       h("td", { class: "num", text: money(r.value, 0) }),
       h("td", { class: `num ${signClass(r.gain) || ""}`.trim(), text: signed(r.gain, (v) => money(v, 0)) }),
       h("td", { class: `num opt ${signClass(r.day_change) || ""}`.trim(), text: signed(r.day_change, (v) => money(v, 0)) }),
-      h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" })),
+      h("td", {}, r.action ? badge(r.action) : h("span", { class: "hint", text: "not screened" }), cautionTag(r.short_caution, true, true)),
       h("td", { class: "opt", text: r.next_discount_date ? longDate(r.next_discount_date) : "eligible now" }))))));
 }
 

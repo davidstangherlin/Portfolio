@@ -3,7 +3,7 @@ id: rb-short-positions
 title: Runbook: short positions aren't loading
 category: operations
 summary: No new ASIC short position reports, or the Short Positions step fails; how to tell whether ASIC refused the request, hasn't published yet, or changed the file.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -31,7 +31,7 @@ The short-selling card, % short column, Most shorted tab, cautions and short int
 ## Fix
 
 - **"0 days loaded" for a day or two:** normal. ASIC publishes about four business days late, and public holidays have no file.
-- **Nothing for a week:** ASIC may be refusing requests or has moved the file. Open ASIC's short position reports page in a browser, download the latest daily file and load it: `python -m src.ingestion.short_positions --file RR20261003-001-SSDailyAggShortPos.csv` (keep ASIC's file name, which carries the date). If the address changed, update `URL`.
+- **Nothing for a week:** ASIC may be refusing requests or has moved the file. Open ASIC's short position reports table (asic.gov.au, Regulatory resources, Markets, Short selling) in a browser, download the daily files into `data\ASIC` keeping ASIC's file names (they carry the date), and load them: `python -m src.ingestion.short_positions --folder` (or one file with `--file`). The nightly run also loads anything new in that folder. If the address changed, update `URL`.
 - **"unexpected columns":** ASIC changed the headings. Compare the file's first line with `parse()`, fix, and add the case to `tests/unit/test_short_positions.py`.
 - **Missing history:** `python -m src.ingestion.short_positions --days 365`.
 

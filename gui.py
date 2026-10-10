@@ -334,6 +334,8 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         ],
         "flags": red_flags(row),
         "short_caution": short_caution.caution(row),
+        "short_levels": {"watch": short_caution.SHORT_FLOOR, "elevated": model_settings.LIVE.short_caution,
+                         "high": model_settings.LIVE.short_warning},  # the information card's scale
         "model": _model_assumptions(row.get("valuation_method")),
         "watchlists": company_watchlists(session, company.company_id, row),
         "position": None if position is None else {

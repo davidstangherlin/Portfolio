@@ -16,6 +16,7 @@ node_modules/
 # Downloaded ASX Investment Products reports (src/etf/asx_report.py) - fetched, not code.
 data/asx_reports/
 data/graph/
+data/ASIC/
 
 # Database backups (pg_dump): your own data, never committed.
 *.dump

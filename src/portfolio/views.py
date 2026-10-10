@@ -16,6 +16,7 @@ from src.models import Company, Holding, Portfolio
 from src.portfolio import cgt
 from src.portfolio.holdings import (discount_rate, list_portfolios, open_parcels, owned_portfolio_ids, realised_gain,
                                     sold_parcels)
+from src.screening import short_caution
 
 ZERO = Decimal("0")
 
@@ -118,11 +119,18 @@ def positions(parcels: list[Holding], closes: dict[str, list[Decimal]], names: d
             "day_change": cgt.to_cents(units * (last[0] - last[1])) if len(last) == 2 else None,
             "action": row["action"] if row else None, "action_reason": row["action_reason"] if row else None,
             "valuation_status": row["valuation_status"] if row else None,
+            "short_caution": _caution_level(row),
             "next_discount_date": next_date,
             "units_pending_discount": sum((p.units for p in pending
                                            if cgt.discount_eligible_from(p.buy_date) == next_date), ZERO),
         })
     return out
+
+
+def _caution_level(row: dict | None) -> str | None:
+    """HIGH / ELEVATED when the share is heavily shorted (awareness only)."""
+    found = short_caution.caution(row) if row else None
+    return found and found["level"]
 
 
 def totals(lines: list[dict]) -> dict:

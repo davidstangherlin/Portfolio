@@ -79,3 +79,26 @@ def test_watchlist_short_interest_trigger(shorted):
     session.commit()
     entry = next(e for e in TestClient(gui.create_app()).get(f"/api/watchlists/{w.watchlist_id}").json()["items"] if e["asx_code"] == "GOOD")
     assert entry["triggered"] and entry["triggers"][0]["label"] == "Short interest above 10%"
+
+
+def test_files_saved_in_the_folder_are_loaded_once(shorted, tmp_path):
+    session, _, _ = shorted
+    (tmp_path / "RR20261005-001-SSDailyAggShortPos.csv").write_bytes(asic_file([("GOOD", 900, 8000, "11.25")]))
+    (tmp_path / "notes.csv").write_text("not an ASIC file")
+    assert sp.load_folder(session, tmp_path) == [(date(2026, 10, 5), 1)]
+    assert sp.load_folder(session, tmp_path) == []  # already loaded
+    assert session.execute(text("SELECT short_percent FROM short_positions WHERE report_date = '2026-10-05'")).scalar() == D("11.25")
+
+
+def test_holdings_carry_the_caution_and_the_company_page_its_scale(shorted):
+    session, _, _ = shorted
+    from src.portfolio.holdings import add_parcel
+    add_parcel(session, "GOOD", D("100"), D("8"), date(2025, 1, 15))
+    session.commit()
+    client = TestClient(gui.create_app())
+    pf = client.get("/api/portfolios").json()
+    pid = (pf.get("portfolios") or pf)[0]["portfolio_id"]
+    lines = {p["asx_code"]: p for p in client.get(f"/api/portfolios/{pid}").json()["positions"]}
+    assert lines["GOOD"]["short_caution"] == "HIGH" and lines["GOOD"]["action"]  # the action itself is unchanged
+    company = client.get("/api/company/GOOD").json()
+    assert company["short_levels"] == {"watch": 2.0, "elevated": 5.0, "high": 10.0} and company["position"]["units"] == 100

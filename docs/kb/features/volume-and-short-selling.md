@@ -3,7 +3,7 @@ id: volume-and-short-selling
 title: Volume and short selling
 category: features
 summary: Daily volume bars under the price chart, and ASIC's short positions as a company card, screener column, Most shorted tab, watchlist trigger and a short-selling caution that never changes the action.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -11,7 +11,7 @@ reviewed: 2026-10-10
 next_review: 2027-01-10
 source: AS_BUILT change log, 2026-10-10
 related: [coattail, screener-actions, watchlists, adr-015-asic-short-positions, rb-short-positions]
-code: [src/ingestion/short_positions.py, src/screening/short_caution.py, src/screening/actions.py, gui.py, web/app.js, web/style.css]
+code: [src/ingestion/short_positions.py, src/screening/short_caution.py, src/portfolio/views.py, src/screening/actions.py, gui.py, web/app.js, web/style.css]
 tables: [short_positions, daily_prices, watchlist_items]
 ---
 
@@ -23,7 +23,7 @@ Show how much of a share traded each day, and whether professional investors are
 
 **Volume.** `daily_prices.volume` (shares traded, from the nightly price load) goes to the company page as `volumes`. `volumeChart()` draws one bar a day under the price chart on the same time axis, with the 63-day (three-month) average as a line; a day over twice that average is drawn darker. The price card's data table gains a Volume column.
 
-**Short positions** (`src/ingestion/short_positions.py`). ASIC publishes one file a day, `RR{yyyymmdd}-001-SSDailyAggShortPos.csv`, about four business days after the day it covers, listing every product's reported short positions, shares on issue and percentage. The nightly step Short Positions fetches every weekday in the last 14 days not yet loaded (a missing file is a holiday or not published yet, tried again next night). `parse()` reads tab or comma files in UTF-16 or UTF-8 and finds its columns by heading words, working out the percentage when that column is missing. `save()` replaces the day and prunes anything older than two years.
+**Short positions** (`src/ingestion/short_positions.py`). ASIC publishes one file a day, `RR{yyyymmdd}-001-SSDailyAggShortPos.csv`, about four business days after the day it covers, listing every product's reported short positions, shares on issue and percentage. The nightly step Short Positions first loads any ASIC files saved by hand in `data/ASIC` (kept out of git) whose day isn't loaded, then fetches every weekday in the last 14 days not yet loaded (a missing file is a holiday or not published yet, tried again next night). `--file` loads one saved file and `--folder` every file in `data/ASIC` (or a folder named). `parse()` reads tab or comma files in UTF-16 or UTF-8 and finds its columns by heading words, working out the percentage when that column is missing. `save()` replaces the day and prunes anything older than two years.
 
 **The short-selling caution** (`src/screening/short_caution.py`). It uses the measures professional short-interest services report, plus the trend:
 
@@ -38,7 +38,7 @@ Show how much of a share traded each day, and whether professional investors are
 
 Most ASX shares have under 1% sold short, so 5% is among the most shorted. Days to cover only counts from 2% short, as a thinly traded share shows many days on a tiny short, and days to cover alone never makes HIGH. The screener view `asx_value_screener` carries `short_percent`, `days_to_cover` and `short_change` (the last two appended), so `suggest_action()` adds "; caution: heavily shorted (X% of shares sold short, Y days to cover): expect sharp price swings; keep any position small" to the reason. The action is unchanged: a BUY stays a BUY, and the rules version is unchanged ([ADR-015](kb:adr-015-asic-short-positions)).
 
-**Where it shows.** The company page: an amber "! Heavily shorted" or "! Shorted" tag beside the action, the caution in the reason, and the Short selling card (sold short, days to cover, change over a month, the caution note and a year's chart). The screener: the % short column (optional, amber when there's a caution) and an amber ! beside the action. Coattail, Most shorted (`GET /api/coattail/shorts`): the 25 most shorted ASX shares on the latest report and the 25 rising fastest over a month, ETFs left out, with the caution mark (without days to cover). Watchlists: Trigger: short interest above (%) on shares (`watchlist_items.short_above`). The AI company tool gives `short_selling` with days to cover and the caution.
+**Where it shows.** The company page: an amber "! Heavily shorted" or "! Shorted" tag beside the action, the caution in the reason, the Short selling card (sold short, days to cover, change over a month, the caution note and a year's chart) and, only when there's a caution, an information card (`shortInfoCard()`): "Buying a shorted share", or "You hold a shorted share" for a holder. It says in plain words what's happening, where the share sits on a four-band scale (Normal under 2%, Watch, Elevated, High; from `short_levels` in the payload, so it follows the settings, with a line when days to cover or a rising trend lifts the caution above the share's band), why the price can swing, and what to check before buying or, for a holder, that shorting isn't a reason to sell on its own. Portfolios: the amber ! beside the action of a held share with a caution (`short_caution` on each holding line), whose hover adds "Not a reason to sell on its own". Deliberately not on the dashboard: Needs attention is for things to act on, and the watchlist trigger is the opt-in route (agreed with the owner, 2026-10-10). The screener: the % short column (optional, amber when there's a caution) and an amber ! beside the action. Coattail, Most shorted (`GET /api/coattail/shorts`): the 25 most shorted ASX shares on the latest report and the 25 rising fastest over a month, ETFs left out, with the caution mark (without days to cover). Watchlists: Trigger: short interest above (%) on shares (`watchlist_items.short_above`). The AI company tool gives `short_selling` with days to cover and the caution.
 
 ## Code map
 
@@ -47,8 +47,9 @@ Most ASX shares have under 1% sold short, so 5% is among the most shorted. Days 
 - `src/screening/actions.py`: adds the caution to the reason
 - `src/settings.py`: `short_caution`, `short_warning`, `days_to_cover_caution`, `days_to_cover_high`
 - `src/watchlist/lists.py`: the short interest trigger
+- `src/portfolio/views.py`: `short_caution` on each holding line
 - `gui.py`: company payload (`volumes`, `short_interest`, `short_caution`), screener rows (`short_caution`, `days_to_cover`), `/api/coattail/shorts`
-- `web/app.js`: `volumeChart()`, `cautionTag()`, `shortInterestCard()`, `renderShorts()`
+- `web/app.js`: `volumeChart()`, `cautionTag()`, `shortInterestCard()`, `shortInfoCard()`, `renderShorts()`, the holdings table's caution mark
 - `scripts/daily_refresh.ps1`: the Short Positions step, after Share Registries and before Valuation
 
 ## Data

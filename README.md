@@ -400,9 +400,12 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   a year's chart; the screener has an optional **% short** column; watchlists can trigger on
   short interest above a level. Shorted shares are volatile, so Sift adds an amber caution
   (! Shorted from 5% short, ! Heavily shorted from 10%, or sooner with many days to cover)
-  beside the action and in its reason, but never changes the action: you can still buy, with
-  care. Loaded nightly (Short Positions step); check with
-  `python -m src.ingestion.short_positions --dry-run`, and load a year of history with `--days 365`.
+  beside the action and in its reason (and beside shares you hold in your portfolios), but never
+  changes the action: you can still buy, with care. A heavily shorted company's page also explains
+  the caution in plain words (Buying a shorted share, or You hold a shorted share). Loaded nightly
+  (Short Positions step); check with `python -m src.ingestion.short_positions --dry-run`, and load
+  a year of history with `--days 365`. Files saved from ASIC's website into `data\ASIC` load with
+  `--folder` (and nightly).
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.
