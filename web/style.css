@@ -1129,3 +1129,32 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 .registry-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .registry-edit select, .registry-edit input { min-width: 0; max-width: 100%; }
 .stats.drp-stats { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+/* Importing a broker's export (docs/kb/features/broker-import.md) */
+.import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; margin-top: 8px; }
+.import-map select { width: 100%; }
+.import-cols summary { cursor: pointer; color: var(--accent); margin-top: 10px; }
+.import-new { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.import-lines td { white-space: nowrap; }
+.import-lines td:last-child { white-space: normal; min-width: 160px; }
+
+/* ---------- printing: A4 landscape, light, no menus or buttons ---------- */
+.print-head { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { background: #fff !important; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .topbar, .imp-banner, .tooltip, .modal, .user-menu, .scope-menu, .menu-btn,
+  .btn, .icon-btn, .icon-x, .info, .dl-tools, .dl-foot, .tf-controls, .tf-chips, .tf-builder,
+  .registry-admin, .watch-btn, .form-actions, .back, .dl-bar, .dl-btn, .dl-grip, .dl-hidden, input[type="file"] { display: none !important; }
+  .print-head { display: block; font-size: 11px; color: #555; margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid #ccc; }
+  main { max-width: none; padding: 0; }
+  .card, .stats, .table-wrap { box-shadow: none !important; break-inside: avoid; page-break-inside: avoid; }
+  .cards { gap: 8px; }
+  .table-wrap { overflow: visible !important; }
+  table { break-inside: auto; }
+  tr { break-inside: avoid; }
+  a { color: inherit; text-decoration: none; }
+  .foot { padding: 6px 0 0; }
+}
+@media (max-width: 600px) { .import-lines td:last-child { min-width: 0; } .import-lines .import-reason { display: none; } }

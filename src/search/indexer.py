@@ -94,6 +94,8 @@ PAGES = [
     ("LICs", "#/lics", "Under Screener: listed investment companies and trusts, priced against their net tangible assets."),
     ("Watchlists", "#/watchlists", "Your named lists of companies, ETFs and LICs to follow, with notes and triggers."),
     ("Portfolios", "#/portfolios", "Your portfolios, holdings, trades, CGT and the tax report."),
+    ("Import from a broker", "#/portfolios/import", "Bring your shares in from CommSec, Sharesies, CMC Invest, nabtrade, ANZ, Moomoo, Tiger, "
+     "Interactive Brokers, eToro and others: a trade history or holdings export as CSV or Excel."),
     ("Track record", "#/track-record", "Whether Sift's suggestions have worked: accuracy by action, what you missed, what now."),
     ("Coattail", "#/coattail", "Follow the smart money: which fund managers hold the screener's companies and what they're buying and selling."),
     ("Help", "#/help", "The knowledge base: every term and screen explained. The ? beside your profile picture."),

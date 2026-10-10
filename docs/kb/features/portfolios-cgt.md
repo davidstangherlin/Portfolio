@@ -3,11 +3,11 @@ id: portfolios-cgt
 title: Portfolios, parcels and CGT records
 category: features
 summary: Parcel-level holdings across several portfolios, each with its owner's tax type: buys, sales with parcel splitting, FIFO or minimum-tax order, archiving and the CGT report.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §19
 related: [accounts-owners, screener-actions, web-gui]
@@ -65,6 +65,8 @@ python portfolio.py delete 1a2b3c4d    # fix a data-entry mistake
 **Write protection.** The same password as viewing. Because a browser sends saved Basic-auth credentials with any site's request, a password alone wouldn't stop another website's page posting to Sift, so every POST, PATCH, PUT or DELETE must also pass `_same_site_write()`: the `X-Sift: 1` header that Sift's own script adds (another site can't add a custom header without a CORS permission Sift never grants), `Sec-Fetch-Site` same-origin when the browser sends it, and an `Origin` whose host matches. Anything else gets a 403 before reaching a route.
 
 **CLI.** `portfolio.py portfolios [list|create|archive|unarchive] [NAME] [--tax-type ...]`, `--portfolio/-p` on `add`, `sell`, `list` and `cgt`, and `undo-sale PARCEL`. `list` and `cgt` show every portfolio separately, each `cgt` report at its own discount rate.
+
+**Importing from a broker** (added 2026-10-10): parcels can also come from a broker's CSV or Excel export; see [Importing from a broker, and printing](kb:broker-import).
 
 ## Code map
 

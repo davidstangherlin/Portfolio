@@ -933,6 +933,20 @@
     "drp-and-registry"
    ],
    "notes": "Open each link in REGISTRIES (src/registries.py) once a year and after a registry rebrands."
+  },
+  {
+   "id": "IMP-065",
+   "title": "Prove each broker's export with a real file",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "The importer recognises brokers by their usual column names; a broker's real file may name or lay out a column differently.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "broker-import"
+   ],
+   "notes": "Start with CommSec, Sharesies and CMC Invest (the owner's brokers): a real export with figures blanked becomes a test in tests/integration/test_broker_import.py."
   }
  ]
 }

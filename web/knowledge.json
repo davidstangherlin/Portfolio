@@ -74,7 +74,7 @@
     "ETFs: every ETF on the ASX, kept apart from shares, with its fee, size, yield and returns. Click one for its page: performance against its category and a fund you choose, growth of $10,000, distributions and fund facts.",
     "LICs: every listed investment company and trust on the ASX, kept apart from shares and ETFs, with the share price against net tangible assets (NTA), fee, yield and returns.",
     "Company pages: the score wheel and its 30 checks, price against estimated value, the four value tests, quality markers, red flags, key ratios and charts of price, margin of safety and the financials.",
-    "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records.",
+    "Watchlists and Portfolios: your lists of companies to follow, and your holdings with trades and CGT records. Import from a broker brings your shares in from a CSV or Excel export.",
     "Track record: whether Sift's suggestions have actually worked.",
     "Coattail: follow the smart money. The fund managers holding the screener's companies, as cards you can open, and which companies they're adding to and cutting (Big funds); ASX director trades; and substantial holders crossing, raising or cutting 5%.",
     "Help: this page. Hover any underlined heading or label in Sift for a short explanation; on a phone, tap the small i.",
@@ -2468,6 +2468,78 @@
      "text": "Share registries and how to find yours (CommSec)",
      "href": "https://www.commsec.com.au/support/help-centre/About-the-sharemarket/share-registry-what-it-is-how-to-find-it.html"
     }
+   ]
+  },
+  {
+   "id": "broker-import",
+   "title": "Importing from your broker",
+   "category": "portfolios",
+   "aliases": [
+    "import",
+    "broker import",
+    "csv",
+    "excel",
+    "commsec",
+    "sharesies",
+    "cmc invest",
+    "nabtrade",
+    "anz share investing",
+    "moomoo",
+    "tiger brokers",
+    "interactive brokers",
+    "etoro",
+    "selfwealth",
+    "stake",
+    "superhero",
+    "upload trades",
+    "bring in my shares"
+   ],
+   "definition": "Bring your shares into a Sift portfolio from your broker's export, a CSV or Excel file of your trade history or your current holdings.",
+   "body": [
+    "Where: Portfolios, Import from a broker. Choose the file, check what Sift found, choose the portfolio (or name a new one), untick anything you don't want, then Import. Nothing is saved until you press Import.",
+    "Trade history is best: each buy and sale comes in with its date, price and brokerage, so parcels, the capital gains tax discount and realised gains are exact. Sales are applied first in, first out after the buys before them. CommSec's transaction file includes brokerage in its debit and credit amounts; Sift works it out.",
+    "Holdings now (what you own today, at an average cost) works too, but has no buy dates: give the date you bought (your earliest, if you know it), and edit any parcel afterwards. The date decides when the 12-month CGT discount applies.",
+    "Getting the file: in your broker's website or app, look for your transaction or trade history (or holdings), choose the period, and Download or Export as CSV or Excel. The import page names the usual place for each broker.",
+    "Sift recognises the columns most brokers use: CommSec, Sharesies, CMC Invest, nabtrade, ANZ Share Investing, Moomoo, Tiger Brokers, Interactive Brokers, eToro, Selfwealth, Stake, Superhero, or your own spreadsheet. If it guesses a column wrong, open Columns and choose the right one.",
+    "Only ASX shares come in. Lines on another market (US, NZ) or in another currency are listed and skipped; dividends, deposits and fees are skipped. A code Sift doesn't know is left unticked for you to check.",
+    "Importing the same file twice adds nothing: a line already in the portfolio (same code, date, units and price) is marked Already in Sift.",
+    "Check the imported parcels against your broker's statements, especially brokerage and buy dates, before relying on the tax figures."
+   ],
+   "related": [
+    "parcel",
+    "drp"
+   ],
+   "links": [
+    {
+     "text": "Import from a broker",
+     "href": "#/portfolios/import"
+    },
+    {
+     "text": "Portfolios",
+     "href": "#/portfolios"
+    }
+   ]
+  },
+  {
+   "id": "print-pdf",
+   "title": "Printing or saving a page as PDF",
+   "category": "guides",
+   "aliases": [
+    "print",
+    "pdf",
+    "save as pdf",
+    "a4",
+    "landscape",
+    "printout"
+   ],
+   "definition": "Print any page of Sift, or save it as a PDF, on A4 landscape.",
+   "body": [
+    "Open your avatar (top right) and choose Print or save as PDF, or press Ctrl+P (Cmd+P on a Mac). In the print window choose your printer, or Save as PDF (Microsoft Print to PDF on Windows) to keep a file.",
+    "The page prints on A4 landscape in the light theme, whatever theme you use on screen, without the menu, buttons and filters. A heading line names the page and when it was printed. Charts and tables keep their colours.",
+    "Long pages run over several A4 pages; cards are kept whole where they fit. Open any data tables or sections you want included before printing."
+   ],
+   "related": [
+    "getting-around"
    ]
   }
  ]

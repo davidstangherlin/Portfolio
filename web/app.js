@@ -1549,13 +1549,119 @@ async function renderPortfolios(query) {
   const active = d.portfolios.filter((p) => !p.archived), archived = d.portfolios.filter((p) => p.archived);
   const wantNew = new URLSearchParams(query || "").get("new") === "1";
   app.replaceChildren(...[
-    pageHead("Portfolios", active.length ? `${plural(active.length, "active portfolio")}` : null),
+    pageHead("Portfolios", active.length ? `${plural(active.length, "active portfolio")}` : null,
+      h("a", { class: "btn", href: "#/portfolios/import", text: "Import from a broker" })),
     active.length ? h("div", { class: "cards" }, active.map(portfolioCard)) : h("p", { class: "empty", text: "No portfolios yet. Create one below, then record your first buy." }),
     archived.length ? h("details", { class: "archived" }, h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), `Archived (${archived.length})`),
       h("div", { class: "cards" }, archived.map(portfolioCard))) : null,
     h("div", { class: "cards", style: "margin-top:16px" }, newPortfolioCard(d.tax_types, wantNew)),
   ].filter(Boolean));
   if (!wantNew) window.scrollTo(0, 0);
+}
+
+/* ---------- importing a broker's export (docs/kb/features/broker-import.md) ---------- */
+const IMPORT_FIELDS = [["code", "ASX code"], ["side", "Buy or sell"], ["units", "Units"], ["price", "Price"], ["avg_cost", "Average cost"],
+  ["total_cost", "Total cost"], ["date", "Date"], ["brokerage", "Brokerage"], ["details", "Details (B 100 BHP @ 45.00)"],
+  ["debit", "Debit"], ["credit", "Credit"], ["market", "Market"], ["currency", "Currency"]];
+const IMPORT_STATUS = { new: ["Ready", "under"], duplicate: ["Already in Sift", "none"], check: ["Check the code", "fair"], skip: ["Skipped", "none"] };
+
+async function renderImport() {
+  app.replaceChildren(pageHead("Import from a broker", null), h("p", { class: "loading", text: "Loading..." }));
+  const pf = await getJSON("/api/portfolios");
+  const portfolios = pf.portfolios.filter((p) => !p.archived);
+  const st = { filename: null, content: null, broker: "", kind: "", mapping: {}, holdings_date: todayIso(), portfolio_id: portfolios.length ? portfolios[0].portfolio_id : "", d: null };
+  const msg = formMessage(), out = h("div");
+  const brokerSel = h("select", { "aria-label": "Broker", onchange: () => { st.broker = brokerSel.value; if (st.content) load(); } },
+    h("option", { value: "", text: "Work it out from the file" }));
+  const file = h("input", { type: "file", accept: ".csv,.txt,.xlsx,.xlsm", "aria-label": "Your broker's export" });
+  file.addEventListener("change", () => {
+    const f = file.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { st.filename = f.name; st.content = String(reader.result).split(",")[1] || ""; st.mapping = {}; st.kind = ""; load(); };
+    reader.readAsDataURL(f);
+  });
+
+  async function load() {
+    showMessage(msg, "Reading the file...", true);
+    try {
+      st.d = await send("POST", "/api/portfolios/import/preview", { filename: st.filename, content: st.content, broker: st.broker || null,
+        kind: st.kind || null, mapping: st.mapping, holdings_date: st.holdings_date, portfolio_id: st.portfolio_id || null });
+      msg.textContent = "";
+      if (brokerSel.options.length === 1) brokerSel.append(...st.d.brokers.map((b) => h("option", { value: b.broker_id, text: b.name })));
+      brokerSel.value = st.broker || "";
+      draw();
+    } catch (err) { showMessage(msg, err.message, false); out.replaceChildren(); }
+  }
+
+  function draw() {
+    const d = st.d;
+    const ticks = new Map(d.lines.map((l) => [l.row, l.include]));
+    const kindSeg = h("div", { class: "segmented", role: "group", "aria-label": "What the file holds" },
+      [["trades", "Trade history"], ["holdings", "Holdings now"]].map(([k, t]) => h("button", { type: "button", "aria-pressed": String(d.kind === k), text: t,
+        onclick: () => { st.kind = k; load(); } })));
+    const when = d.kind === "holdings" ? h("label", { class: "field" }, h("span", { class: "field-label", text: "Bought on" }),
+      h("input", { type: "date", value: d.holdings_date, max: todayIso(), onchange: (e) => { st.holdings_date = e.target.value; load(); } }),
+      h("span", { class: "field-hint", text: "A holdings file has no buy dates. Use your earliest buy date if you know it; you can edit each parcel later. It decides when the CGT discount applies." })) : null;
+    const cols = h("div", { class: "import-map" }, IMPORT_FIELDS.filter(([f]) => d.kind === "trades" ? !["avg_cost", "total_cost"].includes(f) : !["side", "date", "brokerage", "details", "debit", "credit"].includes(f)).map(([f, label]) =>
+      h("label", { class: "field" }, h("span", { class: "field-label", text: label }),
+        h("select", { onchange: (e) => { st.mapping[f] = e.target.value === "" ? "" : Number(e.target.value); load(); } },
+          h("option", { value: "", text: "Not in this file", selected: d.mapping[f] === undefined }),
+          d.headings.map((hd, i) => h("option", { value: i, text: hd, selected: d.mapping[f] === i }))))));
+    const newName = h("input", { maxlength: 60, placeholder: "e.g. CommSec", value: "", "aria-label": "New portfolio name" });
+    const taxSel = h("select", { "aria-label": "Tax type" }, pf.tax_types.map((t) => h("option", { value: t.tax_type, text: t.label })));
+    const dest = h("select", { "aria-label": "Import into", onchange: (e) => { st.portfolio_id = e.target.value === "new" ? "" : e.target.value; newBox.hidden = e.target.value !== "new"; load(); } },
+      portfolios.map((p) => h("option", { value: p.portfolio_id, text: p.name, selected: p.portfolio_id === st.portfolio_id })),
+      h("option", { value: "new", text: "A new portfolio...", selected: !st.portfolio_id }));
+    const newBox = h("div", { class: "import-new", hidden: !!st.portfolio_id }, newName, taxSel);
+    const c = d.counts;
+    const rows = d.lines.map((l) => {
+      const [label, pill] = IMPORT_STATUS[l.status];
+      const box = h("input", { type: "checkbox", checked: l.include, disabled: l.status === "skip" || l.status === "duplicate", "aria-label": `Import row ${l.row}`,
+        onchange: (e) => ticks.set(l.row, e.target.checked) });
+      return h("tr", { class: "static" }, h("td", {}, box), h("td", { class: "num opt", text: l.row }), h("td", { text: l.date ? longDate(l.date) : "" }),
+        h("td", { class: "strong", text: l.code || "" }), h("td", { class: "opt", text: l.side === "SELL" ? "Sell" : l.side === "BUY" ? "Buy" : "" }),
+        h("td", { class: "num", text: l.units === null ? "" : fmt(l.units, 0) }), h("td", { class: "num", text: l.price === null ? "" : money(l.price, 3) }),
+        h("td", { class: "num opt", text: l.brokerage ? money(l.brokerage) : "" }),
+        h("td", { title: l.reason || "" }, h("span", { class: `pill ${pill}`, text: label }), l.reason ? h("div", { class: "sub-text import-reason", text: l.reason }) : null));
+    });
+    const go = h("button", { type: "button", class: "btn primary", text: "Import ticked lines", onclick: async () => {
+      if (!st.portfolio_id && !newName.value.trim()) { showMessage(msg2, "Name the new portfolio first.", false); return; }
+      try {
+        const r = await send("POST", "/api/portfolios/import", { filename: st.filename, content: st.content, broker: st.broker || d.broker, kind: d.kind,
+          mapping: d.mapping, holdings_date: d.holdings_date, portfolio_id: st.portfolio_id || null, new_portfolio: st.portfolio_id ? null : newName.value,
+          tax_type: taxSel.value, rows: [...ticks].filter(([, on]) => on).map(([row]) => row) });
+        afterChange();
+        out.replaceChildren(card("Imported", null,
+          h("p", {}, `${plural(r.bought, "buy", "buys")} and ${plural(r.sold, "sale")} added to ${r.portfolio}.`),
+          r.problems.length ? [h("p", { class: "error", text: `${plural(r.problems.length, "line")} couldn't be added:` }),
+            h("ul", {}, r.problems.map((p) => h("li", { text: `Row ${p.row} (${p.code}): ${p.reason}` })))] : null,
+          h("p", {}, h("a", { class: "btn primary", href: `#/portfolio/${r.portfolio_id}`, text: "Open the portfolio" }))));
+        window.scrollTo(0, 0);
+      } catch (err) { showMessage(msg2, err.message, false); }
+    } });
+    const msg2 = formMessage();
+    out.replaceChildren(h("div", { class: "cards" },
+      card("2. Check what was found", `${d.filename}: ${d.broker !== "other" ? `looks like ${d.brokers.find((b) => b.broker_id === d.broker).name}. ` : ""}${plural(c.new, "line")} ready${c.check ? `, ${c.check} to check` : ""}${c.duplicate ? `, ${c.duplicate} already in Sift` : ""}${c.skip ? `, ${c.skip} skipped` : ""}.`,
+        kindSeg, when,
+        d.missing.length ? h("p", { class: "error", text: `Choose the ${d.missing.join(" and ")} column below.` }) : null,
+        h("details", { class: "import-cols", open: d.missing.length > 0 }, h("summary", { text: "Columns" }), cols)),
+      card("3. Where to put them", null, h("label", { class: "field" }, h("span", { class: "field-label", text: "Import into" }), dest), newBox,
+        h("p", { class: "hint", text: "Lines already in that portfolio (same code, date, units and price) are left out, so importing the same file twice adds nothing." }))),
+      h("div", { class: "table-wrap" }, h("table", { class: "grid compact import-lines" },
+        h("thead", {}, h("tr", {}, [["", null], ["Row", "num opt"], ["Date"], ["Code"], ["Side", "opt"], ["Units", "num"], ["Price", "num"], ["Brokerage", "num opt"], ["Status"]]
+          .map(([t, cl]) => h("th", { scope: "col", class: cl || null, text: t })))),
+        h("tbody", {}, rows))),
+      h("div", { class: "form-actions" }, go, msg2));
+  }
+
+  app.replaceChildren(pageHead("Import from a broker", "Your broker's export into one of your portfolios"),
+    h("p", { class: "hint page-note" }, "Download your trade history (best: exact dates for capital gains tax) or your current holdings from your broker as CSV or Excel, then choose the file. Nothing is saved until you press Import. ", helpLink("broker-import")),
+    h("div", { class: "cards" }, card("1. Choose the file", "From CommSec, Sharesies, CMC Invest, nabtrade, ANZ, Moomoo, Tiger, Interactive Brokers, eToro, Selfwealth, Stake, Superhero or a spreadsheet of your own. Only ASX shares come in; other markets are listed and skipped.",
+      h("label", { class: "field" }, h("span", { class: "field-label", text: "Your broker's export" }), file),
+      h("label", { class: "field" }, h("span", { class: "field-label", text: "Broker" }), brokerSel), msg)),
+    out);
+  window.scrollTo(0, 0);
 }
 
 /* Buy or sell form. Sell offers only what the portfolio holds, and which parcels go first. */
@@ -3939,6 +4045,30 @@ function workingsBody(d, choose) {
   return [head, ...sections];
 }
 
+/* ---------- printing (Print or save as PDF, avatar menu; also Ctrl+P) ----------
+   A4 landscape (style.css, @media print). Printed in the light theme whatever
+   the screen uses, with a heading naming the page and the date; charts are
+   redrawn in print colours and back again afterwards. */
+let printedTheme = null;
+window.addEventListener("beforeprint", () => {
+  const root = document.documentElement;
+  printedTheme = root.getAttribute("data-theme");
+  root.setAttribute("data-theme", "light");
+  const title = (document.querySelector("#app h1") || {}).textContent || "Sift";
+  const sub = (document.querySelector("#app .page-head .sub") || {}).textContent || "";
+  document.getElementById("print-head")?.remove();
+  app.before(h("div", { id: "print-head", class: "print-head", text:
+    `Sift  |  ${title}${sub ? `: ${sub}` : ""}  |  printed ${new Date().toLocaleString("en-AU", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}` }));
+  slots.forEach((sl) => { delete sl.el.dataset.w; });
+  drawSlots();
+});
+window.addEventListener("afterprint", () => {
+  if (printedTheme) document.documentElement.setAttribute("data-theme", printedTheme);
+  document.getElementById("print-head")?.remove();
+  slots.forEach((sl) => { delete sl.el.dataset.w; });
+  drawSlots();
+});
+
 /* ---------- you: avatar menu, preferences, shortcuts, impersonation (§35) ---------- */
 const THEME_KEY = "sift-theme";  // kept in the browser too, so the page opens in the right theme before Sift answers
 function applyTheme(choice) {
@@ -4033,6 +4163,7 @@ async function endImpersonation() {
   document.addEventListener("click", () => setOpen(false));
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) { setOpen(false); btn.focus(); } });
   document.getElementById("shortcuts-open").addEventListener("click", openShortcuts);
+  document.getElementById("print-page").addEventListener("click", () => { setOpen(false); setTimeout(() => window.print(), 50); });
   document.getElementById("impersonate-open").addEventListener("click", openImpersonate);
   try { const t = localStorage.getItem(THEME_KEY); if (t) applyTheme(t); } catch (e) { /* follow the system */ }
 })();
@@ -4466,6 +4597,7 @@ const ROUTES = [
   [/^#\/help\/([a-z0-9-]+)$/, "help", (m) => renderHelp(undefined, m[1])],
   [/^#\/watchlists(?:\?(.*))?$/, "watchlists", (m) => renderWatchlists(m[1])],
   [/^#\/watchlist\/([0-9a-f-]{36})$/, "watchlists", (m) => renderWatchlist(m[1])],
+  [/^#\/portfolios\/import$/, "portfolios", () => renderImport()],
   [/^#\/portfolios(?:\?(.*))?$/, "portfolios", (m) => renderPortfolios(m[1])],
   [/^#\/portfolio\/([0-9a-f-]{36})$/, "portfolios", (m) => renderPortfolio(m[1])],
   [/^#\/search(?:\?(.*))?$/, "search", (m) => renderSearch(m[1] || "")],

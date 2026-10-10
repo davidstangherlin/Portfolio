@@ -52,7 +52,7 @@ from src.etf import profiles as fund_profiles, views as etf_views
 from src.ingestion.insights_ingestion import insights_payload
 from src.models import Company, DailyPrice, DividendPayment, FinancialReport, ValuationMetric
 from src.models import Holding, Portfolio
-from src.portfolio import cgt, holdings as parcels_module, trade_input, views as portfolio_views
+from src.portfolio import cgt, holdings as parcels_module, importer, trade_input, views as portfolio_views
 from src.portfolio.holdings import HoldingsError
 from src import preferences
 from src.coattail import notice_views
@@ -1026,6 +1026,21 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             fields = trade_input.parse_portfolio(body)
             return portfolio_views.portfolio_info(parcels_module.create_portfolio(session, **fields))
         return change(action)
+
+    # ---------- importing a broker's export (docs/kb/features/broker-import.md) ----------
+    @app.post("/api/portfolios/import/preview")
+    def api_import_preview(body: dict = Body(...)):
+        """What a broker's file holds and what would be imported. Saves nothing."""
+        with get_session() as session:
+            try:
+                return JSONResponse(_json_ready(importer.preview(session, body, date.today())))
+            except HoldingsError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
+
+    @app.post("/api/portfolios/import")
+    def api_import(body: dict = Body(...)):
+        """Import the ticked lines into the chosen portfolio, or a new one."""
+        return change(lambda session: importer.apply(session, body, date.today()))
 
     @app.get("/api/portfolios/{portfolio_id}")
     def api_portfolio(portfolio_id: str):

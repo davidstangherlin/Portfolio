@@ -316,7 +316,10 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Portfolios:** keep several portfolios (for example your own shares, a family trust and a
   self-managed super fund), each with its owner's tax type, which sets its capital gains tax
   (CGT) discount: individual or trust 50%, SMSF 33⅓%, company none. The Portfolios menu lists
-  them; **All portfolios** shows a card for each and a form to create one. Each portfolio's page
+  them; **All portfolios** shows a card for each and a form to create one, and **Import from a
+  broker** brings shares in from a CSV or Excel export (trade history or holdings) from CommSec,
+  Sharesies, CMC Invest, nabtrade, ANZ, Moomoo, Tiger, Interactive Brokers, eToro and others, with
+  a preview to check first (only ASX shares; nothing added twice). Each portfolio's page
   has its holdings, a **Record a trade** form (buy, or sell with oldest parcels first, smallest
   taxable gain first, or one chosen parcel), its open parcels, its sales, CGT by financial year
   and its settings (rename, change tax type, archive, delete). Mistakes: **Delete** removes a
@@ -395,7 +398,8 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
 - **Summary strip:** the top of each company page shows share price, estimated value, margin of
   safety and **implied upside** ((value - price) / price, which is not the same as margin of
   safety), followed by the valuation model and its exact assumptions.
-- **You (avatar, top right):** Profile (your display name), Preferences and Keyboard shortcuts;
+- **You (avatar, top right):** Profile (your display name), Preferences, Keyboard shortcuts and
+  **Print or save as PDF** (any page on A4 landscape, light theme, without menus or buttons);
   admins also get Impersonate user, Users, Model and rules and What-if scenarios. Preferences
   are saved to your account so they follow you to any browser: theme (Dark, the default, or Light),
   compact spacing, wrapping long names, help tips, reduce motion, patterns and data tables for
