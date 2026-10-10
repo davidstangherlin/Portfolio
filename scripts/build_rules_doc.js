@@ -259,6 +259,14 @@ add(
     ["Still falling", "price_signal = NEW LOWS", "price still making new lows"],
     ["Data gaps", "data_confidence = LOW", "low data confidence, verify the inputs"],
   ], [0.22, 0.28, 0.50]),
+  h2("Short-selling caution (not a red flag)"),
+  p("Heavily shorted shares are volatile, so Sift adds a caution to the reason but never changes the action: a BUY stays a BUY. " +
+    "It uses ASIC's daily short positions (about four business days behind) and the two measures professional short-interest services report: " +
+    "short interest (shares sold short / shares on issue) and days to cover (shares sold short / average daily volume over the 20 trading days to the report)."),
+  table(["Level", "Trigger", "Wording in the reason"], [
+    ["HIGH", "short_percent at or above 10%, or at or above 5% with days_to_cover at or above 10", "caution: heavily shorted (X% of shares sold short, Y days to cover): expect sharp price swings; keep any position small"],
+    ["ELEVATED", "short_percent at or above 5%, or at or above 2% with days_to_cover at or above 5 or short_change up 2 points or more in a month", "caution: shorted (X% of shares sold short, Y days to cover): expect bigger price swings than usual"],
+  ], [0.14, 0.43, 0.43]),
 );
 
 // 10. Suggested actions

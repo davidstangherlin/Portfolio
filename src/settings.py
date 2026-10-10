@@ -48,6 +48,10 @@ class ModelSettings:
     revenue_trend_ratio: Decimal = D("0.05")
     min_mos_trend: Decimal = D("5")
     payout_warning: Decimal = D("150")
+    short_caution: Decimal = D("5")
+    short_warning: Decimal = D("10")
+    days_to_cover_caution: Decimal = D("5")
+    days_to_cover_high: Decimal = D("10")
     overvalued_review: Decimal = D("-50")
     # Score wheel (the checks that don't simply reuse a value test)
     score_mos_strong: Decimal = D("40")
@@ -76,7 +80,7 @@ class Setting:
     key: str
     group: str
     label: str
-    unit: str           # "%" (stored as a percent), "rate" (stored as a fraction, shown as %), "x", "years", "points", "ratio"
+    unit: str           # "%" (stored as a percent), "rate" (stored as a fraction, shown as %), "x", "years", "points", "ratio", "days"
     minimum: Decimal
     maximum: Decimal
     formula: str
@@ -123,6 +127,14 @@ SETTINGS: tuple[Setting, ...] = (
             "Margin of safety change over 30 days above this", "Momentum, BUY and WATCH reasons, score wheel", "margin-of-safety-trend"),
     Setting("payout_warning", "markers", "Payout ratio red flag above", "%", D("50"), D("1000"),
             "Dividend / earnings per share", "Red flags", "payout-ratio"),
+    Setting("short_caution", "markers", "Short-selling caution: ELEVATED from", "%", D("1"), D("50"),
+            "Shares reported sold short / shares on issue (ASIC, about four business days behind)", "Short-selling caution", "short-selling"),
+    Setting("short_warning", "markers", "Short-selling caution: HIGH from", "%", D("1"), D("50"),
+            "Shares reported sold short / shares on issue", "Short-selling caution", "short-selling"),
+    Setting("days_to_cover_caution", "markers", "Days to cover: ELEVATED from", "days", D("1"), D("60"),
+            "Shares sold short / average daily volume over 20 trading days (counts from 2% sold short)", "Short-selling caution", "short-selling"),
+    Setting("days_to_cover_high", "markers", "Days to cover: HIGH from (with ELEVATED short interest)", "days", D("1"), D("100"),
+            "Shares sold short / average daily volume over 20 trading days", "Short-selling caution", "short-selling"),
     Setting("overvalued_review", "markers", "Held shares: REVIEW below margin of safety", "%", D("-500"), D("0"),
             "A held share this far above estimated value is flagged for review", "REVIEW", "suggested-action"),
     Setting("score_mos_strong", "score", "Value: margin of safety above (second level)", "%", D("0"), D("95"),
@@ -208,6 +220,10 @@ def check(s: ModelSettings) -> None:
         raise SettingsError("Score wheel: the second debt-to-equity level must be below the value test's")
     if s.score_yield_high <= s.min_yield:
         raise SettingsError("Score wheel: the second yield level must be above the value test's")
+    if s.short_warning <= s.short_caution:
+        raise SettingsError("Short-selling caution: HIGH must start above ELEVATED")
+    if s.days_to_cover_high <= s.days_to_cover_caution:
+        raise SettingsError("Days to cover: HIGH must start above ELEVATED")
 
 
 def differences(settings: ModelSettings, base: ModelSettings = LIVE) -> dict[str, tuple]:

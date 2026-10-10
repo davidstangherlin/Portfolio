@@ -373,7 +373,9 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   announcement lists with each notice's PDF read for the details; they also show on each
   company's page and, for your own companies, on the dashboard. Check it works on your PC with
   `python -m src.coattail.notices --dry-run`; `--mine` loads six months of history for the
-  companies you hold or watch.
+  companies you hold or watch. The Most shorted tab lists the ASX shares with the largest
+  share of their stock sold short, and those rising fastest, from ASIC's daily short position
+  report (about four business days behind).
 - **Screener:** every company with a mini score wheel, price, margin of safety, ROE,
   debt/equity, grossed-up yield, the four Y/N tests and the suggested action. Click the
   action chips to filter, search by code or name, filter by sector, "passes all four" or
@@ -382,7 +384,8 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   where each spoke collapses to one line showing its score; click the pink twisty, or
   "Expand all", to see the checks), price against estimated
   value and the Graham Number, the four value tests, quality markers and red flags, key
-  ratios, a 12-month price chart with the 200-day average and a pink **D** on each
+  ratios, a 12-month price chart with the 200-day average, daily volume bars under it (with
+  the three-month average; a darker bar traded over twice the average) and a pink **D** on each
   ex-dividend date (outlined if it was a one-off excluded from dividend figures; hover for the
   amount; the chart's data table lists them too), margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.
@@ -392,6 +395,14 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   registry with a link to its investor portal (opens in a new tab); Sift reads it from ASX about
   monthly (`python -m src.registries --dry-run` to check) and an admin can correct it. Help, DRP
   explains how leftover cash is carried forward or paid out.
+- **Short selling:** each share's **Short selling** card shows the % of its shares sold short
+  (ASIC), days to cover (shares short / average daily volume) and the change over a month, with
+  a year's chart; the screener has an optional **% short** column; watchlists can trigger on
+  short interest above a level. Shorted shares are volatile, so Sift adds an amber caution
+  (! Shorted from 5% short, ! Heavily shorted from 10%, or sooner with many days to cover)
+  beside the action and in its reason, but never changes the action: you can still buy, with
+  care. Loaded nightly (Short Positions step); check with
+  `python -m src.ingestion.short_positions --dry-run`, and load a year of history with `--days 365`.
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.

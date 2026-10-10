@@ -227,6 +227,14 @@ table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .code { font-weight: 650; }
 .name { color: var(--muted); font-size: 12px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .held-tag { font-size: 10px; font-weight: 600; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+/* Short-selling caution: amber, an icon plus words, never colour alone */
+.caution-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--warning-text);
+  background: var(--warning-bg); border: 1px solid var(--warning); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: 1px; white-space: nowrap; }
+.caution-tag > span[aria-hidden] { font-weight: 800; }
+.caution-tag.high { font-weight: 700; }
+.caution-text { color: var(--warning-text); font-weight: 600; }
+.caution-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warning-bg); color: var(--ink); font-size: 13px; }
+.caution-note .caution-tag { margin-left: 0; }
 .more { display: block; margin: 12px auto; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
 .pos { color: var(--good-text); }
 .neg { color: var(--critical-text); }
@@ -1128,7 +1136,7 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 .registry-admin summary { cursor: pointer; color: var(--accent); font-size: 13px; }
 .registry-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .registry-edit select, .registry-edit input { min-width: 0; max-width: 100%; }
-.stats.drp-stats { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.stats.drp-stats, .stats.fit { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 
 /* Importing a broker's export (docs/kb/features/broker-import.md) */
 .import-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; margin-top: 8px; }
@@ -1158,3 +1166,8 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
   .foot { padding: 6px 0 0; }
 }
 @media (max-width: 600px) { .import-lines td:last-child { min-width: 0; } .import-lines .import-reason { display: none; } }
+
+/* Daily volume under the price chart */
+.vol-bar { fill: var(--s1); opacity: 0.45; }
+.vol-bar.heavy { opacity: 0.95; }
+.volume-chart { margin-top: 4px; }

@@ -342,6 +342,50 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
   return h("div", {}, legend(series, false, extras), svg);
 }
 
+/* Daily volume as thin bars on the same time axis and margins as lineChart
+   (so it lines up under the price chart), with a 3-month average line. */
+const VOLUME_AVG_DAYS = 63;  // about three months of trading days
+function volumeChart({ points, height = 120, width = 640, label }) {
+  const W = width, H = height, m = { l: 52, r: 14, t: 8, b: 20 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const xs = points.map((p) => toDate(p[0]).getTime());
+  const x0 = xs[0], x1 = xs[xs.length - 1] === x0 ? x0 + 1 : xs[xs.length - 1];
+  const avg = points.map((p, i) => {
+    const from = Math.max(0, i - VOLUME_AVG_DAYS + 1), win = points.slice(from, i + 1);
+    return win.length >= 20 ? sum(win.map((q) => q[1])) / win.length : null;
+  });
+  const { hi, ticks } = niceTicks(0, Math.max(1, ...points.map((p) => p[1])));
+  const X = (t) => m.l + ((t - x0) / (x1 - x0)) * pw;
+  const Y = (v) => m.t + ph - (v / hi) * ph;
+  const bw = Math.max(1, Math.min(6, pw / points.length - 1));
+  const shares = (v) => new Intl.NumberFormat("en-AU", { notation: "compact", maximumFractionDigits: 1 }).format(v);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart volume-chart", role: "img", "aria-label": label });
+  for (const t of ticks.filter((t) => t > 0)) {
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: "grid-line" }));
+    svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: shares(t) }));
+  }
+  svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(0), y2: Y(0), class: "base-line" }));
+  points.forEach((p, i) => svg.append(s("rect", { x: X(xs[i]) - bw / 2, y: Y(p[1]), width: bw, height: Math.max(0.5, Y(0) - Y(p[1])),
+    class: avg[i] && p[1] > 2 * avg[i] ? "vol-bar heavy" : "vol-bar" })));
+  const line = avg.map((a, i) => (a === null ? null : `${X(xs[i]).toFixed(1)},${Y(a).toFixed(1)}`)).filter(Boolean);
+  if (line.length > 1) svg.append(s("path", { d: "M" + line.join("L"), fill: "none", stroke: "var(--s2)", "stroke-width": 2, class: "series series-1" }));
+  const cross = s("line", { y1: m.t, y2: m.t + ph, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+  svg.append(cross);
+  const hit = s("rect", { x: m.l, y: m.t, width: pw, height: ph, fill: "transparent" });
+  hit.addEventListener("pointermove", (e) => {
+    const box = svg.getBoundingClientRect();
+    const t = x0 + ((((e.clientX - box.left) / box.width) * W - m.l) / pw) * (x1 - x0);
+    let i = 0, best = Infinity;
+    xs.forEach((x, k) => { const dd = Math.abs(x - t); if (dd < best) { best = dd; i = k; } });
+    cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
+    showTip(e, [h("div", { class: "t-head", text: longDate(points[i][0]) }), tipRow(`${fmt(points[i][1], 0)} shares`, "Volume", "--s1"),
+      avg[i] ? tipRow(`${shares(avg[i])} (${fmt(points[i][1] / avg[i], 1)}x)`, "3-month average", "--s2") : null].filter(Boolean));
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+  svg.append(hit);
+  return h("div", {}, legend([{ name: "Volume (shares traded)", color: "--s1" }, { name: "3-month average", color: "--s2" }], false), svg);
+}
+
 /* Column chart, one baseline at zero, 4px rounded data-ends. */
 function barPath(x, w, yBase, yVal, r = 4) {
   const hgt = Math.abs(yBase - yVal);
@@ -449,6 +493,7 @@ const COLUMNS = [
   { key: "roe", label: "ROE", num: true, opt: true, value: (r) => r.roe },
   { key: "debt_to_equity", label: "Debt/equity", num: true, opt: true, value: (r) => r.debt_to_equity },
   { key: "grossed_up_dividend_yield", label: "Yield (grossed up)", num: true, opt: true, value: (r) => r.grossed_up_dividend_yield },
+  { key: "short_percent", label: "% short", num: true, opt: true, value: (r) => r.short_percent },
   { key: "tests", label: "Value tests", opt: true, opt4: true, value: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
   { key: "action", label: "Action", value: (r) => cache.screener.actions.indexOf(r.action) },
 ];
@@ -464,6 +509,7 @@ const SCREENER_FIELDS = {
   roe: { label: "ROE", type: "num", get: (r) => r.roe, text: (r) => pct(r.roe, 1) },
   debt_to_equity: { label: "Debt/equity", type: "num", get: (r) => r.debt_to_equity, text: (r) => fmt(r.debt_to_equity, 2) },
   grossed_up_dividend_yield: { label: "Yield (grossed up)", type: "num", get: (r) => r.grossed_up_dividend_yield, text: (r) => pct(r.grossed_up_dividend_yield, 1) },
+  short_percent: { label: "% short", type: "num", get: (r) => r.short_percent, text: (r) => pct(r.short_percent, 1) },
   tests: { label: "Value tests", type: "num", get: (r) => ["mos_ok", "roe_ok", "de_ok", "yield_ok"].filter((k) => r[k] === "Y").length },
   action: { label: "Action", type: "text", get: (r) => r.action },
 };
@@ -508,8 +554,9 @@ function screenerRow(r) {
     h("td", { class: "num opt", text: pct(r.roe, 1) }),
     h("td", { class: "num opt", text: fmt(r.debt_to_equity, 2) }),
     h("td", { class: "num opt", text: pct(r.grossed_up_dividend_yield, 1) }),
+    h("td", { class: `num opt${r.short_caution ? " caution-text" : ""}`, text: r.short_percent === null || r.short_percent === undefined ? "" : pct(r.short_percent, 1) }),
     h("td", { class: "opt opt4" }, ynMarks(r)),
-    h("td", {}, badge(r.action)));
+    h("td", {}, badge(r.action), cautionTag(r.short_caution, true)));
 }
 
 async function renderScreener() {
@@ -866,12 +913,15 @@ async function renderCompany(code) {
     // Data table: the last 30 trading days plus every ex-dividend day in the year.
     const closeOn = new Map(d.prices.map((p) => [p[0], p[1]]));
     const divOn = new Map(markers.map((mk) => [mk.date, mk]));
+    const volOn = new Map((d.volumes || []).map((p) => [p[0], p[1]]));
     const rowDates = [...new Set([...d.prices.slice(-30).map((p) => p[0]), ...markers.map((mk) => mk.date)])].sort().reverse();
     priceCard = card("Share price, last 12 months",
       ma.length >= 2 ? null : `200-day average appears once 200 days of prices are stored (${d.prices.length} so far).`,
       chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price`, width: w, height: 260, markers })),
-      tableView(["Date", "Close", "Dividend (ex-date)"], rowDates.map((dt) => [longDate(dt), money(closeOn.get(dt)),
-        divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])));
+      (d.volumes || []).length >= 2 ? chartSlot((w) => volumeChart({ points: d.volumes, label: `${c.asx_code} daily volume`, width: w })) : null,
+      (d.volumes || []).length >= 2 ? h("p", { class: "hint" }, "Volume is the number of shares traded each day. A darker bar traded more than twice its 3-month average: news, results or a big holder buying or selling. ", helpLink("volume")) : null,
+      tableView(["Date", "Close", "Volume", "Dividend (ex-date)"], rowDates.map((dt) => [longDate(dt), money(closeOn.get(dt)),
+        volOn.has(dt) ? fmt(volOn.get(dt), 0) : "", divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])));
   } else {
     priceCard = card("Share price, last 12 months", "Not enough price history yet.");
   }
@@ -905,6 +955,7 @@ async function renderCompany(code) {
     : card("Dividends per share", "No dividends recorded.", abnormalNote);
 
   const drpCard = dividendReinvestCard(d.drp);
+  const shortCard = shortInterestCard(c, d.short_interest, d.short_caution);
   const registryCard = shareRegistryCard(c.asx_code, d.registry);
 
   const held = d.position ? h("p", { class: "hint", text:
@@ -918,6 +969,7 @@ async function renderCompany(code) {
       h("span", { class: "ticker mono", text: c.asx_code }),
       valuationPill(mos, true),
       badge(c.action),
+      cautionTag(d.short_caution && d.short_caution.level),
       watchButton(c.asx_code, d.watchlists)),
     h("p", { class: "co-sub", text: [c.sector, c.industry, c.country].filter(Boolean).join("  |  ") }),
     aboutCompany(c),
@@ -929,9 +981,61 @@ async function renderCompany(code) {
     held,
     watchNote(d.watchlists),
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, drpCard, registryCard,
-      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), companyNoticesCard(c.notices), workingsCard(c.asx_code)),
+      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), shortCard, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- short selling (ASIC, docs/kb/features/volume-and-short-selling.md) ---------- */
+/* A shorted share can still be bought, with care: an amber caution beside
+   the action, never a change to it (src/screening/short_caution.py). */
+const CAUTION_WORDS = { HIGH: "Heavily shorted", ELEVATED: "Shorted" };
+function cautionTag(level, iconOnly = false) {
+  if (!level) return null;
+  const words = `Caution: ${CAUTION_WORDS[level].toLowerCase()}, expect bigger price swings`;
+  return h("span", { class: `caution-tag${level === "HIGH" ? " high" : ""}`, title: words, "aria-label": words, role: "img" },
+    h("span", { "aria-hidden": "true", text: "!" }), iconOnly ? null : h("span", { text: CAUTION_WORDS[level] }));
+}
+function shortInterestCard(c, x, caution) {
+  if (!x) return card("Short selling", "No ASIC short position report for this company yet: they load nightly, about four business days behind.", helpLink("short-selling"));
+  const ch = x.change_points;
+  const el = card("Short selling", `Shares reported sold short to ASIC, as a percentage of all shares on issue. Report of ${longDate(x.report_date)} (ASIC publishes about four business days later).`,
+    h("div", { class: "stats fit" },
+      statTile("Sold short", pct(x.short_percent, 2), caution ? "caution-text" : null, `${fmt(x.short_positions, 0)} shares`),
+      statTile("Days to cover", c.days_to_cover === null || c.days_to_cover === undefined ? NA : fmt(c.days_to_cover, 1), null,
+        "shares short / average daily volume"),
+      statTile("Change over a month", ch === null ? NA : `${ch > 0 ? "+" : ""}${fmt(ch, 2)} pts`, null,
+        ch === null ? "needs a month of reports" : ch > 0 ? "more shorted" : ch < 0 ? "less shorted" : "unchanged")),
+    caution ? h("p", { class: "caution-note" }, cautionTag(caution.level), ` You can still buy, but ${caution.advice}.`) : null,
+    x.history.length >= 2 ? chartSlot((w) => lineChart({ series: [{ name: "% of shares sold short", color: "--s1", points: x.history }],
+      yFmt: (v) => fmt(v, 1) + "%", label: `${c.asx_code} short interest`, width: w, height: 180 })) : null,
+    h("p", { class: "hint" }, "Short sellers profit if the price falls, so a high or rising figure means some professional investors expect it to. You can still buy, with care: heavily shorted shares swing harder on news, both ways. Some shorts are hedges. ", helpLink("short-selling")));
+  el.classList.add("wide");
+  return el;
+}
+
+/* Coattail, Most shorted: the bearish side of the smart money. */
+async function renderShorts() {
+  app.replaceChildren(pageHead("Coattail", "Most shorted"), coattailTabs("shorts"), h("p", { class: "loading", text: "Loading..." }));
+  const d = await getJSON("/api/coattail/shorts");
+  const company = (r) => r.in_sift ? nameCell(r, "SHARE") : h("td", {}, h("span", { class: "code", text: r.asx_code }), h("div", { class: "name", text: r.company_name || "" }));
+  const table = (rows, none) => rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid compact" },
+    h("thead", {}, h("tr", {}, [["Company"], ["Sector", "opt"], ["% short", "num"], ["Change, a month", "num"], ["Shares short", "num opt"]].map(([t, cl]) => h("th", { scope: "col", class: cl || null, text: t })))),
+    h("tbody", {}, rows.map((r) => {
+      const cells = [company(r), h("td", { class: "opt", text: r.sector || "" }), h("td", { class: "num strong" }, pct(r.short_percent, 2), cautionTag(r.caution, true)),
+        h("td", { class: `num ${signClass(r.change_points) === "pos" ? "neg" : signClass(r.change_points) === "neg" ? "pos" : ""}`.trim(),
+          text: r.change_points === null ? NA : `${r.change_points > 0 ? "+" : ""}${fmt(r.change_points, 2)} pts` }),
+        h("td", { class: "num opt", text: fmt(r.short_positions, 0) })];
+      return r.in_sift ? rowTo(`#/company/${r.asx_code}`, ...cells) : h("tr", {}, cells);
+    }))))
+    : h("p", { class: "empty", text: none });
+  const empty = d.as_of ? "None." : "No ASIC reports loaded yet: they arrive with the nightly run (Short Positions step).";
+  app.replaceChildren(pageHead("Coattail", "Most shorted"), COATTAIL_NOTE(), coattailTabs("shorts"),
+    h("p", { class: "hint page-note" }, d.as_of ? `ASIC's short position report of ${longDate(d.as_of)}, ASX shares only. ` : "", helpLink("short-selling")),
+    h("div", { class: "cards" },
+      (() => { const c = card("Most shorted", "The largest share of the company sold short.", table(d.most, empty)); c.classList.add("wide"); return c; })(),
+      (() => { const c = card("Shorts rising fastest", "The biggest rise in % sold short over about a month.", table(d.rising, empty)); c.classList.add("wide"); return c; })()));
   window.scrollTo(0, 0);
 }
 
@@ -2027,7 +2131,8 @@ function noticesDashCard(list) {
 
 function coattailTabs(current) {
   return h("div", { class: "tabs", role: "navigation", "aria-label": "Coattail" },
-    [["funds", "#/coattail", "Big funds"], ["directors", "#/coattail?tab=directors", "Director trades"], ["substantial", "#/coattail?tab=substantial", "Substantial holders"]]
+    [["funds", "#/coattail", "Big funds"], ["directors", "#/coattail?tab=directors", "Director trades"], ["substantial", "#/coattail?tab=substantial", "Substantial holders"],
+     ["shorts", "#/coattail?tab=shorts", "Most shorted"]]
       .map(([id, href, label]) => h("a", { href, class: "tab", "aria-current": id === current ? "page" : null, text: label })));
 }
 const COATTAIL_NOTE = () => h("p", { class: "hint page-note" }, "Coattail investing means watching what big, well-researched investors buy and sell, and using their moves as a lead for your own research. ", helpLink("coattail"));
@@ -2142,6 +2247,7 @@ async function renderNotices(group) {
 async function renderCoattail(query) {
   const tab = new URLSearchParams(query || "").get("tab");
   if (tab === "directors" || tab === "substantial") return renderNotices(tab);
+  if (tab === "shorts") return renderShorts();
   app.replaceChildren(h("p", { class: "loading", text: "Loading Coattail..." }));
   const d = coattailData = await getJSON("/api/coattail");
   const st = coattailState;
@@ -2914,20 +3020,23 @@ async function renderWatchlist(id, note) {
   const dy = h("input", { name: "yield_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 5" });
   const disc = h("input", { name: "nta_discount_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 10" });
   const price = h("input", { name: "price_below", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 38.50" });
+  const shortIn = h("input", { name: "short_above", inputmode: "decimal", autocomplete: "off", placeholder: "e.g. 5" });
   const submit = h("button", { class: "btn primary", type: "submit", text: "Add to watchlist" });
   const cancel = h("button", { class: "btn", type: "button", text: "Cancel", hidden: true });
   const formMsg = formMessage();
   const mosField = field("Trigger: margin of safety above (%)", mos, "Shares only. Met while the share is at least this far below estimated value.");
   const dyField = field("Trigger: yield above (%)", dy, "ETFs and LICs. Met while the 12-month yield is above this.");
   const discField = field("Trigger: discount to NTA of at least (%)", disc, "LICs only. Met while the price is at least this far below the last NTA.");
+  const shortField = field("Trigger: short interest above (%)", shortIn, "Shares only. Met while more than this % of the company's shares are reported sold short (ASIC, a few days behind).");
   const form = h("form", { class: "form-grid", novalidate: true },
     field("Company, ETF or LIC", code), field("Note", noteIn), mosField, dyField, discField,
-    field("Trigger: price at or below ($)", price, "Met while the latest close is at or under this price."),
+    field("Trigger: price at or below ($)", price, "Met while the latest close is at or under this price."), shortField,
     h("div", { class: "form-actions" }, submit, cancel), formMsg);
   const formCard = card("Add a company, ETF or LIC", "Triggers are optional; leave them blank to just follow it.", form);
   const editing = (e) => {
     code.value = e.asx_code; code.readOnly = true; noteIn.value = e.note || "";
     mos.value = e.mos_above ?? ""; dy.value = e.yield_above ?? ""; disc.value = e.nta_discount_above ?? ""; price.value = e.price_below ?? "";
+    shortIn.value = e.short_above ?? ""; shortField.hidden = e.security_type !== "SHARE";
     mosField.hidden = e.security_type !== "SHARE"; dyField.hidden = e.security_type === "SHARE"; discField.hidden = e.security_type !== "LIC";
     formCard.querySelector("h2").textContent = `Edit ${e.asx_code}`;
     submit.textContent = "Save changes"; cancel.hidden = false;
@@ -2941,7 +3050,7 @@ async function renderWatchlist(id, note) {
     try {
       await send("PUT", `/api/watchlists/${d.watchlist_id}/items/${encodeURIComponent(c)}`,
         { note: noteIn.value, mos_above: mosField.hidden ? "" : mos.value, yield_above: dyField.hidden ? "" : dy.value,
-          nta_discount_above: discField.hidden ? "" : disc.value, price_below: price.value });
+          nta_discount_above: discField.hidden ? "" : disc.value, price_below: price.value, short_above: shortField.hidden ? "" : shortIn.value });
       afterChange();
       await reload(code.readOnly ? `Saved ${c}.` : `Added ${c}.`);
     } catch (err) { showMessage(formMsg, err.message, false); }
@@ -3741,6 +3850,7 @@ function settingText(meta, value) {
   if (meta.unit === "rate" || meta.unit === "%") return `${fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0)}%`;
   if (meta.unit === "years") return plural(v, "year");
   if (meta.unit === "points") return `${fmt(v, v % 1 ? 1 : 0)} points`;
+  if (meta.unit === "days") return plural(v, "day");
   return fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0);
 }
 /* A workings figure: big dollar amounts compact, per-share amounts to the cent. */
@@ -3917,7 +4027,7 @@ async function renderScenario(id) {
       const mark = () => input.classList.toggle("changed", input.value.trim() !== "" && Number(input.value) !== Number(x.live));
       input.addEventListener("input", mark); mark();
       inputs[x.key] = input;
-      const unit = x.unit === "rate" || x.unit === "%" ? "%" : x.unit === "x" ? "x" : x.unit === "years" ? "years" : x.unit === "points" ? "points" : "";
+      const unit = x.unit === "rate" || x.unit === "%" ? "%" : x.unit === "x" ? "x" : x.unit === "years" ? "years" : x.unit === "points" ? "points" : x.unit === "days" ? "days" : "";
       return h("label", { class: "setting-row" },
         h("span", { class: "setting-name" }, withHelpLink(x.label, x.help_id)),
         h("span", { class: "setting-input" }, input, h("span", { class: "unit", text: unit })),

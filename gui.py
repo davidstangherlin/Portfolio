@@ -59,6 +59,7 @@ from src.coattail import notice_views
 from src.coattail import views as coattail
 from src.search import indexer as search_indexer, learning as search_learning, query as search_query
 from src.screening import movers
+from src.screening import short_caution
 from src.screening.actions import ACTION_ORDER, red_flags
 from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
@@ -66,6 +67,7 @@ from src.tracking import report as track_report
 from src.tracking import rules_versions
 from src import registries
 from src.drp import drp_payload
+from src.ingestion import short_positions
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
 from src import settings as model_settings
@@ -93,7 +95,8 @@ _SCREENER_FIELDS = (
     "pe_ratio", "roe", "debt_to_equity", "grossed_up_dividend_yield", "payout_ratio",
     "valuation_method", "fundamentals_trend", "earnings_quality", "price_signal",
     "dividend_trend", "data_confidence", "mos_ok", "roe_ok", "de_ok", "yield_ok",
-    "overall", "momentum_ok", "trap_risk", "held", "action", "action_reason",
+    "overall", "momentum_ok", "trap_risk", "held", "action", "action_reason", "short_percent",
+    "days_to_cover",
 )
 
 
@@ -207,6 +210,8 @@ def screener_payload(session, today: date) -> dict:
     for row in universe.rows:
         item = {f: row.get(f) for f in _SCREENER_FIELDS}
         item["scores"] = score_list(row)
+        found = short_caution.caution(row)
+        item["short_caution"] = found and found["level"]  # HIGH / ELEVATED / None
         item["watchlists"] = watched.get(row["asx_code"], [])
         out.append(item)
     return {
@@ -280,7 +285,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
     ).scalars())
     since = today - timedelta(days=PRICE_HISTORY_DAYS)
     prices = session.execute(
-        select(DailyPrice.price_date, DailyPrice.close_price)
+        select(DailyPrice.price_date, DailyPrice.close_price, DailyPrice.volume)
         .where(DailyPrice.company_id == company.company_id, DailyPrice.price_date >= since)
         .order_by(DailyPrice.price_date)
     ).all()
@@ -328,6 +333,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
              "rule": f"above {t.min_yield}%", "passed": row["yield_ok"] == "Y"},
         ],
         "flags": red_flags(row),
+        "short_caution": short_caution.caution(row),
         "model": _model_assumptions(row.get("valuation_method")),
         "watchlists": company_watchlists(session, company.company_id, row),
         "position": None if position is None else {
@@ -335,11 +341,13 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
             "next_discount_date": position.next_discount_date,
             "units_pending_discount": position.units_pending_discount,
         },
-        "prices": [[d, c] for d, c in prices],
+        "prices": [[d, c] for d, c, _ in prices],
+        "volumes": [[d, v] for d, _, v in prices if v is not None],  # shares traded each day
         "dividends": [{"ex_date": d, "amount": a, "abnormal": ab} for d, a, ab in dividends],
         "drp": drp_payload(session, company.company_id, row.get("current_price"), today,
                            position.units if position is not None else None),
         "registry": registries.company_registry(session, company.company_id),
+        "short_interest": short_positions.company_short(session, asx_code, today),
         "mos_history": [[d, m] for d, m in mos_history if m is not None],
         "reports": [
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,
@@ -552,6 +560,7 @@ def _entry(item, code: str, row: dict | None) -> dict:
     return {
         "asx_code": code, "company_name": row["company_name"] if row else None, "security_type": "SHARE",
         "note": item.note, "mos_above": item.mos_above, "price_below": item.price_below, "added_at": item.added_at,
+        "short_above": item.short_above, "short_percent": row.get("short_percent") if row else None,
         "triggers": found, "triggered": any(t["met"] for t in found),
         "price": row["current_price"] if row else None,
         "margin_of_safety_percent": row["margin_of_safety_percent"] if row else None,
@@ -574,7 +583,7 @@ def company_watchlists(session, company_id, row: dict) -> list[dict]:
             found = watchlists.triggers(item, row)
             entry |= {"note": item.note, "mos_above": item.mos_above, "price_below": item.price_below,
                       "yield_above": item.yield_above, "nta_discount_above": item.nta_discount_above,
-                      "triggers": found, "triggered": any(t["met"] for t in found)}
+                      "short_above": item.short_above, "triggers": found, "triggered": any(t["met"] for t in found)}
         out.append(entry)
     return out
 
@@ -940,6 +949,13 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             held = {p.asx_code for p in parcels_module.open_parcels(session)}
             return JSONResponse(_json_ready(notice_views.tab_payload(session, group, days, held, watchlists.watched_codes(session))))
 
+    @app.get("/api/coattail/shorts")
+    def api_coattail_shorts():
+        """Coattail's Most shorted tab: ASIC's latest short positions, most shorted and rising fastest."""
+        with get_session() as session:
+            held = {p.asx_code for p in parcels_module.open_parcels(session)}
+            return JSONResponse(_json_ready(short_positions.most_shorted(session, held, watchlists.watched_codes(session))))
+
     @app.get("/api/track-record")
     def api_track_record(version: str | None = None):
         with get_session() as session:
@@ -1167,7 +1183,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             item = watchlists.save_entry(session, w, asx_code, watchlists.entry_fields(body))
             return {"watchlist": w.name, "asx_code": asx_code.strip().upper(), "note": item.note,
                     "mos_above": item.mos_above, "price_below": item.price_below, "yield_above": item.yield_above,
-                    "nta_discount_above": item.nta_discount_above}
+                    "nta_discount_above": item.nta_discount_above, "short_above": item.short_above}
         return change(action)
 
     @app.delete("/api/watchlists/{watchlist_id}/items/{asx_code}")

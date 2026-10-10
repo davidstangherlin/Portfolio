@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 
 from src.portfolio.holdings import PositionSummary
+from src.screening import short_caution
 from src.settings import LIVE, ModelSettings
 
 # Live thresholds come from the settings registry (src/settings.py).
@@ -62,8 +63,14 @@ def suggest_action(row: dict, position: PositionSummary | None = None, today: da
     fails = [label for key, label in _CORE_TESTS if row.get(key) != "Y"]
     flags = red_flags(row, settings)
     if position is not None and position.units > 0:
-        return _held_action(row, position, passes, fails, flags, today or date.today(), settings)
-    return _not_held_action(row, passes, fails, flags)
+        action, reason = _held_action(row, position, passes, fails, flags, today or date.today(), settings)
+    else:
+        action, reason = _not_held_action(row, passes, fails, flags)
+    # Short selling is a caution beside the action, never a reason to change it.
+    found = short_caution.caution(row, settings)
+    if found and action != "IGNORE":
+        reason += "; caution: " + found["text"]
+    return action, reason
 
 
 def _not_held_action(row: dict, passes: list[str], fails: list[str], flags: list[str]) -> tuple[str, str]:

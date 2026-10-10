@@ -117,6 +117,10 @@ def company(session, code: str) -> dict:
             "latest_dividend": p["drp"]["last_payment"], "dividends_last_12_months": p["drp"]["year_total"],
             "your_shares_would_buy": p["drp"].get("yours")},
         "share_registry": p["registry"]["registry"],
+        "short_selling": p["short_interest"] and {  # ASIC, about four business days behind
+            "percent_of_shares_sold_short": p["short_interest"]["short_percent"], "report_date": p["short_interest"]["report_date"],
+            "change_over_a_month_points": p["short_interest"]["change_points"], "days_to_cover": c.get("days_to_cover"),
+            "caution": p["short_caution"] and p["short_caution"]["text"]},  # never changes the action
         "watchlists": [w["name"] for w in p["watchlists"] if w["member"]], "note": NOT_ADVICE,
     }
 

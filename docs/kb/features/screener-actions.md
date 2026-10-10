@@ -3,14 +3,14 @@ id: screener-actions
 title: Screener, value tests, score wheel and suggested actions
 category: features
 summary: How every valued company is tested against the four value tests, scored on the 30-check wheel and given a suggested action (Recommendation) with its reason.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2027-01-09
 source: AS_BUILT §9, §9.1
-related: [valuation-models, trends-markers, track-record, web-gui]
+related: [valuation-models, trends-markers, track-record, web-gui, volume-and-short-selling]
 code: [screen_asx.py, src/screening/actions.py, src/screening/scores.py, src/screening/enriched.py, src/screening/movers.py]
 tables: [valuation_metrics, daily_prices]
 ---
@@ -86,6 +86,8 @@ User request: *"add a field with variables advise on possible actions? for examp
 **CGT timing note.** On `SELL`/`REVIEW`, if a held parcel reaches the 12-month CGT discount within 90 days, the reason says how many units, from what date, and how many days away - waiting can halve the tax on the gain. Never added to `ACCUMULATE` or `HOLD`, since neither suggests selling.
 
 **Presentation.** The full table gains `earnings_quality`, `price_signal`, `dividend_trend`, `data_confidence`, `held` and `action` (raw marker numbers stay in the database; company names are truncated to keep width down). `--actions` prints a grouped report instead (SELL, REVIEW, ACCUMULATE, HOLD, BUY, INVESTIGATE, WATCH, AVOID) with the wrapped reason per company, action counts, any holdings that aren't on the screening watchlist, and a one-line reminder that these are rule-based research prompts, not financial advice. `--held` restricts either view to companies you hold. The daily automation log now records `--actions` rather than the full table.
+
+**Short-selling caution** (added 2026-10-10, `src/screening/short_caution.py`): a share with a HIGH or ELEVATED short-selling caution (short interest and days to cover, see [Volume and short selling](kb:volume-and-short-selling)) gets "; caution: ..." added to any reason but IGNORE's. It isn't a red flag and never changes the action, so the rules version is unchanged ([ADR-015](kb:adr-015-asic-short-positions)).
 
 **Found in end-to-end testing:** the first version didn't append red flags to `WATCH` reasons, so a company with ~45% cash conversion read "quality passes, wait for a better price" - a cleaner bill of health than the data supported. Fixed (red flags now appended to every non-`IGNORE` reason) with a regression test, and the wording changed from "quality passes" to "ROE, debt and yield pass" to say exactly which tests passed.
 

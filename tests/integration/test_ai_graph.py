@@ -94,7 +94,7 @@ def test_tools_answer_for_the_current_person_only(market):
     from src import registries
     registries.set_by_admin(market, "GOOD", "computershare")
     facts = tools.call(market, "company", {"code": "GOOD"})
-    assert facts["share_registry"]["name"] == "Computershare" and "dividend_reinvestment" in facts
+    assert facts["share_registry"]["name"] == "Computershare" and "dividend_reinvestment" in facts and "short_selling" in facts
 
     why = tools.call(market, "explain_call", {"code": "GOOD"})
     assert why["action"] == "ACCUMULATE" and why["held"] is True and len(why["tests"]) == 4 and "not financial advice" in why["note"]

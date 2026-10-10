@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
 ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS yield_above NUMERIC(6, 2);   -- ETFs and LICs (§27)
 -- LICs only (§27): trigger when the price is at least this % below the last NTA.
 ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS nta_discount_above NUMERIC(6, 2);
+ALTER TABLE watchlist_items ADD COLUMN IF NOT EXISTS short_above NUMERIC(6, 2);  -- shares: short interest above this % (ASIC)
 
 -- 5d. SCENARIOS (admin console what-ifs, docs/AS_BUILT.md §24)
 -- A named set of setting changes to try against today's data. Only the
@@ -664,6 +665,24 @@ CREATE TABLE IF NOT EXISTS track_record_monthly (
     PRIMARY KEY (month, action, horizon_months, rules_version)
 );
 
+-- 5z. SHORT POSITIONS (docs/kb/features/volume-and-short-selling.md)
+-- ASIC's daily report of short positions in every ASX product, about four
+-- business days after the date they relate to (src/ingestion/short_positions.py).
+-- Shared market data, kept two years. Defined before the screener view, which
+-- carries each share's latest short percentage, days to cover and change for the caution.
+CREATE TABLE IF NOT EXISTS short_positions (
+    asx_code VARCHAR(10) NOT NULL,
+    report_date DATE NOT NULL,                   -- the day the positions relate to
+    company_id UUID REFERENCES companies(company_id) ON DELETE SET NULL,
+    short_positions BIGINT NOT NULL,             -- shares reported as sold short
+    shares_on_issue BIGINT,                      -- total product in issue
+    short_percent NUMERIC(8, 4) NOT NULL,        -- % of shares on issue reported short
+    loaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (asx_code, report_date)
+);
+CREATE INDEX IF NOT EXISTS idx_short_positions_date ON short_positions (report_date DESC, short_percent DESC);
+CREATE INDEX IF NOT EXISTS idx_short_positions_company ON short_positions (company_id, report_date DESC);
+
 -- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
 SELECT
@@ -693,11 +712,20 @@ SELECT
                         -- end - confirmed the hard way (ERROR: cannot change name of view
                         -- column) when payout_ratio was first placed mid-list and tested
                         -- against a pre-existing database
+    , sp.short_percent  -- ASIC's latest; with the next two, for the short-selling caution
+    , round(sp.short_positions / NULLIF(vol.avg_volume, 0), 1) AS days_to_cover  -- shares short / 20-day average volume
+    , sp.short_percent - (SELECT b.short_percent FROM short_positions b WHERE b.asx_code = c.asx_code
+       AND b.report_date <= sp.report_date - 30 ORDER BY b.report_date DESC LIMIT 1) AS short_change  -- points, over about a month
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)
 JOIN valuation_metrics v ON c.company_id = v.company_id
     AND v.as_of_date = (SELECT MAX(as_of_date) FROM valuation_metrics WHERE company_id = c.company_id)
+LEFT JOIN LATERAL (SELECT s.short_percent, s.short_positions, s.report_date FROM short_positions s
+    WHERE s.asx_code = c.asx_code ORDER BY s.report_date DESC LIMIT 1) sp ON TRUE
+LEFT JOIN LATERAL (SELECT avg(d.volume) AS avg_volume FROM (SELECT volume FROM daily_prices
+    WHERE company_id = c.company_id AND volume > 0 AND price_date <= sp.report_date
+    ORDER BY price_date DESC LIMIT 20) d) vol ON TRUE
 WHERE c.is_active = TRUE
   AND c.security_type = 'SHARE';  -- ETFs are kept out of the share screener (§25)
 

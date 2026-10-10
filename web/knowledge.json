@@ -2541,6 +2541,104 @@
    "related": [
     "getting-around"
    ]
+  },
+  {
+   "id": "short-selling",
+   "title": "Short selling",
+   "category": "coattail",
+   "glossary": "term",
+   "glossary_title": "Short selling",
+   "labels": [
+    "% short",
+    "Sold short",
+    "Days to cover"
+   ],
+   "aliases": [
+    "short selling",
+    "shorts",
+    "shorted",
+    "short interest",
+    "short position",
+    "short sellers",
+    "most shorted",
+    "asic short positions",
+    "heavily shorted",
+    "days to cover",
+    "short interest ratio",
+    "short squeeze",
+    "short-selling caution"
+   ],
+   "definition": "Selling borrowed shares in the hope of buying them back cheaper later. A short seller profits if the price falls.",
+   "hover": "Shares reported sold short to ASIC as a percentage of all the company's shares on issue, about four business days behind. From 5% Sift shows a caution, from 10% a high caution: you can still buy, but expect bigger price swings.",
+   "body": [
+    "Where the figure comes from: anyone holding a short position in an ASX product above a small size must report it to ASIC, which publishes a daily report for every product: the shares reported short, the shares on issue and the percentage. Each report relates to a trading day about four business days earlier, so Sift's figure is always a few days behind.",
+    "What it tells you: professional investors (usually hedge funds) are betting the price will fall. A high figure or one rising quickly is a reason to look harder: they may have found a problem, such as weak demand, accounting worries or too much debt. Some shorts are hedges or arbitrage rather than a view on the company.",
+    "Why it means caution, not a ban: heavily shorted shares are volatile. Bad news lands on a crowded bet against the company and the price can fall hard; good news can force short sellers to buy back at once and the price can jump (a short squeeze). People can buy them, but should do so with care, for example with a smaller position.",
+    "Days to cover: the shares sold short divided by the average number traded a day (the 20 trading days up to the report). It's how many days of normal trading short sellers would need to buy back. Professional short-interest services report it alongside the percentage: the higher it is, the more crowded the trade and the more violent a squeeze can be.",
+    "How Sift sets the caution (the thresholds are settings admins can change): HIGH from 10% sold short, or from 5% with 10 or more days to cover. ELEVATED from 5% sold short, or from 2% with 5 or more days to cover or a rise of 2 points or more in a month. Under 2% days to cover is ignored, as a thinly traded share can show many days on a tiny short. For scale, most ASX shares have under 1% sold short; 5% is among the most shorted on the market.",
+    "What the caution does: an amber ! beside the action in the screener and on the company page, an amber % short figure, and a note added to the action's reason. It never changes the action itself, so a BUY stays a BUY.",
+    "In Sift: the company page's Short selling card (the latest figure, days to cover, the change over a month and a chart of the last year), the % short column in the screener, and Coattail, Most shorted (the most shorted ASX shares and those rising fastest).",
+    "Watchlist trigger: on a share in a watchlist you can set Trigger: short interest above (%) to be told when shorting builds up.",
+    "It's a lead for your own research, not advice: short sellers are often right, but not always."
+   ],
+   "related": [
+    "coattail",
+    "market-depth"
+   ]
+  },
+  {
+   "id": "volume",
+   "title": "Volume",
+   "category": "market",
+   "glossary": "term",
+   "glossary_title": "Volume",
+   "labels": [
+    "Volume"
+   ],
+   "aliases": [
+    "volume",
+    "trading volume",
+    "shares traded",
+    "turnover",
+    "average volume",
+    "heavy volume"
+   ],
+   "definition": "The number of a company's shares that changed hands on the day.",
+   "hover": "Shares traded each day. The line is the 3-month average; a darker bar traded more than twice that average.",
+   "body": [
+    "On each company's page, below the 12-month price chart: daily volume as bars, with a 3-month average line. Hover a day for the volume and how it compares with the average; the chart's data table lists them.",
+    "Why it matters: a price move on heavy volume carries more weight than one on light volume, since many shares changed hands at the new price. Days with more than twice the usual volume are drawn darker: often results, news or a large holder buying or selling.",
+    "Small companies trade little, so a few large trades can move their price; that's a reason for care with thinly traded shares.",
+    "Volume comes with each night's prices from Yahoo Finance and covers trading on the ASX."
+   ],
+   "related": [
+    "market-depth",
+    "short-selling"
+   ]
+  },
+  {
+   "id": "market-depth",
+   "title": "Market depth (buyers and sellers waiting)",
+   "category": "market",
+   "aliases": [
+    "market depth",
+    "order book",
+    "depth",
+    "bids and offers",
+    "buyers and sellers",
+    "bid ask",
+    "course of sales"
+   ],
+   "definition": "The live list of orders waiting to buy (bids) and sell (offers) a share at each price.",
+   "body": [
+    "Sift doesn't show market depth. It's real-time ASX data under licence, so there's no free source Sift can use, and it changes every second during trading and empties after the close, so the nightly snapshot Sift works from would tell you nothing.",
+    "Where to see it: your broker's website or app shows depth and course of sales (each trade as it happens) to its clients, often free for ASX shares. Look there before placing an order, especially in thinly traded shares.",
+    "In Sift, the volume chart (shares traded each day) and short selling (shares sold short) show buying and selling pressure over weeks and months."
+   ],
+   "related": [
+    "volume",
+    "short-selling"
+   ]
   }
  ]
 }

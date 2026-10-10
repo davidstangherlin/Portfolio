@@ -20,7 +20,7 @@ PINNED = {
     "min_margin_of_safety": D("20"), "min_roe": D("12"), "max_debt_equity": D("0.80"), "min_yield": D("4.5"),
     "earnings_quality_strong": D("100"), "earnings_quality_adequate": D("80"), "new_lows_range": D("10"),
     "dividend_cut_ratio": D("0.9"), "dividend_growth_ratio": D("1.05"), "roe_trend_points": D("2"),
-    "revenue_trend_ratio": D("0.05"), "min_mos_trend": D("5"), "payout_warning": D("150"), "overvalued_review": D("-50"),
+    "revenue_trend_ratio": D("0.05"), "min_mos_trend": D("5"), "payout_warning": D("150"), "short_caution": D("5"), "short_warning": D("10"), "days_to_cover_caution": D("5"), "days_to_cover_high": D("10"), "overvalued_review": D("-50"),
     "score_mos_strong": D("40"), "score_max_pe": D("15"), "score_max_pb": D("1.5"), "score_roe_high": D("20"),
     "score_min_roic": D("10"), "score_debt_equity_low": D("0.4"), "score_yield_high": D("6"),
     "score_max_payout": D("100"), "score_upper_range": D("50"),

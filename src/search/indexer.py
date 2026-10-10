@@ -61,6 +61,7 @@ EXCLUDED = {
     "user_sessions": "the session log (when each person used Sift), shown in Admin, Users",
     "managers": "fund managers as records for AI and the graph; the same managers are indexed in the coattail area",
     "holders": "funds and institutions as records for AI and the graph; reached through Coattail and company pages",
+    "short_positions": "ASIC's daily short positions: numbers, shown on company pages, the screener and Coattail",
     "asx_notices": "director and substantial holder notices: shown on Coattail and company pages, whose companies are indexed",
     "director_trades": "details read from director notices: numbers, reached through Coattail and the company",
     "substantial_holdings": "details read from substantial holder notices: numbers, reached through Coattail and the company",

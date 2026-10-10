@@ -947,6 +947,20 @@
     "broker-import"
    ],
    "notes": "Start with CommSec, Sharesies and CMC Invest (the owner's brokers): a real export with figures blanked becomes a test in tests/integration/test_broker_import.py."
+  },
+  {
+   "id": "IMP-066",
+   "title": "Prove ASIC's short position file on the owner's PC",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "The reader was built from ASIC's published column names; the build environment can't reach ASIC, so the real file's encoding or headings may differ.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "volume-and-short-selling"
+   ],
+   "notes": "Run python -m src.ingestion.short_positions --dry-run, then --days 365. If it fails, keep the first lines of the file as a test in tests/unit/test_short_positions.py."
   }
  ]
 }

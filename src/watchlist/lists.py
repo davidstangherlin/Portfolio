@@ -5,7 +5,8 @@ An entry is triggered while its latest price is at or below its
 `price_below`; or, for a share, its margin of safety is above `mos_above`;
 or, for an ETF or LIC, its trailing 12-month distribution yield is above
 `yield_above`; or, for an LIC, its price is at least `nta_discount_above`
-percent below its last NTA. Shares are judged on the screener's rows
+percent below its last NTA; or, for a share, the percentage of its shares
+reported sold short (ASIC) is above `short_above`. Shares are judged on the screener's rows
 (src/screening/enriched.py), ETFs and LICs on theirs (src/etf/views.py).
 Only shares Sift values, and ETFs and LICs it follows, can be added.
 
@@ -128,6 +129,7 @@ def entry_fields(body: dict) -> dict:
         "yield_above": _optional_number(body.get("yield_above"), "the yield trigger", 2, Decimal("10000"), False),
         "nta_discount_above": _optional_number(body.get("nta_discount_above"), "the NTA discount trigger", 2,
                                                Decimal("10000"), False),
+        "short_above": _optional_number(body.get("short_above"), "the short interest trigger", 2, Decimal("100"), False),
     }
 
 
@@ -136,6 +138,7 @@ TRIGGER_KINDS = {
     "mos_above": ({"SHARE"}, "{code} is {a} {kind}, which has no margin of safety: use a price or yield trigger"),
     "yield_above": ({"ETF", "LIC"}, "the yield trigger is for ETFs and LICs; for {code} use a margin of safety or price trigger"),
     "nta_discount_above": ({"LIC"}, "the NTA discount trigger is for LICs; {code} has no NTA"),
+    "short_above": ({"SHARE"}, "the short interest trigger is for shares; {code} is {a} {kind}"),
 }
 
 
@@ -153,6 +156,7 @@ def save_entry(session: Session, watchlist: Watchlist, asx_code, fields: dict) -
     item.note, item.mos_above, item.price_below = fields["note"], fields["mos_above"], fields["price_below"]
     item.yield_above = fields.get("yield_above")
     item.nta_discount_above = fields.get("nta_discount_above")
+    item.short_above = fields.get("short_above")
     session.flush()
     return item
 
@@ -213,4 +217,9 @@ def triggers(item: WatchlistItem, row: dict | None) -> list[dict]:
         out.append({"kind": "nta_discount_above", "threshold": item.nta_discount_above, "value": prem,
                     "met": prem is not None and prem <= -item.nta_discount_above,
                     "label": f"Discount to NTA {item.nta_discount_above.normalize():f}% or more"})
+    if item.short_above is not None:
+        short = row.get("short_percent") if row else None
+        out.append({"kind": "short_above", "threshold": item.short_above, "value": short,
+                    "met": short is not None and short > item.short_above,
+                    "label": f"Short interest above {item.short_above.normalize():f}%"})
     return out
