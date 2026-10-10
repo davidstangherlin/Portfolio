@@ -3,7 +3,7 @@ id: statistics
 title: Statistics: rule reliability, chances and likely ranges
 category: features
 summary: Whether each action beats the average share by more than luck (Track record), the chance of reaching the estimated value or analysts' target in 12 months, and the likely range for the year ahead, from nightly volatility.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -31,7 +31,7 @@ Give everyday investors three answers with tested statistics, in plain words (as
 
 **Company page.** `GET /api/company/{code}` returns `statistics` (`company_statistics()`). The **Price against estimated value** card gains "Chance of reaching it within 12 months": a row each for Sift's estimated value and the analysts' target, with the level and how far above today it is, ten dots (`chanceDots()`) and the words; "Already reached" or "Needs a year of prices" otherwise. The **Share price** card becomes "last 12 months and the year ahead": a sentence ("In a typical year, GEM would end between $3.05 and $5.78 (two years in three)"), the chart continued 12 months past Today with the shaded range (weekly points, `aheadRange()`; `lineChart({ ahead })`), the range's ends labelled, and hover giving the range at each point ahead. `volumeChart({ until })` extends the same axis so the volume bars stay lined up.
 
-**Track record.** Each action in "Is Sift accurate?" gets a verdict pill, a luck sentence and a bar (`verdictLine()`, `edgeBar()`): `report.verdict()` adds `test` from `rules.test()`, a t-test on the calls' excess returns from the permanent monthly summary. `track_record_monthly.excess_sumsq` (filled by `refresh_monthly()`) gives the spread, so the test covers the whole history. Verdicts: Beating the average (the 95% range wholly above zero), Trailing the average (wholly below), Too early to tell (it spans zero), Needs more calls (under 30). A tick when the result is what the action intends (BUY, INVESTIGATE, ACCUMULATE beating; AVOID, SELL trailing), a cross for the opposite. The standard error is widened by the square root of the horizon in months for overlapping calls. Luck is told as odds ("about a 1 in 40 chance"). The dashboard's Track record line shows the BUY verdict.
+**Track record.** Each action in "Is Sift accurate?" gets a verdict pill, a luck sentence and a bar (`verdictLine()`, `edgeBar()`): `report.verdict()` adds `test` from `rules.test()`, a t-test on the calls' excess returns from the permanent monthly summary. `track_record_monthly.excess_sumsq` (filled by `refresh_monthly()`) gives the spread, so the test covers the whole history. Verdicts: Beating the average (the 95% range wholly above zero), Trailing the average (wholly below), Too early to tell (it spans zero), Needs more calls (under 30). A tick when the result is what the action intends (BUY, INVESTIGATE, ACCUMULATE beating; AVOID, SELL trailing), a cross for the opposite. The standard error is widened by the square root of the horizon in months for overlapping calls. **Many tests at once:** every action at every period is one family, corrected together by `rules.adjust()` (Benjamini-Hochberg, at most 5% of findings expected false, `FALSE_FINDINGS`). The luck odds use the adjusted p-value (`q_value`), and every bar is widened to the matching level, max(findings, 1) x 5% / tests (Benjamini and Yekutieli's false coverage rate), so a bar clear of the average always means a finding. The test keeps `p_value`, `q_value`, `level` and `family` for admins. Luck is told as odds ("about a 1 in 40 chance"). The dashboard's Track record line shows the BUY verdict.
 
 **Admin, Model and rules: Statistics.** Two settings (`src/settings.py`, group `statistics`): `stats_min_calls` (calls needed before judging a rule, 30) and `stats_years` (years of price history, 3). Both are listed with their live values, ranges and formulas; the fixed methods follow under "Fixed by design" (`STATISTICS_METHODS` in `gui.py`, `statisticsMethods()`). The group is left out of what-if scenarios (`WHAT_IF_GROUPS`), since no statistic changes a company's action. The rules document (`scripts/build_rules_doc.js`) has a Statistics chapter.
 
@@ -62,6 +62,7 @@ Give everyday investors three answers with tested statistics, in plain words (as
 - Ranges and chances describe how the price has moved; they assume no trend and know nothing about news, results or value. Pages say so.
 - Prices are treated as normal in the log; real markets have more extreme days than that, so the range is a guide, not a bound.
 - The overlap adjustment is a rule of thumb, chosen to claim less rather than more ([ADR-017](kb:adr-017-statistics-methods)).
+- The multiple-testing correction treats the tests as roughly independent; the periods overlap, which Benjamini-Hochberg tolerates for positively related tests.
 
 The full list, with status: [Improvement register](#/admin/kb/register).
 
@@ -71,6 +72,7 @@ The full list, with status: [Improvement register](#/admin/kb/register).
 - `tests/integration/test_statistics.py`
 - `tests/integration/test_track_record.py`
 - `tests/unit/test_stats_stack.py`
+- `tests/unit/test_health.py` (the multiple-testing correction)
 
 ## References
 
@@ -87,6 +89,8 @@ The theory each part uses. Links are given only where the address was checked (2
 | Beta | Sharpe, W. F. (1964). Capital asset prices: a theory of market equilibrium under conditions of risk. *Journal of Finance*, 19(3), 425 to 442. [JSTOR 2977928](https://www.jstor.org/stable/2977928) |
 | Weekly rather than daily returns for beta | Scholes, M. and Williams, J. (1977). Estimating betas from nonsynchronous data. *Journal of Financial Economics*, 5(3), 309 to 327. Dimson, E. (1979). Risk measurement when shares are subject to infrequent trading. *Journal of Financial Economics*, 7(2), 197 to 226. |
 | Fat tails (the limits of the ranges) | Mandelbrot, B. (1963). The variation of certain speculative prices. *Journal of Business*, 36(4), 394 to 419. [doi:10.1086/294632](https://doi.org/10.1086/294632) |
+| Many tests at once (false discovery rate) | Benjamini, Y. and Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society, Series B*, 57(1), 289 to 300. [doi:10.1111/j.2517-6161.1995.tb02031.x](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x) |
+| Widening the bars to match (false coverage rate) | Benjamini, Y. and Yekutieli, D. (2005). False discovery rate-adjusted multiple confidence intervals for selected parameters. *Journal of the American Statistical Association*, 100(469), 71 to 81. [doi:10.1198/016214504000001907](https://doi.org/10.1198/016214504000001907) |
 | Chances as numbers in 10 | Gigerenzer, G. and Hoffrage, U. (1995). How to improve Bayesian reasoning without instruction: frequency formats. *Psychological Review*, 102(4), 684 to 704. |
 
 People's version: Help, "The theory behind Sift's statistics" (`statistics-theory`).

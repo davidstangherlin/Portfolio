@@ -1,0 +1,27 @@
+{
+  "name": "sift-ui",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sift's pages in React and TypeScript (docs/kb/decisions/adr-018-react-typescript-pages.md). Built into web/dist, which is committed.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && node scripts/build-info.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.1.1",
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "5.0.1"
+  }
+}

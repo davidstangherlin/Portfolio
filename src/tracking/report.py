@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import text
 
 from src.accounts import current_user_id
+from src.analytics.rules import adjust as rule_adjust
 from src.analytics.rules import test as rule_test
 from src.tracking.signals import HORIZONS_MONTHS, RULES_VERSION, person_nights
 
@@ -75,6 +76,11 @@ def verdict(session, version: str | None) -> dict:
                                               float(r["sumsq"]) if r["sumsq"] is not None else None)})
         actions.sort(key=lambda a: (-(a["avg_excess"] if a["avg_excess"] is not None else Decimal("-1e9")), a["action"]))
         out[months] = {"actions": actions, "order": order_check(actions)}
+    # Many actions at many periods: correct them together (Benjamini-Hochberg)
+    every = [a["test"] for v in out.values() for a in v["actions"]]
+    rule_adjust(every)
+    for x in every:
+        x.pop("_action", None)
     return out
 
 

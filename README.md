@@ -61,8 +61,10 @@ src/
 screen_asx.py               CLI value screener
 portfolio.py                CLI for your portfolios, holdings and CGT records
 gui.py                      web GUI server, Sift (see Web GUI below)
-web/                        web GUI page, styles and script (no build step)
+web/                        web GUI page, styles and script
   knowledge.json            the knowledge base: Help page, hover text and Word glossary
+  dist/                     the built React pages (committed, so running Sift needs no Node.js)
+frontend/                   pages and cards in React and TypeScript, built into web/dist (frontend/README.md)
 requirements.txt            includes NumPy, SciPy and statsmodels for statistics (ADR-016)
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
 pytest.ini
@@ -417,7 +419,19 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   from each share's volatility; beta against the ASX 200 is kept for a crash test to come.
   Admins set the calls needed before a rule is judged and the years of price history in
   Admin, Model and rules, Statistics (the methods themselves are fixed); Help, "The theory
-  behind Sift's statistics" gives the references.
+  behind Sift's statistics" gives the references. Because every action is tested at every
+  period at once, the verdicts are corrected for multiple testing (Benjamini-Hochberg), so a
+  lucky pass isn't reported as real.
+- **Financial health:** each share's **Financial health** card shows its Piotroski F-Score (how
+  many of 9 signs of strength its latest annual reports show: Strong, Middling or Weak, with the
+  checklist) and its Altman Z-Score (Safe, Grey or Distress zone, on a three-band scale). A
+  share in the distress zone gets a caution in its action's reason; the action never changes.
+  Banks, insurers and property trusts aren't scored. Worked out nightly in the Statistics step;
+  the statement lines it needs fill in as each company's statements refresh weekly.
+- **Pages in React and TypeScript:** Sift's pages are moving to React and TypeScript, phase by
+  phase, looking and working the same (ADR-018). The built files in `web/dist` are committed,
+  so the PC running Sift needs no Node.js; only changing a page in `frontend/` does (see
+  `frontend/README.md`).
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.

@@ -44,6 +44,7 @@ _COALESCE_ON_UPDATE = (
     "total_assets", "total_liabilities", "total_equity", "total_debt",
     "cash_and_equivalents", "net_tangible_assets", "dividends_per_share",
     "abnormal_distributions_per_share", "reporting_currency", "fx_rate",
+    "current_assets", "current_liabilities", "gross_profit", "retained_earnings", "shares_outstanding",
 )
 
 
@@ -78,6 +79,11 @@ def upsert_financial_report(session: Session, company_id, snapshot, country: str
         total_debt=snapshot.total_debt,
         cash_and_equivalents=snapshot.cash_and_equivalents,
         net_tangible_assets=snapshot.net_tangible_assets,
+        current_assets=snapshot.current_assets,
+        current_liabilities=snapshot.current_liabilities,
+        gross_profit=snapshot.gross_profit,
+        retained_earnings=snapshot.retained_earnings,
+        shares_outstanding=snapshot.shares_outstanding,
         dividends_per_share=snapshot.dividends_per_share,
         abnormal_distributions_per_share=snapshot.abnormal_distributions_per_share,
         reporting_currency=snapshot.reporting_currency,

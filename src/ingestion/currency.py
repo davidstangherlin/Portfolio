@@ -29,6 +29,7 @@ MONETARY_FIELDS = (
     "revenue", "ebit", "net_profit_after_tax", "operating_cash_flow", "free_cash_flow",
     "capital_expenditure", "eps", "total_assets", "total_liabilities", "total_equity",
     "total_debt", "cash_and_equivalents", "net_tangible_assets",
+    "current_assets", "current_liabilities", "gross_profit", "retained_earnings",
 )
 MAX_RATE_GAP_DAYS = 10  # the nearest earlier rate must be within this many days of the balance date
 FX_RATE_PLACES = Decimal("0.000001")

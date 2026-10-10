@@ -1253,3 +1253,15 @@ details.worked-out .inner p { margin: 0 0 8px; }
 }
 .stats-methods-head { font-size: 13px; font-weight: 650; margin: 16px 0 2px; }
 .stats-methods { margin-top: 8px; }
+
+/* React islands (ADR-018): the wrapper takes no space, so its card sits in the grid like any other */
+.island { display: contents; }
+
+/* Financial health: Piotroski F-Score and Altman Z-Score (docs/kb/features/financial-health.md) */
+.health-block + .health-block { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.health-block > p { margin: 0 0 8px; max-width: 80ch; }
+.health-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.health-score { font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+.health-score small { font-size: 14px; font-weight: 600; color: var(--muted); }
+.health-name { font-weight: 650; }
+.zone-scale, .short-scale.zone-scale { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 560px; }

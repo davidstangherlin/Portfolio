@@ -73,6 +73,11 @@ class FundamentalsSnapshot:
     total_debt: Decimal | None = None
     cash_and_equivalents: Decimal | None = None
     net_tangible_assets: Decimal | None = None
+    current_assets: Decimal | None = None
+    current_liabilities: Decimal | None = None
+    gross_profit: Decimal | None = None
+    retained_earnings: Decimal | None = None
+    shares_outstanding: Decimal | None = None   # a count, never converted for currency
     dividends_per_share: Decimal | None = None
     abnormal_distributions_per_share: Decimal | None = None  # excluded one-offs, see dividend_history.py
     reporting_currency: str | None = None  # currency the statements were published in (see currency.py)
@@ -230,6 +235,11 @@ class YahooClient:
                     total_debt=total_debt,
                     cash_and_equivalents=bal("CashAndCashEquivalents"),
                     net_tangible_assets=bal("TangibleBookValue"),
+                    current_assets=bal("CurrentAssets"),
+                    current_liabilities=bal("CurrentLiabilities"),
+                    gross_profit=inc("GrossProfit"),
+                    retained_earnings=bal("RetainedEarnings"),
+                    shares_outstanding=bal("OrdinarySharesNumber") or bal("ShareIssued"),
                     dividends_per_share=None,  # sourced separately via get_dividend_payments
                 )
             )

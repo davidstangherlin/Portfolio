@@ -67,6 +67,7 @@ from src.tracking import report as track_report
 from src.tracking import rules_versions
 from src import registries
 from src.drp import drp_payload
+from src.analytics import health
 from src.analytics import prices as price_stats
 from src.ingestion import short_positions
 from src.tracking.signals import signal_changes, tracking_status
@@ -97,7 +98,7 @@ _SCREENER_FIELDS = (
     "valuation_method", "fundamentals_trend", "earnings_quality", "price_signal",
     "dividend_trend", "data_confidence", "mos_ok", "roe_ok", "de_ok", "yield_ok",
     "overall", "momentum_ok", "trap_risk", "held", "action", "action_reason", "short_percent",
-    "days_to_cover",
+    "days_to_cover", "f_score", "f_checks", "f_level", "z_score", "z_zone",
 )
 
 
@@ -355,6 +356,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         "registry": registries.company_registry(session, company.company_id),
         "short_interest": short_positions.company_short(session, asx_code, today),
         "statistics": price_stats.company_statistics(session, company.company_id),  # likely range, chances (nightly)
+        "health": health.company_health(session, company.company_id),  # F-Score and Z-Score (nightly)
         "mos_history": [[d, m] for d, m in mos_history if m is not None],
         "reports": [
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,
@@ -663,7 +665,8 @@ def track_record_payload(session, today: date, version: str | None = None) -> di
 # Fixed by design, so a result can't be tuned until a rule "passes"
 # (docs/kb/decisions/adr-017-statistics-methods.md); shown on Model and rules.
 STATISTICS_METHODS = [
-    {"name": "Confidence", "value": "95% (19 times in 20)", "why": "The bar of a rule's likely true edge; a verdict needs the whole bar clear of the average."},
+    {"name": "Confidence", "value": "95% (19 times in 20), before the correction below", "why": "The bar of a rule's likely true edge; a verdict needs the whole bar clear of the average."},
+    {"name": "Many rules tested at once", "value": "Benjamini-Hochberg, at most 1 in 20 findings false", "why": "Every action at every period is tested together, so the bars are widened to match and a lucky pass isn't called real."},
     {"name": "Overlapping calls", "value": "error widened by the square root of the months", "why": "Calls a month apart share most of a longer period, so Sift claims less, not more."},
     {"name": "Benchmark", "value": "the average screened share, total return", "why": "The track record's own, so the verdict and its test never disagree."},
     {"name": "Price model", "value": "a random walk in the log price, no trend", "why": "Ranges and chances describe how the price moves, never a forecast."},
@@ -697,7 +700,8 @@ def scenario_info(scenario) -> dict:
 def web_version() -> str:
     """Changes whenever a page file changes (a git pull): sent with every
     response so an open Sift tab knows to reload itself."""
-    stamps = [f"{p.name}:{p.stat().st_mtime_ns}" for p in sorted(WEB_DIR.glob("*")) if p.is_file()]
+    files = [*WEB_DIR.glob("*"), *(WEB_DIR / "dist").glob("*")]   # dist: the built React islands (ADR-018)
+    stamps = [f"{p.relative_to(WEB_DIR)}:{p.stat().st_mtime_ns}" for p in sorted(files) if p.is_file()]
     return hashlib.sha1("|".join(stamps).encode()).hexdigest()[:12]
 
 

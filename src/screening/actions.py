@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 
 from src.portfolio.holdings import PositionSummary
+from src.analytics import health
 from src.screening import short_caution
 from src.settings import LIVE, ModelSettings
 
@@ -70,6 +71,9 @@ def suggest_action(row: dict, position: PositionSummary | None = None, today: da
     found = short_caution.caution(row, settings)
     if found and action != "IGNORE":
         reason += "; caution: " + found["text"]
+    distress = health.caution_text(row.get("z_score"), row.get("z_zone"))  # Altman Z-Score, never changes the action
+    if distress and action != "IGNORE":
+        reason += "; caution: " + distress
     return action, reason
 
 

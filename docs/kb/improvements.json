@@ -981,36 +981,37 @@
    "title": "Piotroski F-Score: a Financial health card",
    "type": "idea",
    "priority": "P1",
-   "status": "planned",
+   "status": "done",
    "impact": "A proven 9-point health check that separates cheap shares that recover from cheap shares that keep falling: Sift's value-trap problem.",
    "raised": "2026-10-10",
    "updated": "2026-10-10",
    "articles": [
-    "screener-actions",
-    "statistics"
+    "financial-health",
+    "screener-actions"
    ],
-   "notes": "Where: company page, new Financial health card; also a screener column. Effort: low (uses existing statements). Theory: Piotroski (2000), Journal of Accounting Research. Compare with the 30-check score wheel before deciding whether it changes any action (that would need a rules version). Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+   "notes": "Done 2026-10-10: Financial health card on the company page (Sift's first React card), nightly in financial_health, screener fields ready for a column. Not yet changing any action: compare with the track record first (a change would need a rules version). References checked: financial-health article."
   },
   {
    "id": "IMP-069",
    "title": "Altman Z-Score: bankruptcy-risk caution",
    "type": "idea",
    "priority": "P1",
-   "status": "planned",
+   "status": "done",
    "impact": "Flags companies at risk of financial distress, as a red flag or caution like short selling.",
    "raised": "2026-10-10",
    "updated": "2026-10-10",
    "articles": [
+    "financial-health",
     "screener-actions"
    ],
-   "notes": "Where: company page, beside the action (caution) and in the reason. Effort: low. Not for banks and insurers (excluded). Theory: Altman (1968), Journal of Finance. A red flag changes actions and needs a rules version; a caution doesn't. Built in React and TypeScript (ADR-018). Full references to be checked when built, as for the statistics."
+   "notes": "Done 2026-10-10: a caution in the action's reason for the distress zone (below 1.81), never a new action, so no rules version. Banks, insurers and property trusts excluded. Shown on the Financial health card with a three-band scale."
   },
   {
    "id": "IMP-070",
    "title": "Multiple-testing correction for track record verdicts",
    "type": "idea",
    "priority": "P1",
-   "status": "planned",
+   "status": "done",
    "impact": "Sift tests many actions over four periods, so some will pass by chance; correcting keeps the verdicts credible.",
    "raised": "2026-10-10",
    "updated": "2026-10-10",
@@ -1018,7 +1019,7 @@
     "statistics",
     "track-record"
    ],
-   "notes": "Where: Track record, inside the existing verdicts (no new screen). Effort: low. Theory: Benjamini and Hochberg (1995); Harvey, Liu and Zhu (2016). A fixed method, so it joins Fixed by design on Admin, Model and rules (ADR-017)."
+   "notes": "Done 2026-10-10: Benjamini-Hochberg across every action and period (rules.adjust()), luck odds from the adjusted p-value, bars widened to the matching level (Benjamini and Yekutieli, 2005). Listed under Fixed by design."
   },
   {
    "id": "IMP-071",
@@ -1207,6 +1208,35 @@
     "statistics"
    ],
    "notes": "Won't do (2026-10-10): hard to explain, easily overfitted, and against Sift's show-the-reasons design (ADR-017)."
+  },
+  {
+   "id": "IMP-084",
+   "title": "Rebuild the remaining pages in React and TypeScript",
+   "type": "debt",
+   "priority": "P1",
+   "status": "in-progress",
+   "impact": "One modern, typed front end instead of a 4,900-line plain JavaScript file: safer changes, richer screens (crash test, diversification), easier hand-over and a path to a phone app.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "web-gui",
+    "adr-018-react-typescript-pages"
+   ],
+   "notes": "Owner's request 2026-10-10. Like-for-like, in phases, each pushed with the app working: shared pieces (charts, tooltips, tables, table filter, dashboard layout), then pages (dashboard, screener, company, ETFs and LICs, watchlists, portfolios, track record, coattail, search, help, admin, profile and preferences, print), then the shell and router; then retire app.js, tablefilter.js and dashlayout.js."
+  },
+  {
+   "id": "IMP-085",
+   "title": "F-Score and distress columns in the screener",
+   "type": "idea",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Lets people filter cheap shares by financial health without opening each company.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "financial-health"
+   ],
+   "notes": "The screener rows already carry f_score, f_level, z_score and z_zone; add optional columns and a ! beside the action for distress, when the screener page moves to React (IMP-084)."
   }
  ]
 }

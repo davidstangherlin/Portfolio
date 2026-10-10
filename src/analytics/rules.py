@@ -10,7 +10,14 @@ Calls in one month and the next overlap when the horizon is longer than a
 month (a 6-month return measured each month shares five months with the
 next), which makes them look more certain than they are. The standard
 error is widened by the square root of the horizon in months to allow for
-that: a conservative rule of thumb, so Sift claims less, not more."""
+that: a conservative rule of thumb, so Sift claims less, not more.
+
+Many tests at once (every action at every period) means some pass by
+chance. `adjust()` applies the Benjamini-Hochberg procedure (1995) across
+them all: a test only counts as a finding if it survives with at most 5%
+false findings expected, its luck odds are the adjusted ones, and every
+bar is widened to the matching level (Benjamini and Yekutieli, 2005), so a
+bar clear of the average always means a finding and vice versa."""
 
 from __future__ import annotations
 
@@ -48,7 +55,14 @@ def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: fl
     df = n - 1
     t = mean / se
     p = float(2 * (1 - t_dist.cdf(abs(t), df)))
-    half = float(t_dist.ppf(0.5 + CONFIDENCE / 2, df)) * se
+    return _judge(action, mean, se, df, t, p, 1 - CONFIDENCE, min_calls) | {"_action": action}
+
+
+FALSE_FINDINGS = 0.05   # Benjamini-Hochberg: at most 5% of findings expected to be false
+
+
+def _judge(action, mean, se, df, t, p, alpha, min_calls, q=None) -> dict:
+    half = float(t_dist.ppf(1 - alpha / 2, df)) * se
     low, high = mean - half, mean + half
     if low > 0:
         kind, label = "BEATING", "Beating the average"
@@ -62,4 +76,25 @@ def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: fl
     elif kind == "TRAILING":
         intended = True if action in BEARISH else False if action in BULLISH else None
     return {"kind": kind, "label": label, "intended": intended, "low": low, "high": high, "t": t,
-            "p_value": p, "luck": luck_odds(p), "calls_needed": 0, "min_calls": min_calls}
+            "p_value": p, "q_value": q, "luck": luck_odds(q if q is not None else p), "calls_needed": 0,
+            "min_calls": min_calls, "mean": mean, "se": se, "df": df, "level": 1 - alpha}
+
+
+def adjust(tests: list[dict]) -> int:
+    """Benjamini-Hochberg across a family of tests, in place. Returns the
+    number of tests in the family (those with a p-value)."""
+    family = [x for x in tests if x.get("p_value") is not None]
+    m = len(family)
+    if not m:
+        return 0
+    ranked = sorted(family, key=lambda x: x["p_value"])
+    found = max((k for k, x in enumerate(ranked, start=1) if x["p_value"] <= k * FALSE_FINDINGS / m), default=0)
+    q, running = [0.0] * m, 1.0
+    for i in range(m - 1, -1, -1):  # adjusted p-values: the smallest m x p / rank from here up
+        running = min(running, ranked[i]["p_value"] * m / (i + 1))
+        q[i] = running
+    alpha = max(found, 1) * FALSE_FINDINGS / m
+    for x, qv in zip(ranked, q):
+        action = x.pop("_action")
+        x.update(_judge(action, x["mean"], x["se"], x["df"], x["t"], x["p_value"], alpha, x["min_calls"], qv) | {"family": m})
+    return m

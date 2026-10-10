@@ -13,6 +13,7 @@ import logging
 import sys
 from datetime import date
 
+from src.analytics import health
 from src.analytics.prices import refresh
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,12 @@ def main(argv: list[str] | None = None) -> int:
     with get_session() as session:
         counts = refresh(session, date.today())
         session.commit()
+        fh = health.refresh(session, date.today())
+        session.commit()
     logger.info("Statistics: %d securities, %d with a year or more of prices; beta against %s",
                 counts["securities"], counts["with_volatility"], counts["market"] or "no market fund")
+    logger.info("Financial health: %d shares, %d with an F-Score, %d in the Altman distress zone",
+                fh["companies"], fh["f_scored"], fh["distress"])
     return 0
 
 

@@ -52,6 +52,12 @@ class FinancialReport(Base):
     total_debt: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
     cash_and_equivalents: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
     net_tangible_assets: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    # For the F-Score and Z-Score (src/analytics/health.py)
+    current_assets: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    current_liabilities: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    gross_profit: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    retained_earnings: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    shares_outstanding: Mapped[Decimal | None] = mapped_column(Numeric(18, 0))
 
     # ASX dividend & franking context
     dividends_per_share: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))

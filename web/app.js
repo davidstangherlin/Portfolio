@@ -1008,6 +1008,7 @@ async function renderCompany(code) {
 
   const drpCard = dividendReinvestCard(d.drp);
   const shortCard = shortSellingCard(c, d);
+  const healthCard = island("FinancialHealthCard", { code: c.asx_code, health: d.health || null }, "Financial health");
   const registryCard = shareRegistryCard(c.asx_code, d.registry);
 
   const held = d.position ? h("p", { class: "hint", text:
@@ -1033,7 +1034,7 @@ async function renderCompany(code) {
     held,
     watchNote(d.watchlists),
     h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, drpCard, registryCard,
-      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), shortCard, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
+      analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), healthCard, shortCard, companyNoticesCard(c.notices), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
@@ -2793,8 +2794,8 @@ function verdictLine(a, months, domain) {
       t.low !== null && domain ? chartSlot((w) => edgeBar(a, domain, w)) : null));  // no bar on the dashboard
 }
 const ptsText = (v) => `${v > 0 ? "+" : v < 0 ? "-" : ""}${fmt(Math.abs(v), 1)} pts`;
-/* Where an action's true edge most likely sits (19 times in 20), against
-   the average screened share at zero. */
+/* Where an action's true edge most likely sits (widened for the number of
+   tests, rules.adjust()), against the average screened share at zero. */
 function edgeBar(a, domain, width) {
   const t = a.test, W = Math.max(260, width), H = 50, m = { l: 10, r: 10 };
   const X = (v) => m.l + ((v - domain.lo) / (domain.hi - domain.lo)) * (W - m.l - m.r);
@@ -2838,10 +2839,11 @@ function verdictCard(d, months, setHorizon) {
   const admin = me && me.user && me.user.admin;
   const body = v.actions.length
     ? [h("ul", { class: "verdict rules" }, v.actions.map((a) => verdictLine(a, months, domain))), orderLine(v.order),
-      workedOut([`Each call's total return is compared with the average screened share's over the same ${horizonText(months)}. The bar shows where the action's true edge most likely sits (19 times in 20). If the whole bar is clear of the average, the difference is very unlikely to be luck.`,
+      workedOut([`Each call's total return is compared with the average screened share's over the same ${horizonText(months)}. The bar shows where the action's true edge most likely sits. If the whole bar is clear of the average, the difference is very unlikely to be luck.`,
         "Calls a month apart overlap when the period is longer than a month, so Sift widens the bar to allow for that: it claims less, not more.",
+        "Sift tests every action at every period at once, and with that many tests a few would pass by luck alone. It corrects for this (the Benjamini-Hochberg method), which widens the bars and adjusts the luck odds, so no more than 1 in 20 of the results it calls real should be luck.",
         `An action needs ${fmt(v.actions[0].test.min_calls, 0)} calls before Sift judges it (a setting in Admin, Model and rules).`], "rule-reliability",
-        admin ? h("p", { class: "hint", text: "Admin: " + v.actions.filter((a) => a.test.t !== null).map((a) => `${a.action} t = ${fmt(a.test.t, 2)}, p = ${fmt(a.test.p_value, 3)}, 95% ${ptsText(a.test.low)} to ${ptsText(a.test.high)}`).join("; ") }) : null)]
+        admin ? h("p", { class: "hint", text: "Admin: " + v.actions.filter((a) => a.test.t !== null).map((a) => `${a.action} t = ${fmt(a.test.t, 2)}, p = ${fmt(a.test.p_value, 3)}, adjusted ${a.test.q_value === null || a.test.q_value === undefined ? "n/a" : fmt(a.test.q_value, 3)}, ${fmt(100 * a.test.level, 1)}% ${ptsText(a.test.low)} to ${ptsText(a.test.high)}`).join("; ") }) : null)]
     : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
       : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
       : d.version ? `No ${months}-month results yet for ${d.version_label || "this rules version"}: its signals aren't ${horizonText(months)} old yet.`
@@ -4021,6 +4023,26 @@ function helpLink(id) {
 }
 const withHelpLink = (text, id) => [text, " ", helpLink(id)];
 
+/* ---------- React islands (ADR-018: docs/kb/decisions/adr-018-react-typescript-pages.md) ---------- */
+/* What the React components (frontend/, built to web/dist/sift-ui.js) borrow
+   from this app while both exist. */
+window.SiftHost = {
+  helpEntry: (id) => { const e = knowledgeEntry(id); return e ? { id: e.id, title: e.title } : null; },
+  openHelp: (id) => window.open(new URL(`#/help/${id}`, location.href).href, "_blank", "noopener"),
+  isAdmin: () => Boolean(me && me.user && me.user.admin),
+};
+/* A React component as one more card on a page this file built. The wrapper
+   takes no space of its own (display: contents), so the card sits in the
+   grid like any other. Islands on a page that has gone are unmounted by
+   SiftUI.sweep() after each route change. */
+function island(name, props, title) {
+  const el = h("div", { class: "island", "data-island": name });
+  if (!(window.SiftUI && window.SiftUI.mount(name, el, props))) {
+    el.append(card(title || name, "This card didn't load. Refresh the page; if it stays, the page files need rebuilding (frontend/README.md)."));
+  }
+  return el;
+}
+
 /* A setting's number as the console shows it: rates and percents with %, ratios bare. */
 function settingText(meta, value) {
   if (value === null || value === undefined || value === "") return NA;
@@ -4921,7 +4943,8 @@ function route() {
   markCurrent(page);
   Object.assign(findState, { q: "", hits: [], i: -1 });
   setSearchPage(page);
-  render(hash.match(re)).catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })));
+  render(hash.match(re)).catch((err) => app.replaceChildren(h("p", { class: "error", text: `Could not load: ${err.message}` })))
+    .finally(() => window.SiftUI && window.SiftUI.sweep());
 }
 window.addEventListener("hashchange", route);
 initNav();

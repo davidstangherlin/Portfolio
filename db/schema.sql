@@ -88,6 +88,13 @@ ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS abnormal_distributions_pe
 -- Statement figures are stored converted into the trading currency; these record from what, and at what rate.
 ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS reporting_currency VARCHAR(3);
 ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(14, 6);
+-- For the Piotroski F-Score and Altman Z-Score (docs/kb/features/financial-health.md):
+-- filled as each company's statements are next refreshed (weekly).
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS current_assets NUMERIC(16, 2);
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS current_liabilities NUMERIC(16, 2);
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS gross_profit NUMERIC(16, 2);
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS retained_earnings NUMERIC(16, 2);
+ALTER TABLE financial_reports ADD COLUMN IF NOT EXISTS shares_outstanding NUMERIC(18, 0);  -- shares, not money
 
 
 -- 4. VALUATION DERIVATIVES & VALUE INVESTING METRICS
@@ -707,6 +714,24 @@ CREATE TABLE IF NOT EXISTS price_statistics (
     computed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5zb. FINANCIAL HEALTH (docs/kb/features/financial-health.md)
+-- Piotroski F-Score and Altman Z-Score per share, recomputed nightly in the
+-- Statistics step (src/analytics/health.py). Shared market data, no owner.
+CREATE TABLE IF NOT EXISTS financial_health (
+    company_id UUID PRIMARY KEY REFERENCES companies(company_id) ON DELETE CASCADE,
+    as_of_date DATE NOT NULL,
+    fiscal_year INT,                             -- the latest annual report used
+    f_score SMALLINT,                            -- 0 to 9: checks passed
+    f_checks SMALLINT,                           -- checks with the data to make them
+    f_level VARCHAR(10),                         -- STRONG, MIDDLING, WEAK or NOT_ENOUGH
+    f_detail JSONB,                              -- each check: key, label, rule, passed (true, false or null)
+    z_score NUMERIC(10, 3),
+    z_zone VARCHAR(8),                           -- SAFE, GREY or DISTRESS
+    z_parts JSONB,                               -- the five ratios behind it
+    excluded_reason TEXT,                        -- banks, insurers and property trusts: not scored
+    computed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS
 SELECT
@@ -740,6 +765,7 @@ SELECT
     , round(sp.short_positions / NULLIF(vol.avg_volume, 0), 1) AS days_to_cover  -- shares short / 20-day average volume
     , sp.short_percent - (SELECT b.short_percent FROM short_positions b WHERE b.asx_code = c.asx_code
        AND b.report_date <= sp.report_date - 30 ORDER BY b.report_date DESC LIMIT 1) AS short_change  -- points, over about a month
+    , fh.f_score, fh.f_checks, fh.f_level, fh.z_score, fh.z_zone  -- financial health (Statistics step)
 FROM companies c
 JOIN daily_prices p ON c.company_id = p.company_id
     AND p.price_date = (SELECT MAX(price_date) FROM daily_prices WHERE company_id = c.company_id)
@@ -747,6 +773,7 @@ JOIN valuation_metrics v ON c.company_id = v.company_id
     AND v.as_of_date = (SELECT MAX(as_of_date) FROM valuation_metrics WHERE company_id = c.company_id)
 LEFT JOIN LATERAL (SELECT s.short_percent, s.short_positions, s.report_date FROM short_positions s
     WHERE s.asx_code = c.asx_code ORDER BY s.report_date DESC LIMIT 1) sp ON TRUE
+LEFT JOIN financial_health fh ON fh.company_id = c.company_id
 LEFT JOIN LATERAL (SELECT avg(d.volume) AS avg_volume FROM (SELECT volume FROM daily_prices
     WHERE company_id = c.company_id AND volume > 0 AND price_date <= sp.report_date
     ORDER BY price_date DESC LIMIT 20) d) vol ON TRUE

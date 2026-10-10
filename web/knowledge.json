@@ -2600,6 +2600,61 @@
    ]
   },
   {
+   "id": "financial-health",
+   "title": "Financial health: F-Score and Z-Score",
+   "category": "ratios",
+   "glossary": "term",
+   "glossary_title": "Financial health (Piotroski F-Score, Altman Z-Score)",
+   "labels": [
+    "Financial health",
+    "F-Score",
+    "Z-Score"
+   ],
+   "aliases": [
+    "financial health",
+    "piotroski",
+    "f-score",
+    "f score",
+    "piotroski f-score",
+    "altman",
+    "z-score",
+    "z score",
+    "altman z-score",
+    "distress",
+    "distress zone",
+    "grey zone",
+    "safe zone",
+    "bankruptcy risk",
+    "balance sheet strength"
+   ],
+   "definition": "Two established checks on a company's accounts: the Piotroski F-Score (is the business getting stronger?) and the Altman Z-Score (is it at risk of financial distress?).",
+   "hover": "F-Score: how many of 9 signs of strength the latest annual reports show (7 to 9 Strong, 4 to 6 Middling, 0 to 3 Weak). Z-Score: five balance-sheet ratios in one figure (above 2.99 Safe, 1.81 to 2.99 Grey, below 1.81 Distress).",
+   "body": [
+    "Where it shows: the Financial health card on each company's page, worked out each night from the latest two or three annual reports.",
+    "The F-Score (Piotroski, 2000) gives one point for each of nine signs of strength. Profit: the company made a profit, cash came in from operations, its return on assets improved, and its profit was backed by cash. Funding: debt fell against assets, its short-term position (current assets against current liabilities) improved, and it issued no new shares. Efficiency: its gross margin improved and it made more sales per dollar of assets. 7 to 9 is Strong, 4 to 6 Middling and 0 to 3 Weak.",
+    "A check Sift has no data for neither passes nor fails: the card says how many of the nine it could make, and shows Not enough data yet under six. The extra statement lines (current assets and liabilities, gross profit, retained earnings, shares on issue) fill in as each company's statements refresh each week.",
+    "Piotroski found that, among cheap shares, those scoring high went on to do much better than those scoring low. It's a quality check that suits Sift's value approach: a share can look cheap because the business is getting weaker.",
+    "The Z-Score (Altman, 1968) combines working capital, retained earnings, earnings before interest and tax, and sales (each against total assets) with the market value of the shares against total liabilities. Above 2.99 is the safe zone, 1.81 to 2.99 the grey zone and below 1.81 the distress zone. In Altman's study, companies scoring this low often failed within two years.",
+    "What a distress score does: Sift adds a caution to the action's reason (\"possible financial distress\"). It never changes the action itself, so a BUY stays a BUY: read the balance sheet and the latest results before relying on it.",
+    "Banks, insurers and property trusts get no score: both measures were built for ordinary trading companies, and those balance sheets work differently (a bank's deposits are liabilities, for example).",
+    "The limits: both were built on United States companies decades ago. The Z-Score was designed for manufacturers, so a fast-growing company that doesn't yet keep profits (low retained earnings) can score low without being in trouble. Treat them as prompts for your own research, not advice."
+   ],
+   "related": [
+    "rule-reliability",
+    "statistics-theory"
+   ],
+   "links": [
+    {
+     "text": "Piotroski (2000), Value investing: the use of historical financial statement information to separate winners from losers (SSRN)",
+     "href": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=249455"
+    },
+    {
+     "text": "Altman (1968), Financial ratios, discriminant analysis and the prediction of corporate bankruptcy (Journal of Finance)",
+     "href": "https://doi.org/10.1111/j.1540-6261.1968.tb00843.x"
+    }
+   ]
+  },
+  {
    "id": "volume",
    "title": "Volume",
    "category": "market",
@@ -2675,15 +2730,20 @@
     "p-value",
     "confidence interval",
     "likely true edge",
-    "rule reliability"
+    "rule reliability",
+    "multiple testing",
+    "false discovery rate",
+    "benjamini-hochberg",
+    "data snooping"
    ],
    "definition": "Whether an action's calls beat (or trailed) the average screened share by more than luck would explain.",
    "hover": "Sift's verdict on each action: Beating the average or Trailing the average when the difference is very unlikely to be luck, Too early to tell when it could be, Needs more calls under 30.",
    "body": [
     "On the Track record page, each action (BUY, INVESTIGATE, WATCH and so on) gets a verdict, a sentence and a bar. The sentence says how far its calls beat or trailed the average screened share and how likely that is to be luck, for example \"about a 1 in 40 chance\".",
-    "The bar shows where the action's true edge most likely sits, 19 times in 20, against the average share (the line marked Average). If the whole bar is to the right, the action is Beating the average; wholly to the left, Trailing the average. A bar across the line means Too early to tell: the difference could be luck.",
+    "The bar shows where the action's true edge most likely sits against the average share (the line marked Average). If the whole bar is to the right, the action is Beating the average; wholly to the left, Trailing the average. A bar across the line means Too early to tell: the difference could be luck.",
     "A tick (✓) means the result is what the action intends: BUY, INVESTIGATE and ACCUMULATE should beat the average, AVOID and SELL should trail it. A cross (✕) means the opposite. WATCH, HOLD, REVIEW and IGNORE are neither.",
     "Sift needs 30 calls before it judges an action. Calls a month apart overlap when the period is longer than a month (two 6-month periods a month apart share five months), so Sift widens the bar to allow for that: it claims less, not more.",
+    "Many tests at once. Sift tests every action at every period together, and with that many tests a few would look real by luck alone. It corrects for this with the Benjamini-Hochberg method: a result only counts if it would still stand with no more than 1 in 20 of Sift's findings expected to be luck. The luck odds are the corrected ones, and the bars are widened to match, so a bar clear of the average always means a finding.",
     "It's worked out from each company's first call of each month, the same calls as the rest of the page, and covers the whole history (the monthly summary keeps what it needs after the daily detail is deleted)."
    ],
    "related": [
@@ -2812,13 +2872,17 @@
     "reflection principle",
     "fat tails",
     "natural frequencies",
-    "sources"
+    "sources",
+    "benjamini-hochberg",
+    "false discovery rate",
+    "multiple testing"
    ],
    "definition": "The established methods behind Sift's rule verdicts, chances and likely ranges, with the work each comes from.",
    "hover": "The methods behind Sift's statistics and where they come from: the t-test, the random walk, beta and the CAPM, and how chances are put into words.",
    "body": [
     "Is each rule working? Sift compares each call's return with the average screened share's over the same period, the excess-return method of event studies (Fama, Fisher, Jensen and Roll, 1969, International Economic Review 10(1): 1 to 21). Whether the average difference is more than luck is Student's t-test (Student, 1908, \"The probable error of a mean\", Biometrika 6(1): 1 to 25), at 95%.",
     "Overlapping calls. Returns measured over the same months aren't independent, which makes a result look surer than it is (Hansen and Hodrick, 1980, Journal of Political Economy 88(5): 829 to 853; Newey and West, 1987, Econometrica 55(3): 703 to 708). Sift widens its error by the square root of the months: simpler than their corrections, and on the cautious side.",
+    "Many tests at once. Testing every action at every period means some would pass by chance. Sift controls the false discovery rate, the expected share of its findings that are luck, at 5% (Benjamini and Hochberg, 1995, Journal of the Royal Statistical Society Series B 57(1): 289 to 300), and widens every bar to the matching level (Benjamini and Yekutieli, 2005, Journal of the American Statistical Association 100(469): 71 to 81), so the bars and the verdicts always agree.",
     "Volatility and the likely range. Prices are treated as a random walk in the log price, the model behind option pricing (Black and Scholes, 1973, Journal of Political Economy 81(3): 637 to 654; Hull, Options, Futures, and Other Derivatives, Pearson, on estimating volatility from history). Daily volatility is scaled to a year by the square root of 252 trading days; one volatility either side covers about two years in three.",
     "Chance of reaching a price. How often a random walk touches a level within a time is the first-passage probability from the reflection principle (for example Shreve, Stochastic Calculus for Finance II, Springer, 2004, section 3.7): twice the chance of ending beyond the level.",
     "Beta. How much a share moves with the market comes from the Capital Asset Pricing Model (Sharpe, 1964, Journal of Finance 19(3): 425 to 442). Thinly traded shares understate it on daily data (Scholes and Williams, 1977, Journal of Financial Economics 5(3): 309 to 327; Dimson, 1979, Journal of Financial Economics 7(2): 197 to 226), so Sift uses weekly returns.",
@@ -2834,6 +2898,14 @@
     {
      "text": "Newey and West (1987), autocorrelation-consistent errors (Econometrica)",
      "href": "https://doi.org/10.2307/1913610"
+    },
+    {
+     "text": "Benjamini and Hochberg (1995), Controlling the false discovery rate",
+     "href": "https://doi.org/10.1111/j.2517-6161.1995.tb02031.x"
+    },
+    {
+     "text": "Benjamini and Yekutieli (2005), FDR-adjusted confidence intervals for selected parameters",
+     "href": "https://doi.org/10.1198/016214504000001907"
     },
     {
      "text": "Sharpe (1964), Capital asset prices (Journal of Finance, JSTOR)",

@@ -267,6 +267,14 @@ add(
     ["HIGH", "short_percent at or above 10%, or at or above 5% with days_to_cover at or above 10", "caution: heavily shorted (X% of shares sold short, Y days to cover): expect sharp price swings; keep any position small"],
     ["ELEVATED", "short_percent at or above 5%, or at or above 2% with days_to_cover at or above 5 or short_change up 2 points or more in a month", "caution: shorted (X% of shares sold short, Y days to cover): expect bigger price swings than usual"],
   ], [0.14, 0.43, 0.43]),
+  h2("Financial distress caution (not a red flag)"),
+  p("A share whose Altman Z-Score (1968) is in the distress zone gets a caution in the reason; the action never changes. " +
+    "Z = 1.2 x working capital / total assets + 1.4 x retained earnings / total assets + 3.3 x EBIT / total assets + 0.6 x market value / total liabilities + 1.0 x revenue / total assets, " +
+    "from the latest annual report. Not worked out for Financial Services or Real Estate. The Piotroski F-Score (2000, nine pass-or-fail checks) is shown beside it on the company page and changes nothing."),
+  table(["Zone", "Trigger", "Wording in the reason"], [
+    ["DISTRESS", "z_score below 1.81", "caution: possible financial distress (Altman Z-Score X, distress zone): check the balance sheet and latest results"],
+    ["GREY / SAFE", "1.81 to 2.99 / above 2.99", "none"],
+  ], [0.14, 0.43, 0.43]),
 );
 
 // 10. Suggested actions
@@ -426,7 +434,7 @@ add(
   p("Three statistics put Sift's results into plain words. None of them changes an action, so none changes the rules version. They are recalculated each night (the Statistics step, after Track Record)."),
   table(["Statistic", "Where", "How it is worked out", "Shown as"], [
     ["Is each rule working?", "Track record (Is Sift accurate?) and the dashboard",
-      "For each action and period: the average excess return of its monthly calls against the average screened share, and a t-test at 95% (Student, 1908). The standard error is widened by the square root of the period in months, because calls a month apart overlap (Hansen and Hodrick, 1980). Judged from stats_min_calls calls (30).",
+      "For each action and period: the average excess return of its monthly calls against the average screened share, and a t-test at 95% (Student, 1908). The standard error is widened by the square root of the period in months, because calls a month apart overlap (Hansen and Hodrick, 1980). Judged from stats_min_calls calls (30). Every action and period is corrected together for multiple testing (Benjamini and Hochberg, 1995: at most 5% false findings), and the bars are widened to match (Benjamini and Yekutieli, 2005).",
       "Beating the average, Trailing the average, Too early to tell or Needs more calls; the chance it is luck as odds; a bar of the likely true edge"],
     ["Chance of reaching a price", "Company page, under Price against estimated value",
       "Volatility = standard deviation of daily log returns over stats_years years (3) x sqrt(252). Chance of touching level L from price P within a year, no trend assumed: 2 x (1 - N(ln(L / P) / volatility)) (the reflection principle). Already reached when L <= P.",
@@ -443,7 +451,8 @@ add(
   table(["Item", "Value", "Adjustable"], [
     ["stats_min_calls", "30 calls before an action is judged", "Yes (Admin, Model and rules, Statistics)"],
     ["stats_years", "3 years of price history (at least one needed)", "Yes"],
-    ["Confidence", "95% (19 times in 20)", "No: fixed so a result can't be tuned until a rule passes"],
+    ["Confidence", "95% (19 times in 20), before the correction below", "No: fixed so a result can't be tuned until a rule passes"],
+    ["Many tests at once", "Benjamini-Hochberg, at most 5% of findings false; bars widened to match", "No"],
     ["Overlap allowance", "Error x sqrt(months)", "No"],
     ["Benchmark", "The average screened share, total return", "No: the track record's own"],
     ["Price model", "Random walk in the log price, no trend", "No"],

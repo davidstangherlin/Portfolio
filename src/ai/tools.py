@@ -128,6 +128,12 @@ def company(session, code: str) -> dict:
             "chance_of_reaching_within_12_months": [
                 {"level": x["label"], "price": x["level"], "already_reached": x["already_reached"],
                  "chance": x["words"] and f'{x["words"]["word"]}: {x["words"]["text"]}'} for x in p["statistics"]["chances"]]},
+        "financial_health": p["health"] and {  # Piotroski F-Score and Altman Z-Score, in words
+            "f_score": p["health"]["f_score"], "f_score_checks_with_data": p["health"]["f_checks"],
+            "f_score_reading": p["health"]["f_words"],
+            "f_score_checks": [{"check": c["label"], "passed": c["passed"]} for c in p["health"]["f_detail"]],
+            "altman_z_score": p["health"]["z_score"], "altman_zone": p["health"]["z_words"],
+            "altman_meaning": p["health"]["z_meaning"], "not_scored_because": p["health"]["excluded_reason"]},
         "watchlists": [w["name"] for w in p["watchlists"] if w["member"]], "note": NOT_ADVICE,
     }
 

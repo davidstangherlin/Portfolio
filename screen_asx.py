@@ -84,6 +84,7 @@ COLUMNS = [
     "valuation_method", "margin_of_safety_trend", "fundamentals_trend",
     "cash_conversion", "earnings_quality", "price_vs_200d", "range_position_52w",
     "dividend_trend", "data_confidence", "short_percent", "days_to_cover", "short_change",
+    "f_score", "f_checks", "f_level", "z_score", "z_zone",
 ]
 
 # The full table: raw marker inputs (cash_conversion, price_vs_200d,
