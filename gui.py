@@ -67,6 +67,7 @@ from src.tracking import report as track_report
 from src.tracking import rules_versions
 from src import registries
 from src.drp import drp_payload
+from src.analytics import prices as price_stats
 from src.ingestion import short_positions
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
@@ -353,6 +354,7 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
                            position.units if position is not None else None),
         "registry": registries.company_registry(session, company.company_id),
         "short_interest": short_positions.company_short(session, asx_code, today),
+        "statistics": price_stats.company_statistics(session, company.company_id),  # likely range, chances (nightly)
         "mos_history": [[d, m] for d, m in mos_history if m is not None],
         "reports": [
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,

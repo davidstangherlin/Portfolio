@@ -408,6 +408,13 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   (Short Positions step); check with `python -m src.ingestion.short_positions --dry-run`, and load
   a year of history with `--days 365`. Files saved from ASIC's website into `data\ASIC` load with
   `--folder` (and nightly).
+- **Statistics, in plain words:** the Track record says whether each action beats the average
+  share by more than luck (Beating the average, Too early to tell, Needs more calls), with the
+  odds it's luck and a bar of the likely true edge. Each company page shows the chance of
+  reaching Sift's estimated value and the analysts' target within 12 months ("Possible: about 4
+  in 10", as ten dots), and the share price chart continues into the year ahead with the likely
+  range (two years in three). Worked out nightly (Statistics step, `python -m src.analytics.run`)
+  from each share's volatility; beta against the ASX 200 is kept for a crash test to come.
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.

@@ -186,14 +186,15 @@ def refresh_monthly(session) -> int:
         returns = [r["total_return"] for r in items if r["total_return"] is not None]
         session.execute(text("""
             INSERT INTO track_record_monthly (month, action, horizon_months, rules_version, signals, beat_benchmark,
-                avg_return, avg_excess, median_excess)
-            VALUES (:month, :action, :horizon, :version, :signals, :beat, :avg_return, :avg_excess, :median_excess)
+                avg_return, avg_excess, median_excess, excess_sumsq)
+            VALUES (:month, :action, :horizon, :version, :signals, :beat, :avg_return, :avg_excess, :median_excess, :sumsq)
         """), {
             "month": month, "action": action, "horizon": months_ahead, "version": version, "signals": len(items),
             "beat": sum(1 for e in excess if e > 0),
             "avg_return": _pct(sum(returns, Decimal("0")) / len(returns)) if returns else None,
             "avg_excess": _pct(sum(excess, Decimal("0")) / len(excess)),
             "median_excess": _pct(Decimal(statistics.median(excess))),
+            "sumsq": sum((e * e for e in excess), Decimal("0")),  # for the "more than luck?" test
         })
     return len(groups)
 

@@ -961,6 +961,20 @@
     "volume-and-short-selling"
    ],
    "notes": "Run python -m src.ingestion.short_positions --dry-run, then --days 365. If it fails, keep the first lines of the file as a test in tests/unit/test_short_positions.py."
+  },
+  {
+   "id": "IMP-067",
+   "title": "Crash test simulator for portfolios",
+   "type": "idea",
+   "priority": "P2",
+   "status": "open",
+   "impact": "Shows how a portfolio might fare if the market fell sharply (2008, 2020 or a set fall), in plain words, using each holding's beta and volatility.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "statistics"
+   ],
+   "notes": "The owner plans a screen for it (Portfolios, Crash test). Beta and volatility are already worked out nightly into price_statistics; consider fat tails and stressed correlations (ADR-017)."
   }
  ]
 }

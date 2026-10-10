@@ -3,7 +3,7 @@ id: nightly-run
 title: The nightly run
 category: operations
 summary: What scripts/daily_refresh.ps1 does at 6 pm: each step, its order, how failures are contained, logs and the Task Scheduler settings.
-version: 1.4
+version: 1.5
 status: published
 owner: Product owner
 published: 2026-10-09
@@ -16,7 +16,7 @@ code: [scripts/daily_refresh.ps1]
 
 ## Summary
 
-The nightly run keeps everything current. Its steps, in order: Schema, Ingestion (prices daily, statements weekly), ETFs and LICs, Share Registries (each company's registry from ASX, see [Dividend reinvestment and share registries](kb:drp-and-registry)), ASX Notices (director trades and substantial holders, see [Coattail](kb:coattail)), Short Positions (ASIC's daily short position reports, see [Volume and short selling](kb:volume-and-short-selling)), Valuation, Signal Record, Track Record, Suggested Actions, Search Index, Graph Export (entity records and the Neo4j-ready files in `data/graph/`, see [AI and graph readiness](kb:ai-and-graph)). A failed step doesn't stop the later ones. Each run writes `logs\refresh_<date>.log`, kept 30 days. If a run fails, start with [Nightly run failed](kb:rb-nightly-run-failed).
+The nightly run keeps everything current. Its steps, in order: Schema, Ingestion (prices daily, statements weekly), ETFs and LICs, Share Registries (each company's registry from ASX, see [Dividend reinvestment and share registries](kb:drp-and-registry)), ASX Notices (director trades and substantial holders, see [Coattail](kb:coattail)), Short Positions (ASIC's daily short position reports, see [Volume and short selling](kb:volume-and-short-selling)), Valuation, Signal Record, Track Record, Statistics (volatility, beta, likely ranges and chances, see [Statistics](kb:statistics)), Suggested Actions, Search Index, Graph Export (entity records and the Neo4j-ready files in `data/graph/`, see [AI and graph readiness](kb:ai-and-graph)). A failed step doesn't stop the later ones. Each run writes `logs\refresh_<date>.log`, kept 30 days. If a run fails, start with [Nightly run failed](kb:rb-nightly-run-failed).
 
 **Runs cut off partway, and a lighter nightly run (2026-10-06):** from 5 October the user's runs stopped during ingestion at a different point each night (7, 14 and 28 minutes in), with no error in the log, after finishing in about 44 minutes from 2 to 4 October. Task Scheduler's last result was `0xC000013A` (the console-close signal), no sleep or shutdown was logged, and nothing was hung. The task had "Stop if the computer ceases to be idle" on and ran in a visible window, and the cut-offs fell on weekday evenings when the user was at the PC. So the run was being ended from outside (IMP-035). Fixed on the task (hidden window, idle conditions off, 4-hour limit, catch up a missed start; README, Daily Automation) and in the script:
 - **Timed steps.** `Invoke-Step` writes each heading as `--- Name --- started HH:mm:ss` and adds `Name took N min` after it, so a stall or a slow step shows in the log. It writes error-output lines as plain text (2026-10-07): Windows PowerShell wraps each line Python logs to stderr as an error record, and a blank one used to appear as `System.Management.Automation.RemoteException`.

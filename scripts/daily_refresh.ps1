@@ -89,6 +89,8 @@ Invoke-Step "ASX Notices" { python -m src.coattail.notices }
 Invoke-Step "Valuation" { python -m src.valuation.run_valuation --all }
 Invoke-Step "Signal Record" { python -m src.tracking.record_signals }
 Invoke-Step "Track Record" { python -m src.tracking.score_signals }
+# Volatility, beta, likely ranges and chances of reaching a level (docs/kb/features/statistics.md)
+Invoke-Step "Statistics" { python -m src.analytics.run }
 Invoke-Step "Suggested Actions" { python screen_asx.py --actions }
 Invoke-Step "Search Index" { python -m src.search.reindex --trigger nightly }
 Invoke-Step "Graph Export" { python -m src.graph.export }  # data/graph: CSV files and load.cypher for Neo4j (docs/kb/features/ai-and-graph.md)

@@ -2641,6 +2641,140 @@
     "volume",
     "short-selling"
    ]
+  },
+  {
+   "id": "rule-reliability",
+   "title": "Is each rule working?",
+   "category": "track",
+   "glossary": "term",
+   "glossary_title": "Rule reliability",
+   "labels": [
+    "Beating the average",
+    "Trailing the average",
+    "Too early to tell",
+    "Needs more calls"
+   ],
+   "aliases": [
+    "is each rule working",
+    "more than luck",
+    "luck",
+    "statistically significant",
+    "significance",
+    "t-test",
+    "p-value",
+    "confidence interval",
+    "likely true edge",
+    "rule reliability"
+   ],
+   "definition": "Whether an action's calls beat (or trailed) the average screened share by more than luck would explain.",
+   "hover": "Sift's verdict on each action: Beating the average or Trailing the average when the difference is very unlikely to be luck, Too early to tell when it could be, Needs more calls under 30.",
+   "body": [
+    "On the Track record page, each action (BUY, INVESTIGATE, WATCH and so on) gets a verdict, a sentence and a bar. The sentence says how far its calls beat or trailed the average screened share and how likely that is to be luck, for example \"about a 1 in 40 chance\".",
+    "The bar shows where the action's true edge most likely sits, 19 times in 20, against the average share (the line marked Average). If the whole bar is to the right, the action is Beating the average; wholly to the left, Trailing the average. A bar across the line means Too early to tell: the difference could be luck.",
+    "A tick (✓) means the result is what the action intends: BUY, INVESTIGATE and ACCUMULATE should beat the average, AVOID and SELL should trail it. A cross (✕) means the opposite. WATCH, HOLD, REVIEW and IGNORE are neither.",
+    "Sift needs 30 calls before it judges an action. Calls a month apart overlap when the period is longer than a month (two 6-month periods a month apart share five months), so Sift widens the bar to allow for that: it claims less, not more.",
+    "It's worked out from each company's first call of each month, the same calls as the rest of the page, and covers the whole history (the monthly summary keeps what it needs after the daily detail is deleted)."
+   ],
+   "related": [
+    "track-record-scoring",
+    "excess-return"
+   ]
+  },
+  {
+   "id": "chance-of-reaching",
+   "title": "Chance of reaching a price",
+   "category": "valuation",
+   "glossary": "term",
+   "glossary_title": "Chance of reaching a price",
+   "labels": [
+    "Chance of reaching it within 12 months"
+   ],
+   "aliases": [
+    "chance of reaching",
+    "probability",
+    "odds",
+    "chance of reaching estimated value",
+    "chance of reaching target",
+    "likelihood of reaching target price",
+    "in 10"
+   ],
+   "definition": "How often a share whose price moves like this one's touches a level at least once within 12 months.",
+   "hover": "How often a price moving like this one's touches the level within 12 months, as a number in 10. Based on past price moves only; it doesn't know about news or results.",
+   "body": [
+    "On each company's page, under Price against estimated value: the chance of the price reaching Sift's estimated value and the analysts' target within 12 months, as ten dots and a number in 10 (\"Possible: about 4 in 10\").",
+    "The same words mean the same chance everywhere in Sift: Very unlikely (less than 1 in 10), Unlikely (1 to 2 in 10), Possible (3 to 4 in 10), About even (5 in 10), Likely (6 to 7 in 10), Very likely (8 or more in 10).",
+    "How it's worked out: Sift measures how much the price usually moves in a year (its volatility, from up to three years of prices) and works out how often a price moving like that touches the level at least once within a year, assuming no trend either way. A level at or below today's price is already reached.",
+    "What it doesn't know: news, results, dividends, or whether the share is cheap. A share far below its estimated value can stay there; a nearby level is reached more often simply because it's close. Treat it as a guide to how far the level is, given how much the price moves, not a forecast.",
+    "It's recalculated each night (the Statistics step) and needs about a year of prices."
+   ],
+   "related": [
+    "likely-range",
+    "volatility",
+    "margin-of-safety"
+   ]
+  },
+  {
+   "id": "likely-range",
+   "title": "Likely price range",
+   "category": "market",
+   "glossary": "term",
+   "glossary_title": "Likely price range",
+   "labels": [
+    "Likely range for the year ahead (two years in three)"
+   ],
+   "aliases": [
+    "likely range",
+    "price range",
+    "year ahead",
+    "forecast",
+    "fan chart",
+    "range",
+    "two years in three"
+   ],
+   "definition": "Where a share's price would end in a typical year, two years in three, given how much it usually moves.",
+   "hover": "Where the price would end in a typical year, two years in three, given how much it usually moves. A guide to how much it moves, not a forecast.",
+   "body": [
+    "On each company's page, the share price chart continues past today with a shaded range for the next 12 months, and a sentence above it: \"In a typical year, the price would end between $3.05 and $5.78 (two years in three)\". Hover the shaded area for the range at each month.",
+    "The range widens with time, because the further ahead you look the less certain it is. One year in six the price would end above it, and one year in six below it.",
+    "It comes from the share's volatility (how much its price has moved over up to three years) and assumes no trend either way, so its middle is today's price. It doesn't know about results, dividends or news.",
+    "Use it to judge how much a share moves, for example how far a fall of 20% would be from normal, not to predict where it will go."
+   ],
+   "related": [
+    "chance-of-reaching",
+    "volatility",
+    "volume"
+   ]
+  },
+  {
+   "id": "volatility",
+   "title": "Volatility and beta",
+   "category": "market",
+   "glossary": "term",
+   "glossary_title": "Volatility",
+   "labels": [
+    "Volatility",
+    "Beta"
+   ],
+   "aliases": [
+    "volatility",
+    "beta",
+    "how much the price moves",
+    "standard deviation",
+    "market sensitivity",
+    "risk"
+   ],
+   "definition": "Volatility is how much a share's price usually moves in a year; beta is how much it tends to move when the market moves.",
+   "hover": "Volatility: how much the price usually moves in a year (32% means a typical year's move is about a third). Beta: how much it moves with the market (1.2 means about 12% when the ASX 200 moves 10%).",
+   "body": [
+    "Volatility is the typical size of a share's price moves over a year, from up to three years of daily prices. A volatility of 32% means that in about two years in three the price ends within about a third of where it started. It drives the likely price range and the chance of reaching a price.",
+    "Beta is how much a share tends to move when the market does, measured from weekly prices against an ASX 200 fund (IOZ, or STW, A200 or VAS). A beta of 1 moves with the market; 1.5 moves about half as much again; 0.5 about half as much; near 0, not much in step with it at all.",
+    "Sift recalculates both each night. Beta will drive the crash test simulator still to come: how a portfolio might fare if the market fell sharply.",
+    "Both describe the past and need about a year of prices."
+   ],
+   "related": [
+    "likely-range",
+    "chance-of-reaching"
+   ]
   }
  ]
 }

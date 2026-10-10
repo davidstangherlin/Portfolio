@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import text
 
 from src.accounts import current_user_id
+from src.analytics.rules import test as rule_test
 from src.tracking.signals import HORIZONS_MONTHS, RULES_VERSION, person_nights
 
 TOO_EARLY_BELOW = 30        # fewer signals than this: "too early"
@@ -53,6 +54,8 @@ def verdict(session, version: str | None) -> dict:
         SELECT action, horizon_months, SUM(signals) AS signals, SUM(beat_benchmark) AS beat,
                SUM(avg_excess * signals) / NULLIF(SUM(signals), 0) AS avg_excess,
                SUM(avg_return * signals) / NULLIF(SUM(signals), 0) AS avg_return,
+               SUM(avg_excess * signals) AS sum_excess,
+               CASE WHEN bool_and(excess_sumsq IS NOT NULL) THEN SUM(excess_sumsq) END AS sumsq,
                MIN(month) AS first_month, MAX(month) AS last_month
         FROM track_record_monthly
         WHERE (CAST(:version AS TEXT) IS NULL OR rules_version = :version)
@@ -66,7 +69,10 @@ def verdict(session, version: str | None) -> dict:
             actions.append({"action": r["action"], "signals": n, "beat": int(r["beat"]),
                             "beat_rate": Decimal(int(r["beat"]) * 100) / n if n else None,
                             "avg_excess": r["avg_excess"], "avg_return": r["avg_return"],
-                            "confidence": confidence(n), "first_month": r["first_month"], "last_month": r["last_month"]})
+                            "confidence": confidence(n), "first_month": r["first_month"], "last_month": r["last_month"],
+                            "test": rule_test(r["action"], months, n,  # more than luck? (src/analytics/rules.py)
+                                              float(r["sum_excess"]) / n if n and r["sum_excess"] is not None else None,
+                                              float(r["sumsq"]) if r["sumsq"] is not None else None)})
         actions.sort(key=lambda a: (-(a["avg_excess"] if a["avg_excess"] is not None else Decimal("-1e9")), a["action"]))
         out[months] = {"actions": actions, "order": order_check(actions)}
     return out

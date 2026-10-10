@@ -251,7 +251,8 @@ function legend(series, rect = false, extras = []) {
   if (series.length < 2 && !extras.length) return null;
   return h("div", { class: "legend" },
     series.map((sr) => h("span", {}, h("span", { class: `key${rect ? " rect" : ""}`, style: `background:var(${sr.color})` }), sr.name)),
-    extras.map((x) => h("span", {}, h("span", { class: `dkey${x.outline ? " outline" : ""}`, "aria-hidden": "true", text: x.symbol }), x.name)));
+    extras.map((x) => h("span", {}, x.band ? h("span", { class: "key band", "aria-hidden": "true" })
+      : h("span", { class: `dkey${x.outline ? " outline" : ""}`, "aria-hidden": "true", text: x.symbol }), x.name)));
 }
 
 /* Ex-dividend dates on the price chart: each lands on the first trading
@@ -273,13 +274,28 @@ function tableView(headers, rows) {
 }
 
 /* Line chart with crosshair tooltip. series: [{name, color, points:[[iso, value]]}] */
-function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640, markers = [] }) {
-  const W = width, H = height, m = { l: 52, r: 14, t: 10, b: 24 };
+/* `ahead` ({ price, volatility }, a fraction a year) adds the likely range
+   for the next 12 months, two years in three, after the last point
+   (docs/kb/features/statistics.md). */
+const YEAR_MS = 365 * 86400000;
+const CHART_RIGHT_AHEAD = 58;  // room for the range's end labels; volumeChart matches it
+function aheadRange(ahead, t0) {  // weekly points, so the range's curve near today stays smooth
+  return Array.from({ length: 53 }, (_, k) => {
+    const spread = ahead.volatility * Math.sqrt(k / 52);
+    return { t: t0 + (k * YEAR_MS) / 52, months: Math.round((k * 12) / 52), lo: ahead.price * Math.exp(-spread), hi: ahead.price * Math.exp(spread) };
+  });
+}
+const pastYears = (y) => (y >= 2.5 ? "3 years" : y >= 1.5 ? "2 years" : "year");
+function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width = 640, markers = [], ahead = null }) {
+  const W = width, H = height, m = { l: 52, r: ahead ? CHART_RIGHT_AHEAD : 14, t: 10, b: 24 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const base = series[0].points;
   const xs = base.map((p) => toDate(p[0]).getTime());
-  const x0 = xs[0], x1 = xs[xs.length - 1] === x0 ? x0 + 1 : xs[xs.length - 1];
+  const lastT = xs[xs.length - 1];
+  const fan = ahead ? aheadRange(ahead, lastT) : null;
+  const x0 = xs[0], x1 = fan ? lastT + YEAR_MS : lastT === x0 ? x0 + 1 : lastT;
   const values = series.flatMap((sr) => sr.points.map((p) => p[1]));
+  if (fan) values.push(fan[52].lo, fan[52].hi);
   if (zeroLine) values.push(0);
   const { lo, hi, ticks } = niceTicks(Math.min(...values), Math.max(...values));
   const X = (t) => m.l + ((t - x0) / (x1 - x0)) * pw;
@@ -290,11 +306,26 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
     svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: t === 0 && zeroLine ? "zero-line" : "grid-line" }));
     svg.append(s("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end", text: yFmt(t) }));
   }
-  const nLabels = Math.min(5, base.length);
-  for (let k = 0; k < nLabels; k++) {
-    const idx = Math.round((k * (base.length - 1)) / Math.max(1, nLabels - 1));
-    svg.append(s("text", { x: X(xs[idx]), y: H - 6, "text-anchor": k === 0 ? "start" : k === nLabels - 1 ? "end" : "middle",
-      text: base.length > 60 ? monthYear(base[idx][0]) : dayMonth(base[idx][0]) }));
+  if (fan) {
+    // Past and year ahead: start, middle, Today, middle, end (start, Today, end when narrow).
+    const at = W < 520 ? [x0, lastT, x1] : [x0, (x0 + lastT) / 2, lastT, (lastT + x1) / 2, x1];
+    at.forEach((t, k) => svg.append(s("text", { x: X(t), y: H - 6, "text-anchor": k === 0 ? "start" : k === at.length - 1 ? "end" : "middle",
+      class: t === lastT ? "strong" : null, text: t === lastT ? "Today" : monthYear(new Date(t).toISOString().slice(0, 10)) })));
+    const edge = (side) => fan.map((f) => `${X(f.t).toFixed(1)},${Y(f[side]).toFixed(1)}`);
+    svg.append(s("polygon", { points: [...edge("hi"), ...edge("lo").reverse()].join(" "), class: "ahead-band" }));
+    svg.append(s("polyline", { points: edge("hi").join(" "), class: "ahead-edge" }));
+    svg.append(s("polyline", { points: edge("lo").join(" "), class: "ahead-edge" }));
+    svg.append(s("line", { x1: X(lastT), x2: X(x1), y1: Y(ahead.price), y2: Y(ahead.price), class: "ahead-mid" }));
+    svg.append(s("line", { x1: X(lastT), x2: X(lastT), y1: m.t, y2: m.t + ph, class: "ahead-today" }));
+    [[fan[52].hi, true], [ahead.price, false], [fan[52].lo, true]].forEach(([v, strong]) =>
+      svg.append(s("text", { x: W - m.r + 6, y: Y(v) + 4, class: strong ? "strong" : null, text: yFmt(v) })));
+  } else {
+    const nLabels = Math.min(5, base.length);
+    for (let k = 0; k < nLabels; k++) {
+      const idx = Math.round((k * (base.length - 1)) / Math.max(1, nLabels - 1));
+      svg.append(s("text", { x: X(xs[idx]), y: H - 6, "text-anchor": k === 0 ? "start" : k === nLabels - 1 ? "end" : "middle",
+        text: base.length > 60 ? monthYear(base[idx][0]) : dayMonth(base[idx][0]) }));
+    }
   }
   const lookups = series.map((sr) => new Map(sr.points.map((p) => [p[0], p[1]])));
   series.forEach((sr, k) => {
@@ -311,6 +342,13 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
   hit.addEventListener("pointermove", (e) => {
     const box = svg.getBoundingClientRect();
     const t = x0 + ((((e.clientX - box.left) / box.width) * W - m.l) / pw) * (x1 - x0);
+    if (fan && t > lastT) {
+      const k = Math.max(1, Math.min(52, Math.round(((t - lastT) / YEAR_MS) * 52))), f = fan[k];
+      cross.setAttribute("x1", X(f.t)); cross.setAttribute("x2", X(f.t)); cross.setAttribute("visibility", "visible");
+      showTip(e, [h("div", { class: "t-head", text: `${longDate(new Date(f.t).toISOString().slice(0, 10))}, ${k < 9 ? plural(k, "week") : plural(f.months, "month")} ahead` }),
+        h("div", { text: `Likely ${yFmt(f.lo)} to ${yFmt(f.hi)}` }), h("div", { class: "t-note", text: "Two years in three" })]);
+      return;
+    }
     let i = 0, best = Infinity;
     xs.forEach((x, k) => { const dd = Math.abs(x - t); if (dd < best) { best = dd; i = k; } });
     const iso = base[i][0];
@@ -338,6 +376,7 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
     svg.append(g);
   }
   const extras = markers.length ? [{ symbol: "D", name: `${markerKind(markers[0])} (ex-${markerKind(markers[0]).toLowerCase()} date)` }] : [];
+  if (fan) extras.push({ band: true, name: "Likely range for the year ahead (two years in three)" });
   if (markers.some((mk) => mk.abnormal)) extras.push({ symbol: "D", name: "One-off, excluded from dividend figures", outline: true });
   return h("div", {}, legend(series, false, extras), svg);
 }
@@ -345,11 +384,12 @@ function lineChart({ series, yFmt, height = 220, zeroLine = false, label, width 
 /* Daily volume as thin bars on the same time axis and margins as lineChart
    (so it lines up under the price chart), with a 3-month average line. */
 const VOLUME_AVG_DAYS = 63;  // about three months of trading days
-function volumeChart({ points, height = 120, width = 640, label }) {
-  const W = width, H = height, m = { l: 52, r: 14, t: 8, b: 20 };
+function volumeChart({ points, height = 120, width = 640, label, until = null }) {
+  // `until`: the price chart's year ahead, so the bars stay lined up under it
+  const W = width, H = height, m = { l: 52, r: until ? CHART_RIGHT_AHEAD : 14, t: 8, b: 20 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const xs = points.map((p) => toDate(p[0]).getTime());
-  const x0 = xs[0], x1 = xs[xs.length - 1] === x0 ? x0 + 1 : xs[xs.length - 1];
+  const x0 = xs[0], x1 = until || (xs[xs.length - 1] === x0 ? x0 + 1 : xs[xs.length - 1]);
   const avg = points.map((p, i) => {
     const from = Math.max(0, i - VOLUME_AVG_DAYS + 1), win = points.slice(from, i + 1);
     return win.length >= 20 ? sum(win.map((q) => q[1])) / win.length : null;
@@ -858,7 +898,7 @@ async function renderCompany(code) {
       { label: "Share price", value: c.current_price, emphasis: true, help: FIELD_HELP["Share price"] },
       { label: "Estimated value", value: c.dcf_intrinsic_value, help: ESTIMATED_VALUE_HELP[c.valuation_method] },
       { label: "Graham Number", value: c.graham_number, help: FIELD_HELP["Graham Number"] },
-    ], w)));
+    ], w)), chancesBlock(c, d.statistics));
 
   const wheelCard = card("Score", `${total} of ${d.checks_per_axis * d.axes.length} checks passed. Hover a spoke to see its checks.`,
     chartSlot((w) => wheel(scores, d.axes, d.checks_per_axis, { size: Math.min(300, w - 160), details: d.scores })));
@@ -915,13 +955,25 @@ async function renderCompany(code) {
     const divOn = new Map(markers.map((mk) => [mk.date, mk]));
     const volOn = new Map((d.volumes || []).map((p) => [p[0], p[1]]));
     const rowDates = [...new Set([...d.prices.slice(-30).map((p) => p[0]), ...markers.map((mk) => mk.date)])].sort().reverse();
-    priceCard = card("Share price, last 12 months",
+    // The year ahead: the likely range from the nightly statistics (docs/kb/features/statistics.md)
+    const st = d.statistics, lastClose = d.prices[d.prices.length - 1];
+    const ahead = st && st.volatility_percent !== null ? { price: lastClose[1], volatility: st.volatility_percent / 100 } : null;
+    const until = ahead ? toDate(lastClose[0]).getTime() + YEAR_MS : null;
+    const yearRange = ahead ? aheadRange(ahead, 0)[52] : null;
+    priceCard = card(ahead ? "Share price, last 12 months and the year ahead" : "Share price, last 12 months",
       ma.length >= 2 ? null : `200-day average appears once 200 days of prices are stored (${d.prices.length} so far).`,
-      chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price`, width: w, height: 260, markers })),
-      (d.volumes || []).length >= 2 ? chartSlot((w) => volumeChart({ points: d.volumes, label: `${c.asx_code} daily volume`, width: w })) : null,
+      ahead ? h("p", { class: "range-says" }, `In a typical year, ${c.asx_code} would end between `, h("strong", { text: money(yearRange.lo) }),
+        " and ", h("strong", { text: money(yearRange.hi) }), " (two years in three). A guide to how much it moves, not a forecast.") : null,
+      chartSlot((w) => lineChart({ series, yFmt: (v) => money(v), label: `${c.asx_code} closing price` + (ahead ? `, and its likely range for the year ahead: ${money(yearRange.lo)} to ${money(yearRange.hi)}` : ""),
+        width: w, height: 260, markers, ahead })),
+      (d.volumes || []).length >= 2 ? chartSlot((w) => volumeChart({ points: d.volumes, label: `${c.asx_code} daily volume`, width: w, until })) : null,
       (d.volumes || []).length >= 2 ? h("p", { class: "hint" }, "Volume is the number of shares traded each day. A darker bar traded more than twice its 3-month average: news, results or a big holder buying or selling. ", helpLink("volume")) : null,
       tableView(["Date", "Close", "Volume", "Dividend (ex-date)"], rowDates.map((dt) => [longDate(dt), money(closeOn.get(dt)),
-        volOn.has(dt) ? fmt(volOn.get(dt), 0) : "", divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])));
+        volOn.has(dt) ? fmt(volOn.get(dt), 0) : "", divOn.has(dt) ? dividendText(divOn.get(dt)) : ""])),
+      ahead ? workedOut([
+        `The shaded range widens with time, because the further ahead you look the less certain it is. It comes from how much ${c.asx_code}'s price has moved over the past ${pastYears(st.years_of_prices)} (about ${fmt(st.volatility_percent, 0)}% a year), and assumes no trend: it doesn't know about results, dividends or news.`,
+        "One year in six the price would end above the range, and one year in six below it.",
+      ], "likely-range") : null);
   } else {
     priceCard = card("Share price, last 12 months", "Not enough price history yet.");
   }
@@ -985,6 +1037,39 @@ async function renderCompany(code) {
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
+}
+
+/* ---------- statistics (docs/kb/features/statistics.md) ---------- */
+/* "How this is worked out": the method behind a statistic, closed by default. */
+function workedOut(paragraphs, helpId, extra = null) {
+  return h("details", { class: "worked-out" }, h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), "How this is worked out"),
+    h("div", { class: "inner" }, paragraphs.map((t) => h("p", { text: t })), extra, helpId ? h("p", {}, helpLink(helpId)) : null));
+}
+/* Ten dots, filled for the chance in 10 ("about 4 in 10"). */
+function chanceDots(n) {
+  return h("span", { class: "chance-dots", role: "img", "aria-label": `${n} in 10` },
+    Array.from({ length: 10 }, (_, i) => h("span", { class: `cdot${i < n ? " on" : ""}` })));
+}
+const CHANCE_SCALE = ["Very unlikely: less than 1 in 10", "Unlikely: 1 to 2 in 10", "Possible: 3 to 4 in 10", "About even: 5 in 10",
+  "Likely: 6 to 7 in 10", "Very likely: 8 or more in 10"];
+/* The chance of reaching Sift's estimated value and the analysts' target
+   within 12 months, under the price against estimated value bars. */
+function chancesBlock(c, st) {
+  if (!st || !st.chances.length) return null;
+  const admin = me && me.user && me.user.admin;
+  const row = (x) => h("div", { class: "chance" },
+    h("span", { class: "label" }, x.label, h("small", { text: `${money(x.level)}, ${fmt(Math.abs(x.above_today_percent), 0)}% ${x.above_today_percent >= 0 ? "above" : "below"} today` })),
+    x.already_reached ? h("span", { class: "words", text: "Already reached: today's price is at or above it." })
+      : x.words ? [chanceDots(x.words.in_ten), h("span", { class: "words" }, h("strong", { text: `${x.words.word}: ` }), x.words.text)]
+      : h("span", { class: "words hint", text: "Needs a year of prices." }));
+  return h("div", { class: "chances-block" },
+    h("p", { class: "mini-head" }, withHelpLink("Chance of reaching it within 12 months", "chance-of-reaching")),
+    h("div", { class: "chances" }, st.chances.map(row)),
+    h("p", { class: "hint", text: `Based on how much ${c.asx_code}'s price has moved over the past ${pastYears(st.years_of_prices)}. It doesn't know about future news or results.` }),
+    workedOut([`Sift measures how much the price usually moves in a year (for ${c.asx_code}, about ${fmt(st.volatility_percent, 0)}%) and works out how often a price moving like that touches the level at least once within 12 months, assuming no trend either way.`,
+      "The same words mean the same chance everywhere in Sift:"], "chance-of-reaching",
+      [h("ul", { class: "scale-words" }, CHANCE_SCALE.map((t) => h("li", { text: t }))),
+        admin ? h("p", { class: "hint", text: "Admin: " + st.chances.filter((x) => x.chance !== null).map((x) => `${x.label} ${fmt(x.chance * 100, 0)}%`).join("; ") + `; volatility ${fmt(st.volatility_percent, 1)}% a year from ${fmt(st.observations, 0)} daily returns; beta ${st.beta === null ? NA : fmt(st.beta, 2)}${st.market_code ? ` against ${st.market_code}` : ""}.` }) : null]));
 }
 
 /* ---------- short selling (ASIC, docs/kb/features/volume-and-short-selling.md) ---------- */
@@ -1572,7 +1657,7 @@ function resultsTimeline(t) {
 function trackingCard(t, withLink = true) {
   const body = t.first_date
     ? [h("p", { class: "hint", text: `Recording since ${longDate(t.first_date)}: ${plural(t.days_recorded, "night")}, ${plural(t.signals_recorded, "signal")}.` }),
-      t.headline ? h("ul", { class: "verdict" }, verdictLine(t.headline, t.headline.horizon_months)) : null,
+      t.headline ? h("ul", { class: "verdict rules compact" }, verdictLine(t.headline, t.headline.horizon_months, null)) : null,
       resultsTimeline(t)]
     : [h("p", { class: "empty", text: "Recording starts with the next nightly run. Each night Sift records every company's suggested action, valuation and score, so they can be checked later against what the share price did." })];
   return card("Track record", null, body,
@@ -2684,19 +2769,59 @@ const horizonText = (m) => (m === 1 ? "1 month" : `${m} months`);
 const points = (v) => `${fmt(Math.abs(v), 1)} point${Math.abs(v) === 1 ? "" : "s"}`;
 const signedPct = (v, dp = 1) => signed(v, (x) => fmt(x, dp) + "%");
 
-/* One plain sentence per action, e.g. "BUY calls beat the average screened
-   share by 3.2 points over 3 months; 62% of 140 did." */
-function verdictLine(a, months) {
-  const beat = a.avg_excess >= 0;
+/* One row per action: its verdict (more than luck?), one plain sentence,
+   e.g. "BUY calls beat the average screened share by 3.2 points over 3
+   months; 62% of 140 did. That's unlikely to be luck: about a 1 in 40
+   chance.", and a bar showing where its true edge most likely sits
+   (src/analytics/rules.py). */
+function verdictPill(t) {
+  const [cls, icon] = t.intended === true ? ["good", "✓"] : t.intended === false ? ["bad", "✕"]
+    : t.kind === "NEEDS_MORE" ? ["wait", "…"] : t.kind === "UNCLEAR" ? ["wait", "~"] : ["wait", "–"];
+  return h("span", { class: `vpill ${cls}` }, h("span", { "aria-hidden": "true", text: icon }), t.label);
+}
+function verdictLine(a, months, domain) {
+  const beat = a.avg_excess >= 0, t = a.test;
   const rate = a.beat_rate === null ? null : beat ? a.beat_rate : 100 - a.beat_rate;
-  const intent = BULLISH.has(a.action) ? beat : BEARISH.has(a.action) ? !beat : null;
-  const mark = intent === null ? ["na", "–", "Neither good nor bad for this action"] : intent ? ["pass", "✓", "As intended"] : ["fail", "✕", "The opposite of what this action intends"];
-  return h("li", {},
-    h("span", { class: `mark ${mark[0]}`, title: mark[2], "aria-label": mark[2], text: mark[1] }),
-    h("span", { class: "verdict-text" }, badge(a.action),
-      ` calls ${beat ? "beat" : "trailed"} the average screened share by ${points(a.avg_excess)} over ${horizonText(months)}` +
-      (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`),
-      h("span", { class: `tag ${a.confidence === "solid" ? "" : "muted"} sm`, text: `Confidence: ${a.confidence}` })));
+  const luck = t.kind === "NEEDS_MORE" ? ` Too early to tell: Sift needs ${TOO_EARLY_CALLS} calls and has ${fmt(a.signals, 0)}.`
+    : t.kind === "UNCLEAR" ? ` That could easily be luck: ${t.luck}.` : ` That's unlikely to be luck: ${t.luck}.`;
+  return h("li", { class: "rule-row" },
+    h("div", { class: "rule-head" }, badge(a.action), verdictPill(t)),
+    h("div", { class: "rule-body" },
+      h("p", { class: "verdict-text" },
+        `${a.action} calls ${beat ? "beat" : "trailed"} the average screened share by ${points(a.avg_excess)} over ${horizonText(months)}` +
+        (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`) + luck),
+      t.low !== null && domain ? chartSlot((w) => edgeBar(a, domain, w)) : null));  // no bar on the dashboard
+}
+const TOO_EARLY_CALLS = 30;
+const ptsText = (v) => `${v > 0 ? "+" : v < 0 ? "-" : ""}${fmt(Math.abs(v), 1)} pts`;
+/* Where an action's true edge most likely sits (19 times in 20), against
+   the average screened share at zero. */
+function edgeBar(a, domain, width) {
+  const t = a.test, W = Math.max(260, width), H = 50, m = { l: 10, r: 10 };
+  const X = (v) => m.l + ((v - domain.lo) / (domain.hi - domain.lo)) * (W - m.l - m.r);
+  const y = 18;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: "chart edge-bar", role: "img",
+    "aria-label": `${a.action}: likely true edge ${ptsText(t.low)} to ${ptsText(t.high)} against the average share` });
+  for (const v of domain.ticks) {
+    svg.append(s("line", { x1: X(v), x2: X(v), y1: 4, y2: 32, class: v === 0 ? "edge-zero" : "grid-line" }));
+    svg.append(s("text", { x: X(v), y: H - 4, "text-anchor": "middle", class: v === 0 ? "strong" : null, text: v === 0 ? "Average" : `${v > 0 ? "+" : ""}${fmt(v, 0)} pts` }));
+  }
+  svg.append(s("rect", { x: X(t.low), y: y - 5, width: Math.max(2, X(t.high) - X(t.low)), height: 10, rx: 5, class: "edge-range" }));
+  svg.append(s("circle", { cx: X(a.avg_excess), cy: y, r: 6, class: "edge-point" }));
+  const hit = s("rect", { x: X(t.low) - 8, y: 0, width: X(t.high) - X(t.low) + 16, height: 36, fill: "transparent" });
+  const tipNodes = () => [h("div", { class: "t-head", text: `${a.action}, ${fmt(a.signals, 0)} calls` }),
+    h("div", { text: `Average ${ptsText(a.avg_excess)}` }), h("div", { text: `Likely true edge ${ptsText(t.low)} to ${ptsText(t.high)}` })];
+  hit.addEventListener("pointermove", (e) => showTip(e, tipNodes()));
+  hit.addEventListener("pointerleave", hideTip);
+  svg.append(hit);
+  return svg;
+}
+/* One scale for every action's bar in a period, always including zero. */
+function edgeDomain(actions) {
+  const tested = actions.filter((a) => a.test && a.test.low !== null);
+  if (!tested.length) return null;
+  const lo = Math.min(0, ...tested.map((a) => a.test.low)), hi = Math.max(0, ...tested.map((a) => a.test.high));
+  return niceTicks(lo, hi, 5);
 }
 function orderLine(order) {
   if (order.status === "too early") return h("p", { class: "hint", text: "Order check: too early. It needs 30 monthly signals each of BUY, WATCH and AVOID." });
@@ -2710,8 +2835,14 @@ function verdictCard(d, months, setHorizon) {
   const due = (d.status.results_due || []).find((r) => r.months === months);
   const seg = h("div", { class: "segmented periods", role: "group", "aria-label": "Period" }, d.horizons.map((m) =>
     h("button", { type: "button", "aria-pressed": String(m === months), text: horizonText(m), onclick: () => setHorizon(m) })));
+  const domain = edgeDomain(v.actions);
+  const admin = me && me.user && me.user.admin;
   const body = v.actions.length
-    ? [h("ul", { class: "verdict" }, v.actions.map((a) => verdictLine(a, months))), orderLine(v.order)]
+    ? [h("ul", { class: "verdict rules" }, v.actions.map((a) => verdictLine(a, months, domain))), orderLine(v.order),
+      workedOut([`Each call's total return is compared with the average screened share's over the same ${horizonText(months)}. The bar shows where the action's true edge most likely sits (19 times in 20). If the whole bar is clear of the average, the difference is very unlikely to be luck.`,
+        "Calls a month apart overlap when the period is longer than a month, so Sift widens the bar to allow for that: it claims less, not more.",
+        `An action needs ${TOO_EARLY_CALLS} calls before Sift judges it.`], "rule-reliability",
+        admin ? h("p", { class: "hint", text: "Admin: " + v.actions.filter((a) => a.test.t !== null).map((a) => `${a.action} t = ${fmt(a.test.t, 2)}, p = ${fmt(a.test.p_value, 3)}, 95% ${ptsText(a.test.low)} to ${ptsText(a.test.high)}`).join("; ") }) : null)]
     : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
       : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
       : d.version ? `No ${months}-month results yet for ${d.version_label || "this rules version"}: its signals aren't ${horizonText(months)} old yet.`
@@ -2830,6 +2961,7 @@ async function renderTrackRecord() {
       h("div", { class: "cards" },
         verdictCard(d, m, (x) => { trackState.horizon = x; draw(); }),
         actionableCard(d), missedCard(d), monthlyCard(d, m), trackingCard(d.status, false), how)].filter(Boolean));
+    drawSlots();  // the verdict's range bars
   };
   draw();
   window.scrollTo(0, 0);

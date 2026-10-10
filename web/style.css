@@ -1198,3 +1198,56 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border: 1px soli
 .vol-bar { fill: var(--s1); opacity: 0.45; }
 .vol-bar.heavy { opacity: 0.95; }
 .volume-chart { margin-top: 4px; }
+
+/* ---------- Statistics (docs/kb/features/statistics.md): Sift's chart blue for
+   chances and ranges (never green or red, which read as buy and sell); status
+   colours only on verdict pills, always with an icon and words. ---------- */
+.chart text.strong { fill: var(--ink); font-weight: 650; }
+.tooltip .t-note { color: var(--muted); font-size: 11px; }
+.legend .key.band { width: 16px; height: 10px; background: color-mix(in srgb, var(--s1) 20%, transparent);
+  border-top: 1px dashed var(--s1); border-bottom: 1px dashed var(--s1); }
+.chart .ahead-band { fill: var(--s1); fill-opacity: 0.16; }
+.chart .ahead-edge { fill: none; stroke: var(--s1); stroke-width: 1; stroke-dasharray: 4 3; }
+.chart .ahead-mid { stroke: var(--s1); stroke-width: 2; stroke-dasharray: 6 4; }
+.chart .ahead-today { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
+.range-says { font-size: 15px; margin: 2px 0 10px; max-width: 72ch; }
+
+details.worked-out { margin-top: 10px; }
+details.worked-out > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--ink-2);
+  font-weight: 600; font-size: 13px; width: fit-content; }
+details.worked-out > summary::-webkit-details-marker { display: none; }
+details.worked-out[open] > summary .twisty { transform: rotate(90deg); }
+details.worked-out .inner { padding: 8px 0 0 15px; color: var(--ink-2); font-size: 13px; max-width: 80ch; }
+details.worked-out .inner p { margin: 0 0 8px; }
+.scale-words { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; padding: 0; list-style: none; }
+.scale-words li { font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+
+/* Chance of reaching a level: ten dots */
+.chances-block { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.chances-block .mini-head { font-size: 13px; font-weight: 650; margin: 0 0 6px; }
+.chances { display: grid; gap: 10px; }
+.chance { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.chance .label { font-weight: 600; flex: 1 0 100%; }
+.chance .label small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chance-dots { display: flex; gap: 3px; }
+.cdot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--s1); }
+.cdot.on { background: var(--s1); }
+.chance .words { font-size: 13px; }
+
+/* Is each rule working? Verdict rows on the Track record page */
+.verdict.rules li.rule-row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 4px 16px; align-items: start; padding: 12px 0; }
+.rule-head { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.rule-body .verdict-text { margin: 0 0 4px; max-width: 80ch; }
+.vpill { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; font-weight: 650; border-radius: 999px; padding: 2px 10px; }
+.vpill.good { background: var(--good-bg); color: var(--good-text); }
+.vpill.bad { background: var(--warning-bg); color: var(--warning-text); }
+.vpill.wait { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border); }
+.chart .edge-range { fill: var(--s1); fill-opacity: 0.3; stroke: var(--s1); stroke-width: 1; }
+.chart .edge-point { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.chart .edge-zero { stroke: var(--ink-2); stroke-width: 2; }
+.verdict.rules.compact li.rule-row { grid-template-columns: 1fr; }
+.verdict.rules.compact .rule-head { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 560px) {
+  .verdict.rules li.rule-row { grid-template-columns: 1fr; }
+  .rule-head { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+}

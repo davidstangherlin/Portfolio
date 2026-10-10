@@ -664,6 +664,10 @@ CREATE TABLE IF NOT EXISTS track_record_monthly (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (month, action, horizon_months, rules_version)
 );
+-- Sum of the squared excess returns, so the "more than luck?" test can be
+-- worked out from the permanent summary after the detail is deleted
+-- (src/analytics/rules.py). Filled when each month is rebuilt.
+ALTER TABLE track_record_monthly ADD COLUMN IF NOT EXISTS excess_sumsq NUMERIC(18, 4);
 
 -- 5z. SHORT POSITIONS (docs/kb/features/volume-and-short-selling.md)
 -- ASIC's daily report of short positions in every ASX product, about four
@@ -682,6 +686,26 @@ CREATE TABLE IF NOT EXISTS short_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_short_positions_date ON short_positions (report_date DESC, short_percent DESC);
 CREATE INDEX IF NOT EXISTS idx_short_positions_company ON short_positions (company_id, report_date DESC);
+
+-- 5za. PRICE STATISTICS (docs/kb/features/statistics.md)
+-- Each security's price behaviour, recomputed nightly (src/analytics/prices.py):
+-- one row per security, replaced each night. Shared market data, no owner.
+CREATE TABLE IF NOT EXISTS price_statistics (
+    company_id UUID PRIMARY KEY REFERENCES companies(company_id) ON DELETE CASCADE,
+    as_of_date DATE NOT NULL,                    -- the latest close used
+    price NUMERIC(12, 4) NOT NULL,
+    observations INT NOT NULL,                   -- daily returns available (up to three years)
+    volatility NUMERIC(8, 4),                    -- a fraction a year: 0.32 is 32% (needs a year of prices)
+    beta NUMERIC(8, 4),                          -- weekly returns against an ASX 200 fund, for the crash test
+    market_code VARCHAR(10),                     -- the fund beta was measured against (IOZ, STW, A200 or VAS)
+    range_low NUMERIC(12, 4),                    -- 12 months ahead, two years in three
+    range_high NUMERIC(12, 4),
+    value_level NUMERIC(12, 4),                  -- Sift's estimated value (shares)
+    chance_value NUMERIC(6, 4),                  -- 0 to 1: touches it within 12 months; NULL when already reached
+    target_level NUMERIC(12, 4),                 -- analysts' consensus target (shares)
+    chance_target NUMERIC(6, 4),
+    computed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 -- 6. AUTOMATED HELPER VIEWS FOR VALUE SCREENING
 CREATE OR REPLACE VIEW asx_value_screener AS

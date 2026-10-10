@@ -84,6 +84,7 @@ def companies(session, today: date) -> list[dict]:
         FROM etf_monthly e JOIN companies c USING (company_id) ORDER BY c.asx_code, e.report_month DESC""")}
     out = []
     from src.registries import describe
+    stats = {r["company_id"]: r for r in _rows(session, "SELECT company_id, volatility, beta FROM price_statistics")}
     for c in _rows(session, """SELECT company_id, asx_code, company_name, security_type, sector, industry, country, is_active,
                                       registry_id, registry_name
                                FROM companies ORDER BY asx_code"""):
@@ -101,6 +102,8 @@ def companies(session, today: date) -> list[dict]:
             "fee_percent": f.get("mer_percent"), "fund_size_aud": f.get("fum_aud"), "benchmark": f.get("benchmark"),
             "registry": (describe(c["registry_id"], c["registry_name"]) or {}).get("name"),
             "short_percent": r.get("short_percent"),
+            "volatility": (stats.get(c["company_id"]) or {}).get("volatility"),  # a fraction a year (src/analytics/prices.py)
+            "beta": (stats.get(c["company_id"]) or {}).get("beta"),
         })
     return out
 
@@ -119,7 +122,8 @@ def export(session, out_dir: Path = OUT_DIR, personal: bool = True, today: date 
     comp = companies(session, today)
     head = ["id", "name", "type", "sector", "industry", "country", "active", "price", "estimated_value", "valuation_method",
             "margin_of_safety", "valuation_status", "action", "action_reason", "score",
-            *[f"score_{a.lower()}" for a in AXES], "as_of", "issuer", "category", "fee_percent", "fund_size_aud", "benchmark", "registry", "short_percent"]
+            *[f"score_{a.lower()}" for a in AXES], "as_of", "issuer", "category", "fee_percent", "fund_size_aud", "benchmark", "registry", "short_percent",
+            "volatility", "beta"]
     counts["companies"] = _write(out_dir, "companies.csv", head, comp)
     sectors = sorted({c["sector"] for c in comp if c["sector"]})
     counts["sectors"] = _write(out_dir, "sectors.csv", ["id", "name"], ({"id": slug(s), "name": s} for s in sectors))
@@ -193,7 +197,8 @@ def load_script(personal: bool) -> str:
          "c.score = toIntegerOrNull(row.score), c.as_of = CASE row.as_of WHEN '' THEN null ELSE date(row.as_of) END, "
          "c.issuer = row.issuer, c.category = row.category, c.fee_percent = toFloatOrNull(row.fee_percent), "
          "c.fund_size_aud = toFloatOrNull(row.fund_size_aud), c.benchmark = row.benchmark, "
-         "c.registry = CASE row.registry WHEN '' THEN null ELSE row.registry END, c.short_percent = toFloatOrNull(row.short_percent) "
+         "c.registry = CASE row.registry WHEN '' THEN null ELSE row.registry END, c.short_percent = toFloatOrNull(row.short_percent), "
+         "c.volatility = toFloatOrNull(row.volatility), c.beta = toFloatOrNull(row.beta) "
          "FOREACH (_ IN CASE WHEN row.type = 'SHARE' THEN [1] ELSE [] END | SET c:Share) "
          "FOREACH (_ IN CASE WHEN row.type = 'ETF' THEN [1] ELSE [] END | SET c:ETF) "
          "FOREACH (_ IN CASE WHEN row.type = 'LIC' THEN [1] ELSE [] END | SET c:LIC)"),

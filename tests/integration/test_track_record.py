@@ -130,6 +130,8 @@ def test_verdict_and_order_check(history, db_session):
     v = report.verdict(db_session, None)
     buy = next(a for a in v[1]["actions"] if a["action"] == "BUY")
     assert buy["confidence"] == "too early" and buy["signals"] >= 13
+    assert buy["test"]["kind"] == "NEEDS_MORE" and buy["test"]["calls_needed"] == 30 - buy["signals"]  # the luck test waits too
+    assert db_session.execute(text("SELECT bool_and(excess_sumsq IS NOT NULL) FROM track_record_monthly")).scalar_one()
     assert v[1]["order"]["status"] == "too early"
     assert report.verdict(db_session, "1999-01-01")[1]["actions"] == []  # rules-version filter
 

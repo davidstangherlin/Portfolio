@@ -122,6 +122,12 @@ def company(session, code: str) -> dict:
             "change_over_a_month_points": p["short_interest"]["change_points"], "days_to_cover": c.get("days_to_cover"),
             "caution": p["short_caution"] and p["short_caution"]["text"],  # never changes the action
             "why_short": p["short_read"] and {k: p["short_read"][k] for k in ("label", "summary", "reasons")}},
+        "price_statistics": p["statistics"] and {  # how the price moves; knows nothing about news or value
+            "volatility_percent_a_year": p["statistics"]["volatility_percent"], "beta_against_asx200": p["statistics"]["beta"],
+            "likely_range_12_months_two_years_in_three": [p["statistics"]["range_low"], p["statistics"]["range_high"]],
+            "chance_of_reaching_within_12_months": [
+                {"level": x["label"], "price": x["level"], "already_reached": x["already_reached"],
+                 "chance": x["words"] and f'{x["words"]["word"]}: {x["words"]["text"]}'} for x in p["statistics"]["chances"]]},
         "watchlists": [w["name"] for w in p["watchlists"] if w["member"]], "note": NOT_ADVICE,
     }
 
