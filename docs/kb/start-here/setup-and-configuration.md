@@ -3,14 +3,14 @@ id: setup-and-configuration
 title: Setup, configuration and rebuilding from zero
 category: start-here
 summary: Software versions, how the database connection is configured, and the step-by-step rebuild of a working Sift from an empty machine.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-09
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 next_review: 2026-11-09
 source: AS_BUILT §3, §5, §12
-related: [system-overview, rb-backup-restore, ref-dependencies, adr-011-idempotent-schema]
+related: [system-overview, rb-backup-restore, ref-dependencies, adr-011-idempotent-schema, adr-016-statistics-libraries]
 code: [src/config.py, .env.example, src/apply_schema.py, requirements.txt]
 ---
 
@@ -30,6 +30,7 @@ Use this to set up a new machine, a test environment or a helper's laptop. Secre
 | pandas | 3.0.5 | yfinance dependency, used directly in `yahoo_client.py` for NaN/date handling |
 | python-dotenv | 1.2.3 | Loads `.env` in `src/config.py` |
 | tabulate | 0.10.0 | Table formatting in `screen_asx.py` |
+| NumPy, SciPy, statsmodels | 2.4.6, 1.17.1, 0.15.0 | Statistics and forecasting ([ADR-016](kb:adr-016-statistics-libraries)) |
 
 Full pinned list: `requirements.txt` (repo root).
 

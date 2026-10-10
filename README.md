@@ -63,7 +63,7 @@ portfolio.py                CLI for your portfolios, holdings and CGT records
 gui.py                      web GUI server, Sift (see Web GUI below)
 web/                        web GUI page, styles and script (no build step)
   knowledge.json            the knowledge base: Help page, hover text and Word glossary
-requirements.txt
+requirements.txt            includes NumPy, SciPy and statsmodels for statistics (ADR-016)
 requirements-dev.txt        requirements.txt + pytest (see Testing below)
 pytest.ini
 .env.example

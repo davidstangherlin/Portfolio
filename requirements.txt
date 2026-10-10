@@ -8,3 +8,6 @@ openpyxl==3.1.5
 fastapi==0.142.2
 uvicorn==0.54.0
 pypdf==6.18.1
+numpy==2.4.6
+scipy==1.17.1
+statsmodels==0.15.0
