@@ -3,7 +3,7 @@ id: volume-and-short-selling
 title: Volume and short selling
 category: features
 summary: Daily volume bars under the price chart, and ASIC's short positions as a company card, screener column, Most shorted tab, watchlist trigger and a short-selling caution that never changes the action.
-version: 1.1
+version: 1.2
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -23,7 +23,7 @@ Show how much of a share traded each day, and whether professional investors are
 
 **Volume.** `daily_prices.volume` (shares traded, from the nightly price load) goes to the company page as `volumes`. `volumeChart()` draws one bar a day under the price chart on the same time axis, with the 63-day (three-month) average as a line; a day over twice that average is drawn darker. The price card's data table gains a Volume column.
 
-**Short positions** (`src/ingestion/short_positions.py`). ASIC publishes one file a day, `RR{yyyymmdd}-001-SSDailyAggShortPos.csv`, about four business days after the day it covers, listing every product's reported short positions, shares on issue and percentage. The nightly step Short Positions first loads any ASIC files saved by hand in `data/ASIC` (kept out of git) whose day isn't loaded, then fetches every weekday in the last 14 days not yet loaded (a missing file is a holiday or not published yet, tried again next night). `--file` loads one saved file and `--folder` every file in `data/ASIC` (or a folder named). `parse()` reads tab or comma files in UTF-16 or UTF-8 and finds its columns by heading words, working out the percentage when that column is missing. `save()` replaces the day and prunes anything older than two years.
+**Short positions** (`src/ingestion/short_positions.py`). ASIC publishes one file a day, `RR{yyyymmdd}-001-SSDailyAggShortPos.csv`, about four business days after the day it covers, listing every product's reported short positions, shares on issue and percentage. The nightly step Short Positions first loads any ASIC files saved by hand in `data/ASIC` (kept out of git) whose day isn't loaded, then fetches every weekday in the last 14 days not yet loaded (a missing file is a holiday or not published yet, tried again next night). `--file` loads one saved file and `--folder` every file in `data/ASIC` (or a folder named). Each file the nightly run downloads is also kept in `data/ASIC`, a copy on the PC. The log separates days not published yet (404) from requests ASIC refused (any other answer), warns on a refusal, and warns when the newest report is more than eight days old (`STALE_DAYS`). `parse()` reads tab or comma files in UTF-16 or UTF-8 and finds its columns by heading words, working out the percentage when that column is missing. `save()` replaces the day and prunes anything older than two years.
 
 **The short-selling caution** (`src/screening/short_caution.py`). It uses the measures professional short-interest services report, plus the trend:
 

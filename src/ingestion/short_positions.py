@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 URL = "https://download.asic.gov.au/short-selling/RR{day:%Y%m%d}-001-SSDailyAggShortPos.csv"
 PAUSE = 1.0            # seconds between requests
 NIGHTLY_DAYS = 14      # how far back the nightly run looks for files not yet loaded
+STALE_DAYS = 8         # newest report older than this: warn (ASIC is normally about four business days behind)
 KEEP_DAYS = 730        # two years of history
 FOLDER = Path(__file__).resolve().parents[2] / "data" / "ASIC"   # files saved from ASIC's website
 
@@ -174,25 +175,47 @@ def load_folder(session, folder: Path = FOLDER, only_new: bool = True) -> list[t
     return out
 
 
-def run(session, today: date, days: int = NIGHTLY_DAYS, fetch=None, dry_run: bool = False) -> dict:
-    fetch = fetch or get
-    loaded = missing = 0
+def run(session, today: date, days: int = NIGHTLY_DAYS, fetch=None, dry_run: bool = False,
+        keep: Path | None = None) -> dict:
+    """Load the days not yet loaded. Each file downloaded is also kept in
+    `keep` (data/ASIC on the nightly run), so there's a copy on the PC.
+    "refused" counts answers other than the file or "not found" (404): ASIC
+    blocking the download, or the network, rather than a day not published."""
+    if fetch is None:
+        fetch, keep = get, (keep or FOLDER)
+    loaded = missing = refused = 0
+    statuses = set()
     if not dry_run and fetch is get:
         loaded += len(load_folder(session))  # anything saved by hand first, so it isn't fetched again
     for day in days_to_fetch(session, today, days):
-        status, content = fetch(URL.format(day=day))
+        url = URL.format(day=day)
+        status, content = fetch(url)
         if status != 200 or not content or content.lstrip()[:1] == b"<":
-            missing += 1
+            if status in (200, 404):
+                missing += 1
+            else:
+                refused += 1
+                statuses.add(status)
             continue
         rows = parse(content)
         if dry_run:
             top = sorted(rows, key=lambda r: r.short_percent, reverse=True)[:10]
             print(f"{day}: {len(rows)} products; most shorted: " + ", ".join(f"{r.asx_code} {r.short_percent:.2f}%" for r in top))
-            return {"loaded": 0, "missing": missing}
+            return {"loaded": 0, "missing": missing, "refused": refused}
         save(session, day, rows)
         session.commit()
+        if keep is not None:
+            keep.mkdir(parents=True, exist_ok=True)
+            (keep / url.rsplit("/", 1)[-1]).write_bytes(content)
         loaded += 1
-    return {"loaded": loaded, "missing": missing}
+    if refused:
+        logger.warning("ASIC refused %d request(s) (status %s): download the files from ASIC's short position reports "
+                       "table into data\\ASIC and they load next run (runbook: rb-short-positions)",
+                       refused, ", ".join(str(s) for s in sorted(statuses)))
+    latest = session.execute(text("SELECT max(report_date) FROM short_positions")).scalar()
+    if not dry_run and (latest is None or (today - latest).days > STALE_DAYS):
+        logger.warning("Short positions are out of date: the newest ASIC report is %s", latest or "none")
+    return {"loaded": loaded, "missing": missing, "refused": refused, "latest": latest}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -204,7 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--folder", type=Path, nargs="?", const=FOLDER,
                    help="load every ASIC file in a folder (default data/ASIC), replacing days already loaded")
     args = p.parse_args(argv)
+    from src.apply_schema import apply_schema
     from src.config import get_session
+    apply_schema()  # idempotent: creates short_positions on a database Sift hasn't started on since the update
     with get_session() as session:
         if args.folder:
             for day, n in load_folder(session, args.folder, only_new=False):
@@ -220,7 +245,8 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Short positions: %d products for %s", n, day)
             return 0
         counts = run(session, date.today(), args.days, dry_run=args.dry_run)
-    logger.info("Short positions: %d days loaded, %d not published (weekends excluded)", counts["loaded"], counts["missing"])
+    logger.info("Short positions: %d days loaded, %d not published yet or holidays (weekends excluded), %d refused",
+                counts["loaded"], counts["missing"], counts.get("refused", 0))
     return 0
 
 

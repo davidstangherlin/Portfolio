@@ -102,3 +102,19 @@ def test_holdings_carry_the_caution_and_the_company_page_its_scale(shorted):
     assert lines["GOOD"]["short_caution"] == "HIGH" and lines["GOOD"]["action"]  # the action itself is unchanged
     company = client.get("/api/company/GOOD").json()
     assert company["short_levels"] == {"watch": 2.0, "elevated": 5.0, "high": 10.0} and company["position"]["units"] == 100
+
+
+def test_refusals_are_reported_and_downloads_kept(db_session, tmp_path, caplog):
+    today = date(2026, 10, 12)  # a Monday
+    files = {sp.URL.format(day=date(2026, 10, 7)): asic_file([("GOOD", 900, 8000, "11.25")])}
+    def fetch(url):
+        if url in files:
+            return 200, files[url]
+        return (403, b"") if "20261008" in url else (404, b"")
+    counts = sp.run(db_session, today, days=7, fetch=fetch, keep=tmp_path)
+    assert (counts["loaded"], counts["refused"], counts["latest"]) == (1, 1, date(2026, 10, 7))
+    assert (tmp_path / "RR20261007-001-SSDailyAggShortPos.csv").exists()  # a copy on the PC
+    assert "ASIC refused 1 request(s) (status 403)" in caplog.text
+    assert "out of date" not in caplog.text
+    sp.run(db_session, today + timedelta(days=30), days=3, fetch=lambda url: (404, b""))
+    assert "out of date: the newest ASIC report is 2026-10-07" in caplog.text
