@@ -91,6 +91,11 @@ def test_tools_answer_for_the_current_person_only(market):
     assert overlap["my_shares_also_inside_these_funds"] == {"IOZ": ["GOOD"], "VAS": ["GOOD"]}
     assert tools.call(market, "manager", {"name": "vanguard"})["adding"] == ["GOOD"]
 
+    from src import registries
+    registries.set_by_admin(market, "GOOD", "computershare")
+    facts = tools.call(market, "company", {"code": "GOOD"})
+    assert facts["share_registry"]["name"] == "Computershare" and "dividend_reinvestment" in facts
+
     why = tools.call(market, "explain_call", {"code": "GOOD"})
     assert why["action"] == "ACCUMULATE" and why["held"] is True and len(why["tests"]) == 4 and "not financial advice" in why["note"]
     assert [h["asx_code"] for h in tools.call(market, "my_portfolio")["holdings"]] == ["GOOD"]

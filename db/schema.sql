@@ -930,3 +930,14 @@ UPDATE signal_snapshots s SET analyst_target = i.target_mean, analyst_count = i.
 FROM company_insights i
 WHERE s.analyst_target IS NULL AND i.target_mean IS NOT NULL
   AND i.company_id = s.company_id AND s.snapshot_date >= CAST(i.fetched_at AS DATE);
+
+-- 14. EACH COMPANY'S SHARE REGISTRY (docs/kb/features/drp-and-registry.md)
+-- Who keeps the company's register of shareholders and runs its dividend
+-- reinvestment plan. Read from ASX's company details about monthly
+-- (src/registries.py), or set by an admin on the company page; an admin's
+-- choice is never overwritten. registry_id names a known registry
+-- (src/registries.py REGISTRIES) when the name is recognised.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS registry_id VARCHAR(20);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS registry_name VARCHAR(160);
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS registry_source VARCHAR(10);          -- asx or admin
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS registry_checked_at TIMESTAMP WITH TIME ZONE;

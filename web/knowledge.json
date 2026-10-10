@@ -643,14 +643,50 @@
   },
   {
    "id": "drp",
-   "title": "Dividend reinvestment plan (DRP)",
+   "title": "Dividend reinvestment plans (DRP)",
    "category": "dividends",
    "glossary": "acronym",
    "abbreviation": "DRP",
    "full": "Dividend reinvestment plan",
-   "definition": "Dividends paid as new shares instead of cash. Each reinvestment creates a new parcel.",
+   "definition": "A dividend reinvestment plan (DRP) uses your cash dividend to buy new shares in the same company instead of paying it to your bank account, usually with no brokerage and sometimes at a small discount.",
    "related": [
-    "parcel"
+    "parcel",
+    "share-registry"
+   ],
+   "labels": [
+    "1 new share each payment",
+    "1 new share a year"
+   ],
+   "aliases": [
+    "drp",
+    "dividend reinvestment",
+    "dividend reinvestment plan",
+    "reinvest dividends",
+    "residual balance",
+    "carry forward",
+    "leftover cash",
+    "shares needed"
+   ],
+   "hover": "How many shares you'd need to hold for the dividends to buy a whole new share at today's price: the price divided by the latest dividend (each payment) or by the last 12 months of dividends (a year), rounded up.",
+   "body": [
+    "How it works: you join a company's DRP through its share registry. On each dividend, the registry divides your cash dividend by the DRP price (usually an average of the share price over a few days around the payment, sometimes less a small discount, such as 1.5%) and issues that many whole new shares.",
+    "When your dividend isn't enough for a whole share, what happens depends on the company's DRP rules and your registry:",
+    "Carry forward (most common): the leftover cash isn't lost. It's held as a residual balance and added to your next dividend, until together they buy at least one whole share.",
+    "Cash instead: some DRPs pay small leftover amounts to your nominated bank account, or pay the whole dividend in cash if your holding is below the plan's minimum.",
+    "Check your registry: the rules are in each company's DRP booklet. Log in to your registry's investor portal (such as Computershare's Investor Centre) to read the terms, see any leftover balance, and choose full, partial or no reinvestment, or cash. Each company's page shows its registry, with a link.",
+    "The main ASX registries: Computershare; MUFG Corporate Markets (formerly Link Market Services); Automic Group (which now includes Advanced Share Registry); and BoardRoom. Each company uses one; your holding statements name it too.",
+    "On a company's page, the Dividend reinvestment card shows how many shares you'd need for the dividends to buy one new share each payment, and one a year, at today's price, and what your own shares would buy. Franking credits don't count: they're a tax credit, not cash a DRP can spend. Reinvested dividends are still taxable income, and each new parcel has its own cost base and date for capital gains tax.",
+    "This explains how DRPs generally work; it isn't financial advice, and each company's DRP rules decide."
+   ],
+   "links": [
+    {
+     "text": "What is a share registry (Automic)",
+     "href": "https://www.automicgroup.com.au/news/what-is-a-share-registry"
+    },
+    {
+     "text": "Share registries and how to find yours (CommSec)",
+     "href": "https://www.commsec.com.au/support/help-centre/About-the-sharemarket/share-registry-what-it-is-how-to-find-it.html"
+    }
    ]
   },
   {
@@ -2386,6 +2422,48 @@
     "price-targets",
     "graham-number",
     "track-record-scoring"
+   ]
+  },
+  {
+   "id": "share-registry",
+   "title": "Share registry",
+   "category": "dividends",
+   "glossary": "term",
+   "glossary_title": "Share registry",
+   "aliases": [
+    "share registry",
+    "registry",
+    "computershare",
+    "link market services",
+    "mufg corporate markets",
+    "automic",
+    "boardroom",
+    "advanced share registry",
+    "investor centre",
+    "investor portal",
+    "holder number",
+    "srn",
+    "hin"
+   ],
+   "definition": "The company that keeps a listed company's register of shareholders on its behalf: it records who owns the shares, pays dividends, runs the dividend reinvestment plan and sends holding statements.",
+   "body": [
+    "Each ASX company appoints one registry. Log in to its investor portal to see your holding, update your bank account and tax file number, choose cash or reinvested dividends (DRP), and download statements. You'll need your holder number (an SRN for issuer-sponsored holdings, or the HIN from your broker for CHESS holdings) and postcode.",
+    "The main registries: Computershare (Investor Centre); MUFG Corporate Markets, formerly Link Market Services; Automic Group, which now includes Advanced Share Registry; and BoardRoom (InvestorServe). Some smaller companies use others, such as Xcend.",
+    "In Sift: each company's page has a Share registry card with the registry's name and a link to its investor portal, opening in a new tab. Sift reads the registry from ASX's company details about once a month; an admin can correct it.",
+    "Registries rename their portals from time to time: if a link has moved, search for the registry's name and \"investor centre\"."
+   ],
+   "related": [
+    "drp"
+   ],
+   "links": [
+    {
+     "text": "What is a share registry (Automic)",
+     "href": "https://www.automicgroup.com.au/news/what-is-a-share-registry"
+    },
+    {
+     "text": "Share registries and how to find yours (CommSec)",
+     "href": "https://www.commsec.com.au/support/help-centre/About-the-sharemarket/share-registry-what-it-is-how-to-find-it.html"
+    }
    ]
   }
  ]

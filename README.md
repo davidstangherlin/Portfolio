@@ -383,6 +383,12 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   ex-dividend date (outlined if it was a one-off excluded from dividend figures; hover for the
   amount; the chart's data table lists them too), margin-of-safety history, and
   revenue, profit and dividends by year. Hover a chart for values; each has a data table.
+  For dividend payers, a **Dividend reinvestment (DRP)** card beside Dividends per share: the
+  shares you'd need for the dividends to buy one whole new share each payment, and one a year, at
+  today's price (and what your own shares would buy). A **Share registry** card names the company's
+  registry with a link to its investor portal (opens in a new tab); Sift reads it from ASX about
+  monthly (`python -m src.registries --dry-run` to check) and an admin can correct it. Help, DRP
+  explains how leftover cash is carried forward or paid out.
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.
@@ -644,7 +650,7 @@ see docs/AS_BUILT.md §10.12) as regression fixtures, not synthetic approximatio
 ## Daily Automation (Windows Task Scheduler)
 
 `scripts/daily_refresh.ps1` runs the full pipeline unattended, in order:
-schema update → ingestion → ETFs → ASX notices → valuation → signal record → track record scoring → screener → search index, logging everything to a timestamped file
+schema update → ingestion → ETFs → share registries → ASX notices → valuation → signal record → track record scoring → screener → search index, logging everything to a timestamped file
 under `logs\` (pruned automatically after 30 days). Each step's heading in the log shows when it
 started, and a line after it says how long it took.
 

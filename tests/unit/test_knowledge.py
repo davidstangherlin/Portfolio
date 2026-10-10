@@ -55,7 +55,8 @@ def test_links_point_somewhere_real():
         for r in e.get("related", []):
             assert r in IDS, (e["id"], r)
         for link in e.get("links", []):
-            assert link["href"].startswith("#/"), (e["id"], link)
+            # A page in Sift, or another website over https (opened in a new tab).
+            assert link["href"].startswith(("#/", "https://")), (e["id"], link)
 
 
 def test_every_hover_label_is_explained_exactly_once():

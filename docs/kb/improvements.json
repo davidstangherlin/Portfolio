@@ -905,6 +905,34 @@
     "watchlists"
    ],
    "notes": "A watchlist trigger (director bought on market, holder crossed 5%) and, with hosting, an email."
+  },
+  {
+   "id": "IMP-063",
+   "title": "Prove the share registry reader on ASX",
+   "type": "risk",
+   "priority": "P2",
+   "status": "open",
+   "impact": "The registry is read from ASX's company details, which couldn't be reached from the build environment; companies may show no registry until it's confirmed.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "drp-and-registry"
+   ],
+   "notes": "Run python -m src.registries --dry-run on the owner's PC; if ASX gives the registry under another field, add it to read_registry() with a test."
+  },
+  {
+   "id": "IMP-064",
+   "title": "Check the registries' portal links",
+   "type": "debt",
+   "priority": "P3",
+   "status": "open",
+   "impact": "Registries rename their investor portals (Link became MUFG Corporate Markets); a moved link sends people to an error page.",
+   "raised": "2026-10-10",
+   "updated": "2026-10-10",
+   "articles": [
+    "drp-and-registry"
+   ],
+   "notes": "Open each link in REGISTRIES (src/registries.py) once a year and after a registry rebrands."
   }
  ]
 }

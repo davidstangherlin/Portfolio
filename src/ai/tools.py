@@ -112,6 +112,11 @@ def company(session, code: str) -> dict:
         "action": c["action"], "action_reason": c["action_reason"], "tests": p["tests"], "red_flags": p["flags"],
         "score_total": sum((row.get("axis_scores") or {}).values()) or None, "scores_by_spoke": row.get("axis_scores"),
         "position": p["position"],
+        "dividend_reinvestment": p["drp"] and {  # shares needed for the dividends to buy one new share at today's price
+            "per_payment": p["drp"]["per_payment"], "per_year": p["drp"]["per_year"],
+            "latest_dividend": p["drp"]["last_payment"], "dividends_last_12_months": p["drp"]["year_total"],
+            "your_shares_would_buy": p["drp"].get("yours")},
+        "share_registry": p["registry"]["registry"],
         "watchlists": [w["name"] for w in p["watchlists"] if w["member"]], "note": NOT_ADVICE,
     }
 

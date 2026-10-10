@@ -904,6 +904,9 @@ async function renderCompany(code) {
         [fy[i], money(r.dividends_per_share, 3), r.abnormal_distributions_per_share ? money(r.abnormal_distributions_per_share, 3) : "none"])))
     : card("Dividends per share", "No dividends recorded.", abnormalNote);
 
+  const drpCard = dividendReinvestCard(d.drp);
+  const registryCard = shareRegistryCard(c.asx_code, d.registry);
+
   const held = d.position ? h("p", { class: "hint", text:
     `You hold ${fmt(d.position.units, 0)} units, cost base ${money(d.position.cost_base)}.` +
     (d.position.next_discount_date ? ` ${fmt(d.position.units_pending_discount, 0)} units qualify for the CGT discount from ${longDate(d.position.next_discount_date)}.` : "") }) : null;
@@ -925,11 +928,67 @@ async function renderCompany(code) {
     modelNote(d.model),
     held,
     watchNote(d.watchlists),
-    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard,
+    h("div", { class: "cards" }, wheelCard, valuation, tests, breakdown, markers, ratios, priceCard, mosCard, finCard, divCard, drpCard, registryCard,
       analystCard(c.insights), targetCard(c.insights, c), holdersCard(c.insights), companyNoticesCard(c.notices), workingsCard(c.asx_code)),
   ].filter(Boolean)); // native replaceChildren would print a null as "null"
   drawSlots();
   window.scrollTo(0, 0);
+}
+
+/* ---------- dividend reinvestment and the share registry (docs/kb/features/drp-and-registry.md) ---------- */
+const cents = (v) => (v < 1 ? `${fmt(v * 100, v * 100 % 1 ? 1 : 0)}c` : money(v));
+/* How many shares it takes for the dividends to buy a whole new share at
+   today's price. Only for companies paying an ordinary dividend now. */
+function dividendReinvestCard(x) {
+  if (!x) return null;
+  const tile = (label, need, note) => statTile(label, need ? plural(need.shares, "share") : NA, null, need ? `worth ${money(need.value, 0)}; ${note}` : note);
+  const lp = x.last_payment;
+  const yours = x.yours ? h("p", {}, `Your ${fmt(x.yours.units, 0)} shares: each payment buys about ${fmt(x.yours.per_payment, 1)} new ${x.yours.per_payment === 1 ? "share" : "shares"}`,
+    x.yours.per_year !== null ? `, a year about ${fmt(x.yours.per_year, 1)}.` : ".") : null;
+  return card("Dividend reinvestment (DRP)", `Shares you'd need to hold for the dividends to buy a whole new share at today's price of ${money(x.price)}.`,
+    h("div", { class: "stats drp-stats" },
+      tile("1 new share each payment", x.per_payment, `on the latest dividend of ${cents(lp.amount)} (ex ${longDate(lp.ex_date)})`),
+      tile("1 new share a year", x.per_year, x.year_total ? `on ${cents(x.year_total)} paid in the last 12 months (${plural(x.payments_in_year, "payment")})` : "no dividend in the last 12 months")),
+    yours,
+    h("p", { class: "hint" }, "Franking credits are a tax credit, not cash, so they don't count. DRP prices are usually an average over a few days, sometimes at a small discount, so treat these as close guides. Leftover cash is usually carried forward to the next dividend. ", helpLink("drp")));
+}
+
+function shareRegistryCard(code, info) {
+  if (!info) return null;
+  const body = h("div");
+  const admin = me && me.user && me.user.admin;
+  function draw(x) {
+    const r = x.registry;
+    const source = x.source === "admin" ? "Set by an admin." : x.source === "asx" && x.checked_at ? `From ASX's company details, checked ${longDate(x.checked_at.slice(0, 10))}.` : null;
+    body.replaceChildren(
+      r ? h("p", { class: "registry-name strong", text: r.name }) : h("p", { class: "hint", text: "Not known yet: Sift reads it from ASX's company details about once a month." }),
+      r && r.portal ? h("p", {}, h("a", { href: r.portal, target: "_blank", rel: "noopener noreferrer", text: `Log in to ${r.name.split(" (")[0]}'s investor portal ↗` })) : null,
+      r && r.website && r.website !== r.portal ? h("p", {}, h("a", { href: r.website, target: "_blank", rel: "noopener noreferrer", text: "Registry website ↗" })) : null,
+      h("p", { class: "hint" }, "The registry keeps the company's register of shareholders. Log in to see your holding, choose whether dividends are paid in cash or reinvested (DRP), and how leftover cash is handled. ", helpLink("drp")),
+      source ? h("p", { class: "hint", text: source }) : null,
+      admin ? editor(x) : null);
+  }
+  function editor(x) {
+    const pick = h("select", { "aria-label": "Registry" },
+      h("option", { value: "", text: "Use what ASX says" }),
+      x.choices.map((o) => h("option", { value: o.registry_id, text: o.name, selected: x.registry && x.registry.registry_id === o.registry_id })),
+      h("option", { value: "other", text: "Another registry...", selected: !!(x.registry && !x.registry.registry_id) }));
+    const name = h("input", { type: "text", maxlength: 160, placeholder: "Registry name", "aria-label": "Registry name",
+      value: x.registry && !x.registry.registry_id ? x.registry.name : "", hidden: pick.value !== "other" });
+    pick.addEventListener("change", () => { name.hidden = pick.value !== "other"; });
+    const msg = h("span", { class: "form-msg", role: "status" });
+    const form = h("form", { class: "registry-edit", onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        const out = await send("PUT", `/api/admin/company/${code}/registry`,
+          pick.value === "other" ? { name: name.value } : { registry_id: pick.value || null });
+        draw(out);
+      } catch (err) { showMessage(msg, err.message, false); }
+    } }, pick, name, h("button", { type: "submit", class: "btn small", text: "Save" }), msg);
+    return h("details", { class: "registry-admin" }, h("summary", { text: "Change (admin)" }), form);
+  }
+  draw(info);
+  return card("Share registry", null, body);
 }
 
 /* ---------- page furniture ---------- */
@@ -3509,7 +3568,9 @@ function helpEntry(e, open) {
       (e.body || []).map((para) => h("p", { text: fillThresholds(para) })),
       (e.related || []).length ? h("p", { class: "help-related" }, "Related: ",
         e.related.map((id, i) => { const r = knowledgeEntry(id); return r ? [i ? ", " : "", h("a", { href: `#/help/${id}`, text: r.title })] : null; })) : null,
-      (e.links || []).length ? h("p", { class: "help-links" }, e.links.map((l, i) => [i ? "  |  " : "", h("a", { href: l.href, text: `${l.text} →` })])) : null));
+      (e.links || []).length ? h("p", { class: "help-links" }, e.links.map((l, i) => [i ? "  |  " : "", /^https?:/.test(l.href)  // other websites open in a new tab
+        ? h("a", { href: l.href, target: "_blank", rel: "noopener noreferrer", text: `${l.text} ↗` })
+        : h("a", { href: l.href, text: `${l.text} →` })])) : null));
 }
 
 async function renderHelp(query, focusId) {

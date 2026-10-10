@@ -64,6 +64,8 @@ from src.screening.enriched import load_universe, score_list, with_extras
 from src.screening.scores import AXES, CHECKS_PER_AXIS, axis_scores, score_card
 from src.tracking import report as track_report
 from src.tracking import rules_versions
+from src import registries
+from src.drp import drp_payload
 from src.tracking.signals import signal_changes, tracking_status
 from src.watchlist import lists as watchlists
 from src import settings as model_settings
@@ -335,6 +337,9 @@ def company_payload(session, asx_code: str, today: date) -> dict | None:
         },
         "prices": [[d, c] for d, c in prices],
         "dividends": [{"ex_date": d, "amount": a, "abnormal": ab} for d, a, ab in dividends],
+        "drp": drp_payload(session, company.company_id, row.get("current_price"), today,
+                           position.units if position is not None else None),
+        "registry": registries.company_registry(session, company.company_id),
         "mos_history": [[d, m] for d, m in mos_history if m is not None],
         "reports": [
             {"fiscal_year": r.fiscal_year, "revenue": r.revenue, "net_profit_after_tax": r.net_profit_after_tax,
@@ -846,6 +851,18 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
             raise HTTPException(status_code=404, detail="No such account")
         return found
 
+    @app.put("/api/admin/company/{asx_code}/registry")
+    def api_set_registry(asx_code: str, body: dict = Body(...)):
+        """Set or correct a company's share registry (a known one, another by name, or none: back to ASX's)."""
+        code = asx_code.strip().upper()
+        def action(session):
+            company = session.execute(select(Company).where(Company.asx_code == code)).scalar_one_or_none()
+            if company is None:
+                raise HTTPException(status_code=404, detail=f"{code} isn't in Sift")
+            registries.set_by_admin(session, code, body.get("registry_id") or None, body.get("name"))
+            return registries.company_registry(session, company.company_id)
+        return change(action)
+
     @app.get("/api/admin/rules-versions")
     def api_rules_versions():
         """Each rules version: its number, when it took effect, what changed and its share of the track record."""
@@ -988,7 +1005,7 @@ def create_app(password: str | None = None, resolve_user=owner_user) -> FastAPI:
                 reindex_personal(session)
                 session.commit()
             except (HoldingsError, WatchlistError, ScenarioError, SettingsError, preferences.PreferenceError,
-                    accounts.AccountError) as exc:
+                    accounts.AccountError, registries.RegistryError) as exc:
                 session.rollback()
                 raise HTTPException(status_code=400, detail=str(exc)[:1].upper() + str(exc)[1:]) from None
         return JSONResponse(_json_ready(result))
