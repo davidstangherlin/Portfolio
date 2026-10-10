@@ -19,14 +19,16 @@ import math
 from scipy.stats import t as t_dist
 
 from src.analytics.words import luck_odds
+from src.settings import LIVE
 
-MIN_CALLS = 30
+MIN_CALLS = LIVE.stats_min_calls   # an admin setting (Admin, Model and rules, Statistics)
 CONFIDENCE = 0.95            # the likely range holds 19 times in 20
 BULLISH = ("BUY", "INVESTIGATE", "ACCUMULATE")
 BEARISH = ("AVOID", "SELL")
 
 
-def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: float | None) -> dict:
+def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: float | None,
+         min_calls: int | None = None) -> dict:
     """{kind, label, intended, low, high, p_value, luck, calls_needed}.
 
     kind: BEATING (the whole likely range above the average), TRAILING
@@ -34,10 +36,11 @@ def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: fl
     MIN_CALLS calls, or no spread recorded yet). intended: True when the
     result is what the action means (BUY beating, AVOID trailing), False for
     the opposite, None for neutral actions or no verdict."""
-    base = {"low": None, "high": None, "p_value": None, "luck": None, "t": None}
-    if n < MIN_CALLS or mean is None or sumsq is None:
+    min_calls = min_calls or MIN_CALLS
+    base = {"low": None, "high": None, "p_value": None, "luck": None, "t": None, "min_calls": min_calls}
+    if n < min_calls or mean is None or sumsq is None:
         return base | {"kind": "NEEDS_MORE", "label": "Needs more calls", "intended": None,
-                       "calls_needed": max(0, MIN_CALLS - n)}
+                       "calls_needed": max(0, min_calls - n)}
     variance = max(0.0, (sumsq - n * mean * mean) / (n - 1))
     se = math.sqrt(variance / n) * math.sqrt(max(1, horizon_months))
     if se == 0:
@@ -59,4 +62,4 @@ def test(action: str, horizon_months: int, n: int, mean: float | None, sumsq: fl
     elif kind == "TRAILING":
         intended = True if action in BEARISH else False if action in BULLISH else None
     return {"kind": kind, "label": label, "intended": intended, "low": low, "high": high, "t": t,
-            "p_value": p, "luck": luck_odds(p), "calls_needed": 0}
+            "p_value": p, "luck": luck_odds(p), "calls_needed": 0, "min_calls": min_calls}

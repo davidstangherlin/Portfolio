@@ -3,7 +3,7 @@ id: statistics
 title: Statistics: rule reliability, chances and likely ranges
 category: features
 summary: Whether each action beats the average share by more than luck (Track record), the chance of reaching the estimated value or analysts' target in 12 months, and the likely range for the year ahead, from nightly volatility.
-version: 1.0
+version: 1.1
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -32,6 +32,8 @@ Give everyday investors three answers with tested statistics, in plain words (as
 **Company page.** `GET /api/company/{code}` returns `statistics` (`company_statistics()`). The **Price against estimated value** card gains "Chance of reaching it within 12 months": a row each for Sift's estimated value and the analysts' target, with the level and how far above today it is, ten dots (`chanceDots()`) and the words; "Already reached" or "Needs a year of prices" otherwise. The **Share price** card becomes "last 12 months and the year ahead": a sentence ("In a typical year, GEM would end between $3.05 and $5.78 (two years in three)"), the chart continued 12 months past Today with the shaded range (weekly points, `aheadRange()`; `lineChart({ ahead })`), the range's ends labelled, and hover giving the range at each point ahead. `volumeChart({ until })` extends the same axis so the volume bars stay lined up.
 
 **Track record.** Each action in "Is Sift accurate?" gets a verdict pill, a luck sentence and a bar (`verdictLine()`, `edgeBar()`): `report.verdict()` adds `test` from `rules.test()`, a t-test on the calls' excess returns from the permanent monthly summary. `track_record_monthly.excess_sumsq` (filled by `refresh_monthly()`) gives the spread, so the test covers the whole history. Verdicts: Beating the average (the 95% range wholly above zero), Trailing the average (wholly below), Too early to tell (it spans zero), Needs more calls (under 30). A tick when the result is what the action intends (BUY, INVESTIGATE, ACCUMULATE beating; AVOID, SELL trailing), a cross for the opposite. The standard error is widened by the square root of the horizon in months for overlapping calls. Luck is told as odds ("about a 1 in 40 chance"). The dashboard's Track record line shows the BUY verdict.
+
+**Admin, Model and rules: Statistics.** Two settings (`src/settings.py`, group `statistics`): `stats_min_calls` (calls needed before judging a rule, 30) and `stats_years` (years of price history, 3). Both are listed with their live values, ranges and formulas; the fixed methods follow under "Fixed by design" (`STATISTICS_METHODS` in `gui.py`, `statisticsMethods()`). The group is left out of what-if scenarios (`WHAT_IF_GROUPS`), since no statistic changes a company's action. The rules document (`scripts/build_rules_doc.js`) has a Statistics chapter.
 
 **AI and graph.** The AI `company` tool returns `price_statistics` (volatility, beta, likely range, chances in words); `track_record` carries each action's `test`. Graph Company nodes carry `volatility` and `beta`.
 
@@ -69,3 +71,22 @@ The full list, with status: [Improvement register](#/admin/kb/register).
 - `tests/integration/test_statistics.py`
 - `tests/integration/test_track_record.py`
 - `tests/unit/test_stats_stack.py`
+
+## References
+
+The theory each part uses. Links are given only where the address was checked (2026-10-10); the others are cited in full.
+
+| Used for | Reference |
+|---|---|
+| Excess return against a benchmark (the track record and its test) | Fama, E. F., Fisher, L., Jensen, M. C. and Roll, R. (1969). The adjustment of stock prices to new information. *International Economic Review*, 10(1), 1 to 21. |
+| The t-test (more than luck?) | Student [W. S. Gosset] (1908). The probable error of a mean. *Biometrika*, 6(1), 1 to 25. [doi:10.1093/biomet/6.1.1](https://doi.org/10.1093/biomet/6.1.1) |
+| Overlapping returns inflate certainty | Hansen, L. P. and Hodrick, R. J. (1980). Forward exchange rates as optimal predictors of future spot rates: an econometric analysis. *Journal of Political Economy*, 88(5), 829 to 853. |
+| Correcting errors for overlap (the more exact alternative, ADR-017) | Newey, W. K. and West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703 to 708. [doi:10.2307/1913610](https://doi.org/10.2307/1913610) |
+| Log-normal prices, volatility | Black, F. and Scholes, M. (1973). The pricing of options and corporate liabilities. *Journal of Political Economy*, 81(3), 637 to 654. Hull, J. C. *Options, Futures, and Other Derivatives*, Pearson (estimating volatility from historical data). |
+| Chance of touching a level (first passage, reflection principle) | Shreve, S. E. (2004). *Stochastic Calculus for Finance II: Continuous-Time Models*. Springer, section 3.7. |
+| Beta | Sharpe, W. F. (1964). Capital asset prices: a theory of market equilibrium under conditions of risk. *Journal of Finance*, 19(3), 425 to 442. [JSTOR 2977928](https://www.jstor.org/stable/2977928) |
+| Weekly rather than daily returns for beta | Scholes, M. and Williams, J. (1977). Estimating betas from nonsynchronous data. *Journal of Financial Economics*, 5(3), 309 to 327. Dimson, E. (1979). Risk measurement when shares are subject to infrequent trading. *Journal of Financial Economics*, 7(2), 197 to 226. |
+| Fat tails (the limits of the ranges) | Mandelbrot, B. (1963). The variation of certain speculative prices. *Journal of Business*, 36(4), 394 to 419. [doi:10.1086/294632](https://doi.org/10.1086/294632) |
+| Chances as numbers in 10 | Gigerenzer, G. and Hoffrage, U. (1995). How to improve Bayesian reasoning without instruction: frequency formats. *Psychological Review*, 102(4), 684 to 704. |
+
+People's version: Help, "The theory behind Sift's statistics" (`statistics-theory`).

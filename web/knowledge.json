@@ -2581,11 +2581,22 @@
     "On a company's page, the Short selling card puts the answer first: how much is sold short in plain words, where that sits on a scale from Normal to High, and, with a caution, why the short sellers might be short and what it means for you (whether you're thinking of buying or already hold it). The figures (sold short, days to cover, the change over a month) and a year's chart are under Details and chart. The screener has a % short column, and Coattail, Most shorted lists the most shorted ASX shares and those rising fastest.",
     "Why might they be short? Sift checks the short sellers' case against the business's own figures. The figures back the short sellers: two or more warning signs, such as sales falling, more cash going out than coming in, profits not backed by cash, or returns and sales trending down; treat it as a serious warning. One warning sign: read the latest results and announcements. The short sellers look exposed: the figures look sound, short sellers would need many days to buy back and the price is above its 50-day average, so good news could force a sharp rise. No clear reason in the figures: short sellers may know something not yet reported, or it may be a hedge.",
     "Watchlist trigger: on a share in a watchlist you can set Trigger: short interest above (%) to be told when shorting builds up.",
-    "It's a lead for your own research, not advice: short sellers are often right, but not always."
+    "It's a lead for your own research, not advice: short sellers are often right, but not always.",
+    "The research behind it: days to cover (shares short divided by daily trading) predicts poor returns better than the percentage short alone (Hong, Li, Ni, Scheinkman and Yan, 2015, NBER Working Paper 21166), and short sellers tend to target companies whose fundamentals look weak against their price (Dechow, Hutton, Meulbroek and Sloan, 2001, Journal of Financial Economics 61(1): 77 to 106), which is why Sift checks the figures under Why might they be short?"
    ],
    "related": [
     "coattail",
     "market-depth"
+   ],
+   "links": [
+    {
+     "text": "Hong, Li, Ni, Scheinkman and Yan (2015), Days to cover and stock returns (NBER)",
+     "href": "https://www.nber.org/papers/w21166"
+    },
+    {
+     "text": "Dechow, Hutton, Meulbroek and Sloan (2001), Short-sellers, fundamental analysis, and stock returns",
+     "href": "https://doi.org/10.1016/S0304-405X(01)00056-3"
+    }
    ]
   },
   {
@@ -2677,7 +2688,8 @@
    ],
    "related": [
     "track-record-scoring",
-    "excess-return"
+    "excess-return",
+    "statistics-theory"
    ]
   },
   {
@@ -2710,7 +2722,8 @@
    "related": [
     "likely-range",
     "volatility",
-    "margin-of-safety"
+    "margin-of-safety",
+    "statistics-theory"
    ]
   },
   {
@@ -2742,7 +2755,8 @@
    "related": [
     "chance-of-reaching",
     "volatility",
-    "volume"
+    "volume",
+    "statistics-theory"
    ]
   },
   {
@@ -2773,7 +2787,68 @@
    ],
    "related": [
     "likely-range",
-    "chance-of-reaching"
+    "chance-of-reaching",
+    "statistics-theory"
+   ]
+  },
+  {
+   "id": "statistics-theory",
+   "title": "The theory behind Sift's statistics",
+   "category": "track",
+   "glossary": "term",
+   "glossary_title": "Statistics: theory and references",
+   "labels": [
+    "Fixed by design"
+   ],
+   "aliases": [
+    "theory",
+    "references",
+    "statistics references",
+    "random walk",
+    "t-test",
+    "student's t",
+    "capm",
+    "beta theory",
+    "reflection principle",
+    "fat tails",
+    "natural frequencies",
+    "sources"
+   ],
+   "definition": "The established methods behind Sift's rule verdicts, chances and likely ranges, with the work each comes from.",
+   "hover": "The methods behind Sift's statistics and where they come from: the t-test, the random walk, beta and the CAPM, and how chances are put into words.",
+   "body": [
+    "Is each rule working? Sift compares each call's return with the average screened share's over the same period, the excess-return method of event studies (Fama, Fisher, Jensen and Roll, 1969, International Economic Review 10(1): 1 to 21). Whether the average difference is more than luck is Student's t-test (Student, 1908, \"The probable error of a mean\", Biometrika 6(1): 1 to 25), at 95%.",
+    "Overlapping calls. Returns measured over the same months aren't independent, which makes a result look surer than it is (Hansen and Hodrick, 1980, Journal of Political Economy 88(5): 829 to 853; Newey and West, 1987, Econometrica 55(3): 703 to 708). Sift widens its error by the square root of the months: simpler than their corrections, and on the cautious side.",
+    "Volatility and the likely range. Prices are treated as a random walk in the log price, the model behind option pricing (Black and Scholes, 1973, Journal of Political Economy 81(3): 637 to 654; Hull, Options, Futures, and Other Derivatives, Pearson, on estimating volatility from history). Daily volatility is scaled to a year by the square root of 252 trading days; one volatility either side covers about two years in three.",
+    "Chance of reaching a price. How often a random walk touches a level within a time is the first-passage probability from the reflection principle (for example Shreve, Stochastic Calculus for Finance II, Springer, 2004, section 3.7): twice the chance of ending beyond the level.",
+    "Beta. How much a share moves with the market comes from the Capital Asset Pricing Model (Sharpe, 1964, Journal of Finance 19(3): 425 to 442). Thinly traded shares understate it on daily data (Scholes and Williams, 1977, Journal of Financial Economics 5(3): 309 to 327; Dimson, 1979, Journal of Financial Economics 7(2): 197 to 226), so Sift uses weekly returns.",
+    "The limits. Real prices have more extreme days than the random walk allows, \"fat tails\" (Mandelbrot, 1963, Journal of Business 36(4): 394 to 419), so ranges are a guide, not a bound, especially in a crash.",
+    "Chances in words. People judge \"4 in 10\" more accurately than \"40%\" (Gigerenzer and Hoffrage, 1995, \"How to improve Bayesian reasoning without instruction: Frequency formats\", Psychological Review 102(4): 684 to 704), so Sift leads with numbers in 10 and one fixed set of words.",
+    "What's fixed and what's a setting: the calls needed before a rule is judged and the years of price history are settings (Admin, Model and rules, Statistics); the methods above are fixed, so no one can adjust them until a rule looks better."
+   ],
+   "links": [
+    {
+     "text": "Student (1908), The probable error of a mean (Biometrika)",
+     "href": "https://doi.org/10.1093/biomet/6.1.1"
+    },
+    {
+     "text": "Newey and West (1987), autocorrelation-consistent errors (Econometrica)",
+     "href": "https://doi.org/10.2307/1913610"
+    },
+    {
+     "text": "Sharpe (1964), Capital asset prices (Journal of Finance, JSTOR)",
+     "href": "https://www.jstor.org/stable/2977928"
+    },
+    {
+     "text": "Mandelbrot (1963), The variation of certain speculative prices (Journal of Business)",
+     "href": "https://doi.org/10.1086/294632"
+    }
+   ],
+   "related": [
+    "rule-reliability",
+    "chance-of-reaching",
+    "likely-range",
+    "volatility"
    ]
   }
  ]

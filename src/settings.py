@@ -53,6 +53,9 @@ class ModelSettings:
     days_to_cover_caution: Decimal = D("5")
     days_to_cover_high: Decimal = D("10")
     overvalued_review: Decimal = D("-50")
+    # Statistics (docs/kb/features/statistics.md): never change an action
+    stats_min_calls: int = 30
+    stats_years: int = 3
     # Score wheel (the checks that don't simply reuse a value test)
     score_mos_strong: Decimal = D("40")
     score_max_pe: Decimal = D("15")
@@ -72,7 +75,9 @@ GROUPS = (
     ("tests", "The four value tests"),
     ("markers", "Markers and actions"),
     ("score", "Score wheel"),
+    ("statistics", "Statistics"),
 )
+WHAT_IF_GROUPS = ("valuation", "tests", "markers", "score")  # statistics don't change any company's result
 
 
 @dataclass(frozen=True)
@@ -155,6 +160,11 @@ SETTINGS: tuple[Setting, ...] = (
             "Dividend / earnings per share", "Score wheel: Dividend", "payout-ratio"),
     Setting("score_upper_range", "score", "Momentum: 52-week range position above", "%", D("0"), D("100"),
             "Where the price sits between its 52-week low (0) and high (100)", "Score wheel: Momentum", "52-week-range"),
+    Setting("stats_min_calls", "statistics", "Calls needed before judging a rule", "calls", D("10"), D("500"),
+            "Below this, Is Sift accurate? says Needs more calls; at or above it, a t-test at 95% decides", "Track record verdicts", "rule-reliability"),
+    Setting("stats_years", "statistics", "Years of price history", "years", D("1"), D("10"),
+            "Volatility from daily returns and beta from weekly returns over this many years (at least a year needed)",
+            "Likely range, chance of reaching a price, beta", "volatility"),
 )
 BY_KEY = {s.key: s for s in SETTINGS}
 INTEGER_KEYS = {f.name for f in fields(ModelSettings) if f.type in ("int", int)}

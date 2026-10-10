@@ -1251,3 +1251,5 @@ details.worked-out .inner p { margin: 0 0 8px; }
   .verdict.rules li.rule-row { grid-template-columns: 1fr; }
   .rule-head { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
 }
+.stats-methods-head { font-size: 13px; font-weight: 650; margin: 16px 0 2px; }
+.stats-methods { margin-top: 8px; }

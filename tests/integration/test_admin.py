@@ -97,7 +97,7 @@ def test_workings_equal_the_engine(seeded, code):
 def test_admin_api(seeded):
     client = TestClient(gui.create_app())
     settings = client.get("/api/admin/settings").json()
-    assert len(settings["settings"]) == 33 and settings["settings"][2]["live"] == 9.0  # discount rate shown as 9%
+    assert len(settings["settings"]) == 35 and settings["settings"][2]["live"] == 9.0  # discount rate shown as 9%
     assert client.post("/api/admin/scenarios", json={"name": "x"}).status_code == 403  # no X-Sift header
     bad = client.post("/api/admin/scenarios", json={"name": "Odd", "overrides": {"discount_rate": "2"}}, headers=WRITE)
     assert bad.status_code == 400 and "between 3 and 25" in bad.json()["detail"]

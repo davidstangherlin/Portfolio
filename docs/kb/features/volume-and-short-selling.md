@@ -3,7 +3,7 @@ id: volume-and-short-selling
 title: Volume and short selling
 category: features
 summary: Daily volume bars under the price chart, and ASIC's short positions as a company card, screener column, Most shorted tab, watchlist trigger and a short-selling caution that never changes the action.
-version: 1.3
+version: 1.4
 status: published
 owner: Product owner
 published: 2026-10-10
@@ -76,3 +76,10 @@ The full list, with status: [Improvement register](#/admin/kb/register).
 
 - `tests/unit/test_short_positions.py`
 - `tests/integration/test_short_selling.py`
+
+## References
+
+| Used for | Reference |
+|---|---|
+| Days to cover as the better measure | Hong, H., Li, W., Ni, S. X., Scheinkman, J. A. and Yan, P. (2015). Days to cover and stock returns. NBER Working Paper 21166. [nber.org/papers/w21166](https://www.nber.org/papers/w21166) |
+| Short sellers target weak fundamentals (Why might they be short?) | Dechow, P. M., Hutton, A. P., Meulbroek, L. and Sloan, R. G. (2001). Short-sellers, fundamental analysis, and stock returns. *Journal of Financial Economics*, 61(1), 77 to 106. [doi:10.1016/S0304-405X(01)00056-3](https://doi.org/10.1016/S0304-405X(01)00056-3) |

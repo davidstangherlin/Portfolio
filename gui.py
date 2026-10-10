@@ -660,12 +660,26 @@ def track_record_payload(session, today: date, version: str | None = None) -> di
 
 # ---------- admin console (§24) ----------
 
+# Fixed by design, so a result can't be tuned until a rule "passes"
+# (docs/kb/decisions/adr-017-statistics-methods.md); shown on Model and rules.
+STATISTICS_METHODS = [
+    {"name": "Confidence", "value": "95% (19 times in 20)", "why": "The bar of a rule's likely true edge; a verdict needs the whole bar clear of the average."},
+    {"name": "Overlapping calls", "value": "error widened by the square root of the months", "why": "Calls a month apart share most of a longer period, so Sift claims less, not more."},
+    {"name": "Benchmark", "value": "the average screened share, total return", "why": "The track record's own, so the verdict and its test never disagree."},
+    {"name": "Price model", "value": "a random walk in the log price, no trend", "why": "Ranges and chances describe how the price moves, never a forecast."},
+    {"name": "Likely range", "value": "one volatility either side: two years in three", "why": "Easy to say in words; one year in six above, one in six below."},
+    {"name": "Beta", "value": "weekly returns against IOZ (or STW, A200, VAS)", "why": "Weekly, because many small companies don't trade every day."},
+    {"name": "Words for chances", "value": "Very unlikely, Unlikely, Possible, About even, Likely, Very likely", "why": "Numbers in 10 are read more accurately than percentages."},
+]
+
+
 def settings_payload() -> dict:
     """Every adjustable setting with its live value, as the admin console shows it."""
     def shown(key, value):
         return model_settings.to_display(key, value)
     return {
-        "groups": [{"id": g, "name": n} for g, n in model_settings.GROUPS],
+        "groups": [{"id": g, "name": n, "what_if": g in model_settings.WHAT_IF_GROUPS} for g, n in model_settings.GROUPS],
+        "statistics_methods": STATISTICS_METHODS,
         "settings": [{"key": m.key, "group": m.group, "label": m.label, "unit": m.unit,
                       "live": shown(m.key, getattr(model_settings.LIVE, m.key)),
                       "minimum": shown(m.key, m.minimum), "maximum": shown(m.key, m.maximum),

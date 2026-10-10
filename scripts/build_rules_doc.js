@@ -420,9 +420,41 @@ add(
   note("A record-keeping aid to reconcile against broker statements, not tax advice."),
 );
 
-// 13. Limitations
+// 13. Statistics (docs/kb/features/statistics.md)
 add(
-  h1("13. Key Limitations"),
+  h1("13. Statistics"),
+  p("Three statistics put Sift's results into plain words. None of them changes an action, so none changes the rules version. They are recalculated each night (the Statistics step, after Track Record)."),
+  table(["Statistic", "Where", "How it is worked out", "Shown as"], [
+    ["Is each rule working?", "Track record (Is Sift accurate?) and the dashboard",
+      "For each action and period: the average excess return of its monthly calls against the average screened share, and a t-test at 95% (Student, 1908). The standard error is widened by the square root of the period in months, because calls a month apart overlap (Hansen and Hodrick, 1980). Judged from stats_min_calls calls (30).",
+      "Beating the average, Trailing the average, Too early to tell or Needs more calls; the chance it is luck as odds; a bar of the likely true edge"],
+    ["Chance of reaching a price", "Company page, under Price against estimated value",
+      "Volatility = standard deviation of daily log returns over stats_years years (3) x sqrt(252). Chance of touching level L from price P within a year, no trend assumed: 2 x (1 - N(ln(L / P) / volatility)) (the reflection principle). Already reached when L <= P.",
+      "Ten dots and words: Very unlikely, Unlikely, Possible, About even, Likely, Very likely (numbers in 10)"],
+    ["Likely price range", "Company page, share price chart",
+      "P x e^(-volatility) to P x e^(+volatility) after 12 months, widening with the square root of time; about two years in three.",
+      "A shaded range after Today, with a sentence"],
+    ["Beta (kept for the crash test)", "Not shown yet",
+      "Slope of weekly log returns on an ASX 200 fund's (IOZ, else STW, A200 or VAS) over stats_years years (Sharpe, 1964; weekly as in Scholes and Williams, 1977).",
+      "AI tools and the graph export"],
+  ], [0.17, 0.18, 0.43, 0.22]),
+  gap(),
+  h2("13.1 Settings and fixed methods"),
+  table(["Item", "Value", "Adjustable"], [
+    ["stats_min_calls", "30 calls before an action is judged", "Yes (Admin, Model and rules, Statistics)"],
+    ["stats_years", "3 years of price history (at least one needed)", "Yes"],
+    ["Confidence", "95% (19 times in 20)", "No: fixed so a result can't be tuned until a rule passes"],
+    ["Overlap allowance", "Error x sqrt(months)", "No"],
+    ["Benchmark", "The average screened share, total return", "No: the track record's own"],
+    ["Price model", "Random walk in the log price, no trend", "No"],
+    ["Words for chances", "Six fixed words, numbers in 10", "No"],
+  ], [0.22, 0.42, 0.36]),
+  note("Ranges and chances describe how prices have moved. They know nothing about news, results or value, and real prices have fatter tails than the model (Mandelbrot, 1963). Full references: Help, The theory behind Sift's statistics, and the developer article Statistics."),
+);
+
+// 14. Limitations
+add(
+  h1("14. Key Limitations"),
   bullet("**Source data.** Yahoo Finance data varies in completeness and accuracy. data_confidence and the red flags highlight gaps but cannot correct source errors."),
   bullet("**Fixed thresholds.** The same thresholds apply across all sectors (apart from the choice of valuation model), and the rules cannot see context such as takeover bids, write-downs or management change."),
   bullet("**Franking.** Australian companies are assumed fully franked unless corrected by hand, so partly franked payers and some listed investment companies (LICs) are overstated."),

@@ -31,10 +31,11 @@ from scipy.stats import norm
 from sqlalchemy import text
 
 from src.analytics.words import chance_words
+from src.settings import LIVE
 
 logger = logging.getLogger(__name__)
 
-YEARS = 3                    # price history used
+YEARS = LIVE.stats_years     # price history used (an admin setting: Admin, Model and rules, Statistics)
 TRADING_DAYS = 252
 MIN_DAILY_RETURNS = 250      # about a year: fewer and there's no volatility
 MIN_WEEKLY_RETURNS = 52      # a year of weeks for beta

@@ -2782,7 +2782,7 @@ function verdictPill(t) {
 function verdictLine(a, months, domain) {
   const beat = a.avg_excess >= 0, t = a.test;
   const rate = a.beat_rate === null ? null : beat ? a.beat_rate : 100 - a.beat_rate;
-  const luck = t.kind === "NEEDS_MORE" ? ` Too early to tell: Sift needs ${TOO_EARLY_CALLS} calls and has ${fmt(a.signals, 0)}.`
+  const luck = t.kind === "NEEDS_MORE" ? ` Too early to tell: Sift needs ${fmt(t.min_calls, 0)} calls and has ${fmt(a.signals, 0)}.`
     : t.kind === "UNCLEAR" ? ` That could easily be luck: ${t.luck}.` : ` That's unlikely to be luck: ${t.luck}.`;
   return h("li", { class: "rule-row" },
     h("div", { class: "rule-head" }, badge(a.action), verdictPill(t)),
@@ -2792,7 +2792,6 @@ function verdictLine(a, months, domain) {
         (rate === null ? "." : `; ${fmt(rate, 0)}% of ${fmt(a.signals, 0)} ${beat ? "beat" : "trailed"} it.`) + luck),
       t.low !== null && domain ? chartSlot((w) => edgeBar(a, domain, w)) : null));  // no bar on the dashboard
 }
-const TOO_EARLY_CALLS = 30;
 const ptsText = (v) => `${v > 0 ? "+" : v < 0 ? "-" : ""}${fmt(Math.abs(v), 1)} pts`;
 /* Where an action's true edge most likely sits (19 times in 20), against
    the average screened share at zero. */
@@ -2841,7 +2840,7 @@ function verdictCard(d, months, setHorizon) {
     ? [h("ul", { class: "verdict rules" }, v.actions.map((a) => verdictLine(a, months, domain))), orderLine(v.order),
       workedOut([`Each call's total return is compared with the average screened share's over the same ${horizonText(months)}. The bar shows where the action's true edge most likely sits (19 times in 20). If the whole bar is clear of the average, the difference is very unlikely to be luck.`,
         "Calls a month apart overlap when the period is longer than a month, so Sift widens the bar to allow for that: it claims less, not more.",
-        `An action needs ${TOO_EARLY_CALLS} calls before Sift judges it.`], "rule-reliability",
+        `An action needs ${fmt(v.actions[0].test.min_calls, 0)} calls before Sift judges it (a setting in Admin, Model and rules).`], "rule-reliability",
         admin ? h("p", { class: "hint", text: "Admin: " + v.actions.filter((a) => a.test.t !== null).map((a) => `${a.action} t = ${fmt(a.test.t, 2)}, p = ${fmt(a.test.p_value, 3)}, 95% ${ptsText(a.test.low)} to ${ptsText(a.test.high)}`).join("; ") }) : null)]
     : [h("p", { class: "empty", text: !due ? "Results start once signals have been recorded for a month."
       : toDate(due.date) > new Date() ? `First ${months}-month results due ${longDate(due.date)}.`
@@ -4030,6 +4029,7 @@ function settingText(meta, value) {
   if (meta.unit === "years") return plural(v, "year");
   if (meta.unit === "points") return `${fmt(v, v % 1 ? 1 : 0)} points`;
   if (meta.unit === "days") return plural(v, "day");
+  if (meta.unit === "calls") return plural(v, "call");
   return fmt(v, v % 1 ? (Math.abs(v * 10) % 1 ? 2 : 1) : 0);
 }
 /* A workings figure: big dollar amounts compact, per-share amounts to the cent. */
@@ -4080,7 +4080,8 @@ async function renderAdmin() {
         h("td", { class: "num strong", text: settingText(sx, sx.live) }),
         h("td", { class: "opt hint", text: `${settingText(sx, sx.minimum)} to ${settingText(sx, sx.maximum)}` }),
         h("td", { class: "formula", text: sx.formula }),
-        h("td", { class: "opt4 hint", text: sx.used_in })))))));
+        h("td", { class: "opt4 hint", text: sx.used_in })))))),
+      g.id === "statistics" ? statisticsMethods(d.statistics_methods) : null);
     c.classList.add("wide");
     return c;
   });
@@ -4090,6 +4091,17 @@ async function renderAdmin() {
         h("a", { href: "#/admin/scenarios", text: "what-if scenario" }), " to see what would change. The live settings stay as they are. ", helpLink("scenario"))),
       rulesVersionsCard()));
   window.scrollTo(0, 0);
+}
+
+/* The statistics' fixed methods, under its two settings: fixed so a result
+   can't be tuned until a rule "passes" (ADR-017). */
+function statisticsMethods(methods) {
+  if (!methods || !methods.length) return null;
+  return [h("p", { class: "mini-head stats-methods-head", text: "Fixed by design" }),
+    h("p", { class: "hint", text: "These aren't settings, so no one can adjust the method until a rule looks better. They don't change any company's action, so they're not in what-if scenarios." }),
+    h("dl", { class: "kv stats-methods" }, methods.flatMap((m) => [h("dt", { text: m.name }), h("dd", {}, h("span", { class: "strong", text: m.value }), h("span", { class: "hint", text: ` ${m.why}` }))])),
+    h("p", { class: "hint" }, "The theory behind each, with references: ", h("a", { href: "#/help/statistics-theory", text: "The theory behind Sift's statistics" }),
+      " (Help) and the developer article ", h("a", { href: "#/admin/kb/statistics", text: "Statistics" }), ".")];
 }
 
 /* Each set of screening rules the track record judges separately, with what
@@ -4198,7 +4210,7 @@ async function renderScenario(id) {
   const name = h("input", { name: "name", value: saved.name, maxlength: 60, placeholder: "e.g. Cautious: 10% discount", autocomplete: "off" });
   const notes = h("input", { name: "notes", value: saved.notes || "", maxlength: 1000, placeholder: "What you're testing", autocomplete: "off" });
   const inputs = {};
-  const groups = meta.groups.map((g) => h("details", { class: "axis-block", open: meta.settings.some((x) => x.group === g.id && saved.overrides[x.key] !== undefined) || g.id === "valuation" },
+  const groups = meta.groups.filter((g) => g.what_if !== false).map((g) => h("details", { class: "axis-block", open: meta.settings.some((x) => x.group === g.id && saved.overrides[x.key] !== undefined) || g.id === "valuation" },
     h("summary", {}, h("span", { class: "twisty", "aria-hidden": "true" }), h("span", { class: "axis-name", text: g.name })),
     h("div", { class: "setting-rows" }, meta.settings.filter((x) => x.group === g.id).map((x) => {
       const input = h("input", { inputmode: "decimal", autocomplete: "off", value: saved.overrides[x.key] ?? "",

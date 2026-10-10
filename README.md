@@ -415,6 +415,9 @@ plan and its status: `docs/MULTI_USER_PLAN.md`.
   in 10", as ten dots), and the share price chart continues into the year ahead with the likely
   range (two years in three). Worked out nightly (Statistics step, `python -m src.analytics.run`)
   from each share's volatility; beta against the ASX 200 is kept for a crash test to come.
+  Admins set the calls needed before a rule is judged and the years of price history in
+  Admin, Model and rules, Statistics (the methods themselves are fixed); Help, "The theory
+  behind Sift's statistics" gives the references.
 - **Valuation status:** every company gets a pill: **Undervalued** (margin of safety above 20%,
   i.e. passes the value test), **Fair value** (0% to 20%), **Overvalued** (below 0%) or
   **No estimate**. Shown in the table and on the company page.
